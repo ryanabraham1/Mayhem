@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 class PlannerBenchmarkTest {
   @Test
   void randomBumpsPlanQuickly() {
-    MayhemTrajectory t = Fixtures.load("AroundReef");
+    MayhemTrajectory t = Fixtures.load("HubCycle");
     BridgePlanner planner = new BridgePlanner(new RecoveryConfig());
     Random rng = new Random(3256);
     int n = 400;

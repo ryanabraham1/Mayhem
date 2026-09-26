@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Test;
 class TrajectoryTest {
   @Test
   void loadsAndInterpolatesContinuously() {
-    MayhemTrajectory t = Fixtures.load("AroundReef");
-    assertEquals("AroundReef", t.name());
+    MayhemTrajectory t = Fixtures.load("HubCycle");
+    assertEquals("HubCycle", t.name());
     assertTrue(t.totalTime() > 1.0);
     assertEquals(0.0, t.initialSample().speed(), 1e-6);
     double prevX = t.sampleAt(0).x;
@@ -31,7 +31,7 @@ class TrajectoryTest {
 
   @Test
   void flipTwiceIsIdentityAndRotatesPose() {
-    MayhemTrajectory t = Fixtures.load("AroundReef");
+    MayhemTrajectory t = Fixtures.load("HubCycle");
     MayhemTrajectory f = t.flipped();
     double L = t.recovery().fieldLength;
     double W = t.recovery().fieldWidth;
@@ -49,7 +49,7 @@ class TrajectoryTest {
 
   @Test
   void segmentsSplitAtStopPoint() {
-    MayhemTrajectory t = Fixtures.load("AroundReef");
+    MayhemTrajectory t = Fixtures.load("HubCycle");
     assertEquals(2, t.segmentCount());
     MayhemTrajectory s0 = t.segment(0);
     MayhemTrajectory s1 = t.segment(1);

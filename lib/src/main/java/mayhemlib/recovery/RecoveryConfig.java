@@ -18,8 +18,11 @@ public final class RecoveryConfig {
   public double bridgeTriggerError = 0.45;
   /** Heading error that triggers a bridge replan. */
   public double bridgeTriggerHeading = 0.8;
-  /** Accelerometer spike (in g, horizontal) treated as a collision. NaN input disables. */
-  public double accelSpikeG = 1.5;
+  /**
+   * Horizontal acceleration in excess of the planned acceleration (in g) treated as a collision.
+   * NaN accelerometer input disables this check.
+   */
+  public double accelSpikeG = 1.0;
   /** Loops the error must persist before a bridge is planned. */
   public int persistenceLoops = 3;
 

@@ -22,11 +22,14 @@ public final class CollisionDetector {
    * @param now timestamp [s]
    * @param posError position tracking error [m]
    * @param headingError absolute heading error [rad]
-   * @param accelG horizontal acceleration magnitude in g, or NaN if unavailable
+   * @param accelG measured horizontal acceleration magnitude in g, or NaN if unavailable
+   * @param expectedAccelG the reference trajectory's acceleration magnitude in g at this time
    * @return true if recovery should plan a bridge this loop
    */
-  public boolean update(double now, double posError, double headingError, double accelG) {
-    boolean spike = !Double.isNaN(accelG) && accelG >= cfg.accelSpikeG;
+  public boolean update(double now, double posError, double headingError, double accelG, double expectedAccelG) {
+    // A traction-limited swerve can legitimately pull >1 g, so only acceleration beyond what the
+    // plan asked for counts as a hit.
+    boolean spike = !Double.isNaN(accelG) && accelG - expectedAccelG >= cfg.accelSpikeG;
     if (spike) {
       lastHitTime = now;
     }

@@ -1,10 +1,32 @@
 {
-  "id": "blank-2026",
-  "name": "Blank field (16.54 x 8.07 m)",
-  "length": 16.541,
-  "width": 8.069,
-  "symmetry": "rotational",
-  "wallMargin": 0.02,
-  "obstacles": [],
-  "notes": ""
+ "id": "blank-2026",
+ "name": "Blank 2026 field",
+ "length": 16.541,
+ "width": 8.0692,
+ "symmetry": "rotational",
+ "wallMargin": 0.02,
+ "obstacles": [],
+ "decorations": [
+  {
+   "kind": "line",
+   "points": [
+    [
+     8.2705,
+     0.0
+    ],
+    [
+     8.2705,
+     8.0692
+    ]
+   ],
+   "center": [
+    0.0,
+    0.0
+   ],
+   "radius": 0.1,
+   "style": "tape",
+   "width": 0.0508
+  }
+ ],
+ "notes": ""
 }

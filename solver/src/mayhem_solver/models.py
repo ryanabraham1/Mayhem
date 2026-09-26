@@ -94,6 +94,17 @@ class Obstacle(Model):
     enabled: bool = True
 
 
+class Decoration(Model):
+    """Non-obstacle field artwork (tape, zones, game pieces) drawn by the app."""
+
+    kind: Literal["polygon", "line", "circle"] = "polygon"
+    points: list[tuple[float, float]] = Field(default_factory=list)
+    center: tuple[float, float] = (0.0, 0.0)
+    radius: float = 0.1
+    style: Literal["blueZone", "redZone", "tape", "blueTape", "redTape", "fuel", "structure", "blue", "red"] = "tape"
+    width: float = 0.05
+
+
 class Field_(Model):
     """A field definition. Named Field_ to avoid clashing with pydantic.Field."""
 
@@ -104,10 +115,11 @@ class Field_(Model):
     id: str = "blank"
     name: str = "Blank field"
     length: float = 16.541
-    width: float = 8.069
+    width: float = 8.0692
     symmetry: Literal["mirror", "rotational"] = "rotational"
     wall_margin: float = 0.02
     obstacles: list[Obstacle] = Field(default_factory=list)
+    decorations: list[Decoration] = Field(default_factory=list)
     notes: str = ""
 
 

@@ -70,5 +70,52 @@ publishing {
     }
     repositories {
         maven { name = 'local'; url = layout.buildDirectory.dir('repos/releases') }
+        // GradleRIO always searches ~/wpilib/<year>/maven, so publishing here makes the vendordep
+        // work offline with no extra repository configuration.
+        maven { name = 'frcLocal'; url = "${System.getProperty('user.home')}/wpilib/2026/maven" }
+    }
+}
+
+def vendordepFile = layout.buildDirectory.file('vendordeps/MayhemLib.json')
+
+tasks.register('vendordepJson') {
+    description = 'Generates the MayhemLib vendordep JSON'
+    def mavenUrl = project.findProperty('mavenUrl') ?: ''
+    inputs.property('version', version)
+    inputs.property('mavenUrl', mavenUrl)
+    outputs.file(vendordepFile)
+    doLast {
+        def json = groovy.json.JsonOutput.toJson([
+            fileName        : 'MayhemLib.json',
+            name            : 'MayhemLib',
+            version         : version,
+            frcYear         : '2026',
+            uuid            : 'e3b1f4c2-6d2a-4c55-9a3e-6d6179686d31',
+            mavenUrls       : mavenUrl ? [mavenUrl] : [],
+            jsonUrl         : '',
+            javaDependencies: [[groupId: 'mayhemlib', artifactId: 'MayhemLib-java', version: version]],
+            jniDependencies : [],
+            cppDependencies : [],
+        ])
+        def f = vendordepFile.get().asFile
+        f.parentFile.mkdirs()
+        f.text = groovy.json.JsonOutput.prettyPrint(json) + '\n'
+    }
+}
+
+tasks.register('installVendordep') {
+    description = 'Publishes to ~/wpilib/2026/maven and copies MayhemLib.json into -ProbotProject=<dir>/vendordeps'
+    dependsOn 'publishJavaPublicationToFrcLocalRepository', 'vendordepJson'
+    doLast {
+        def robot = project.findProperty('robotProject')
+        if (!robot) {
+            println "Published to ~/wpilib/2026/maven. Pass -ProbotProject=<path> to also install the vendordep JSON."
+            return
+        }
+        def dest = new File(robot.toString(), 'vendordeps')
+        dest.mkdirs()
+        def src = vendordepFile.get().asFile
+        new File(dest, 'MayhemLib.json').text = src.text
+        println "Installed ${dest}/MayhemLib.json"
     }
 }

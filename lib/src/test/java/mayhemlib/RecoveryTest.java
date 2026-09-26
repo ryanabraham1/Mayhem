@@ -94,7 +94,7 @@ class RecoveryTest {
 
   @Test
   void followsWithoutBumpAndFiresEventsInOrder() {
-    MayhemTrajectory t = Fixtures.load("AroundReef");
+    MayhemTrajectory t = Fixtures.load("HubCycle");
     Run r = simulate(t, new RecoveryConfig(), -1, 0, 0, 0);
     assertTrue(r.runner.isFinished());
     assertEquals(0, r.bridges);
@@ -106,7 +106,7 @@ class RecoveryTest {
 
   @Test
   void recoversFromBumpWithoutCollision() {
-    MayhemTrajectory t = Fixtures.load("AroundReef");
+    MayhemTrajectory t = Fixtures.load("HubCycle");
     Run r = simulate(t, new RecoveryConfig(), 0.6, 0.0, 0.7, 0.5);
     assertTrue(r.runner.isFinished(), "finished");
     assertTrue(r.bridges >= 1, "planned a bridge");
@@ -126,7 +126,7 @@ class RecoveryTest {
 
   @Test
   void bridgeEndsOnTrajectoryAndRespectsWindow() {
-    MayhemTrajectory t = Fixtures.load("AroundReef");
+    MayhemTrajectory t = Fixtures.load("HubCycle");
     RecoveryConfig rc = new RecoveryConfig();
     BridgePlanner planner = new BridgePlanner(rc);
     TrajectorySample ref = t.sampleAt(0.5);
@@ -151,21 +151,21 @@ class RecoveryTest {
 
   @Test
   void worksForRedAlliance() {
-    MayhemTrajectory t = Fixtures.load("AroundReef").flipped();
+    MayhemTrajectory t = Fixtures.load("HubCycle").flipped();
     Run r = simulate(t, new RecoveryConfig(), 0.6, 0.0, -0.7, -0.5);
     assertTrue(r.runner.isFinished());
     assertFalse(r.collided);
   }
 
   @Test
-  void routesAroundReefWhenDirectBridgeIsBlocked() {
-    MayhemTrajectory t = Fixtures.load("AroundReef");
+  void routesHubCycleWhenDirectBridgeIsBlocked() {
+    MayhemTrajectory t = Fixtures.load("HubCycle");
     double tScore = t.waypointTimes()[2];
     RecoveryConfig rc = new RecoveryConfig();
     rc.maxJoinLookahead = 1.0;
     BridgePlanner planner = new BridgePlanner(rc);
     // robot shoved to the far (right) side of the blue reef while the reference is on the left
-    Pose2d pushed = new Pose2d(5.95, 4.03, new Rotation2d(Math.PI));
+    Pose2d pushed = new Pose2d(5.85, 4.03, new Rotation2d(Math.PI));
     BridgePlanner.Result res = planner.plan(t, tScore - 0.6, pushed, new ChassisSpeeds());
     assertTrue(res.bridge.isPresent(), "found a bridge");
     Bridge b = res.bridge.get();

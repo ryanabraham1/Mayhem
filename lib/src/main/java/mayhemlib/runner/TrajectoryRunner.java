@@ -152,7 +152,7 @@ public final class TrajectoryRunner {
   private DriveCommand updateFollowing(double now, double dt, Pose2d pose, ChassisSpeeds v, double accelG) {
     TrajectorySample ref = traj.sampleAt(t);
     measure(ref, pose);
-    if (rc.enabled && detector.update(now, posError, headingError, accelG) && tryPlan(now, pose, v)) {
+    if (rc.enabled && detector.update(now, posError, headingError, accelG, accelG(ref)) && tryPlan(now, pose, v)) {
       return updateBridging(now, 0, pose, v, accelG);
     }
     rate = rc.enabled
@@ -174,7 +174,7 @@ public final class TrajectoryRunner {
     TrajectorySample end = traj.finalSample();
     measure(end, pose);
     boolean endsMoving = end.speed() > 0.05 || Math.abs(end.omega) > 0.05;
-    if (rc.enabled && !endsMoving && detector.update(now, posError, headingError, accelG)
+    if (rc.enabled && !endsMoving && detector.update(now, posError, headingError, accelG, 0.0)
         && tryPlan(now, pose, v)) {
       return updateBridging(now, 0, pose, v, accelG);
     }
@@ -205,7 +205,7 @@ public final class TrajectoryRunner {
     }
     TrajectorySample bs = bridge.sampleAt(tau);
     measure(bs, pose);
-    detector.update(now, posError, headingError, accelG);
+    detector.update(now, posError, headingError, accelG, accelG(bs));
     if (posError > rc.replanError && now - lastPlanTime >= rc.minReplanInterval) {
       if (tryPlan(now, pose, v)) {
         bs = bridge.sampleAt(0);
@@ -368,6 +368,10 @@ public final class TrajectoryRunner {
   private void measure(TrajectorySample ref, Pose2d pose) {
     posError = HolonomicFollower.positionError(ref, pose);
     headingError = HolonomicFollower.headingError(ref, pose);
+  }
+
+  private static double accelG(TrajectorySample s) {
+    return Math.hypot(s.ax, s.ay) / 9.81;
   }
 
   private static double ramp(double err, double start, double stop) {

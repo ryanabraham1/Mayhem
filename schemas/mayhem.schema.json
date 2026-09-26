@@ -89,6 +89,84 @@
       "title": "Constraint",
       "type": "object"
     },
+    "Decoration": {
+      "description": "Non-obstacle field artwork (tape, zones, game pieces) drawn by the app.",
+      "properties": {
+        "kind": {
+          "default": "polygon",
+          "enum": [
+            "polygon",
+            "line",
+            "circle"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "center": {
+          "default": [
+            0.0,
+            0.0
+          ],
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "radius": {
+          "default": 0.1,
+          "title": "Radius",
+          "type": "number"
+        },
+        "style": {
+          "default": "tape",
+          "enum": [
+            "blueZone",
+            "redZone",
+            "tape",
+            "blueTape",
+            "redTape",
+            "fuel",
+            "structure",
+            "blue",
+            "red"
+          ],
+          "title": "Style",
+          "type": "string"
+        },
+        "width": {
+          "default": 0.05,
+          "title": "Width",
+          "type": "number"
+        }
+      },
+      "title": "Decoration",
+      "type": "object"
+    },
     "EventOut": {
       "properties": {
         "name": {
@@ -158,7 +236,7 @@
           "type": "number"
         },
         "width": {
-          "default": 8.069,
+          "default": 8.0692,
           "title": "Width",
           "type": "number"
         },
@@ -181,6 +259,13 @@
             "$ref": "#/$defs/Obstacle"
           },
           "title": "Obstacles",
+          "type": "array"
+        },
+        "decorations": {
+          "items": {
+            "$ref": "#/$defs/Decoration"
+          },
+          "title": "Decorations",
           "type": "array"
         },
         "notes": {
@@ -684,10 +769,11 @@
             "id": "blank",
             "name": "Blank field",
             "length": 16.541,
-            "width": 8.069,
+            "width": 8.0692,
             "symmetry": "rotational",
             "wallMargin": 0.02,
             "obstacles": [],
+            "decorations": [],
             "notes": ""
           }
         },
