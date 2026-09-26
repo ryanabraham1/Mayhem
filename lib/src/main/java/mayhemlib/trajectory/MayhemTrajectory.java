@@ -10,6 +10,8 @@ import java.util.List;
  * returns a new instance.
  */
 public final class MayhemTrajectory {
+  private static final double MUST_HIT_EPS = 1e-3;
+
   private final String name;
   private final List<TrajectorySample> samples;
   private final List<TrajectoryEvent> events;
@@ -151,9 +153,11 @@ public final class MayhemTrajectory {
     }
     RecoveryData rec = recovery;
     if (rec != null) {
+      // Must-hit times are exported rounded (0.1 ms), so a must-hit at a split point can land a hair
+      // after it; treat anything within MUST_HIT_EPS of a boundary as the boundary itself.
       List<Double> mh = new ArrayList<>();
       for (double m : rec.mustHitTimes) {
-        if (m > t0 + 1e-9 && m <= t1 + 1e-9) {
+        if (m > t0 + MUST_HIT_EPS && m < t1 - MUST_HIT_EPS) {
           mh.add(m - t0);
         }
       }

@@ -12,9 +12,9 @@ def jacksonVersion = '2.19.2'
 
 repositories {
     mavenCentral()
-    maven { url 'https://frcmaven.wpi.edu/artifactory/release/' }
-    maven { url 'https://maven.ctr-electronics.com/release/' }
-    maven { url 'https://file.tavsys.net/sleipnir/maven/release/' }
+    maven { url = 'https://frcmaven.wpi.edu/artifactory/release/' }
+    maven { url = 'https://maven.ctr-electronics.com/release/' }
+    maven { url = 'https://file.tavsys.net/sleipnir/maven/release/' }
 }
 
 java {
@@ -57,7 +57,7 @@ dependencies {
 
 test {
     useJUnitPlatform()
-    testLogging { events 'failed'; exceptionFormat 'full' }
+    testLogging { events 'failed'; exceptionFormat = 'full' }
     systemProperty 'mayhem.testdata', "${rootDir}/src/test/resources"
 }
 
