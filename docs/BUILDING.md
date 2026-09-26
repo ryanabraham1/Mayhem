@@ -145,7 +145,7 @@ Notes:
 | Job | What it runs |
 |-----|--------------|
 | `solver` | `uv run pytest -q` on ubuntu-latest and macos-latest |
-| `sidecar` | `scripts/build-sidecar.sh` (freeze + stdio smoke solve) on ubuntu and macOS |
+| `sidecar` | Frozen solver + stdio smoke solve on Ubuntu, macOS, and Windows |
 | `java` | `./gradlew test` on JDK 17 |
 | `frontend` | `pnpm install --frozen-lockfile && pnpm build` (`tsc -b` typecheck + Vite build) |
 | `desktop` | `cargo clippy --locked -D warnings` for the Tauri shell (placeholder sidecar) |
