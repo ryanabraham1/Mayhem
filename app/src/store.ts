@@ -514,7 +514,21 @@ export const useStore = create<State & Actions>()(
       },
 
       async solveAll() {
-        for (const n of get().order) await get().solve(n);
+        // Each solve already runs its route candidates in parallel processes, so only run two
+        // paths at a time to avoid oversubscribing the CPU.
+        const queue = get().order.filter((n) => get().trajectories[n]?.waypoints.length >= 2);
+        const waitDone = (n: string) => new Promise<void>((resolve) => {
+          const check = () => (get().solves[n]?.status === "solving" ? setTimeout(check, 250) : resolve());
+          check();
+        });
+        const worker = async () => {
+          while (queue.length) {
+            const n = queue.shift()!;
+            await get().solve(n);
+            await waitDone(n);
+          }
+        };
+        await Promise.all([worker(), worker()]);
       },
 
       cancelSolve(name) {
