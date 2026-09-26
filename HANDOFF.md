@@ -138,7 +138,10 @@ Shared rules for all agents: don't commit, stay inside your own paths, and don't
 
 ---
 
-### Agent 2: Robot example & lib docs
+### Agent 2: Robot example & lib docs (DONE, committed)
+
+The example builds with GradleRIO 2026.2.1 using `JAVA_HOME=~/wpilib/2026/jdk`, and its JUnit sim test runs the autos, including one with a bump, on CTRE swerve sim. `lib/` has 23 tests. Not verified: real hardware, Pigeon accel-spike detection (in sim, recovery was triggered by tracking error instead), and the Sleipnir refiner at runtime. `MayhemLib.json` has an empty `mavenUrls`, so run `installVendordep` on each machine first.
+
 
 **Owns:** `examples/robot-2026/**`, `lib/README.md`, `lib/src/test/**`. It may make minimal API fixes in `lib/src/main/**`, but must keep `./gradlew test` passing.
 
