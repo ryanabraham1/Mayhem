@@ -1,0 +1,41 @@
+[package]
+name = "mayhem"
+version = "0.1.0"
+description = "Mayhem - time-optimal FRC swerve trajectory generator"
+authors = ["Ryan Abraham"]
+license = ""
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "mayhem_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "~2.6.3", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "~2.11.6", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+# The CLI refuses to build when the tauri crate and @tauri-apps/api (package.json, 2.11.x) differ
+# in major.minor, and tauri 2.11's requirements on its runtime/utils crates are loose enough that
+# cargo would otherwise pull the incompatible 2.12 family. Keep the whole family on 2.11.x;
+# bump these together with @tauri-apps/api.
+tauri-runtime = "~2.11.3"
+tauri-runtime-wry = "~2.11.4"
+tauri-utils = "~2.9.3"
+tauri-macros = "~2.6.3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

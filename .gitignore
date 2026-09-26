@@ -24,3 +24,4 @@ lib/*/build/
 .DS_Store
 .idea/
 .vscode/
+*.tsbuildinfo
