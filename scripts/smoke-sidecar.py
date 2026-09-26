@@ -80,10 +80,7 @@ def main() -> int:
             {"id": "b", "x": 3, "y": 6, "heading": 0, "stop": True},
         ]}
         t1 = time.monotonic()
-        # On Windows, the first frozen worker can take over 30 seconds to unpack
-        # and start. Process.start() waits for that worker to read its startup
-        # pipe, so allow the server longer to acknowledge this call.
-        job = call(4, "solve", {"project": project, "trajectory": traj}, timeout=180)
+        job = call(4, "solve", {"project": project, "trajectory": traj})
         print("solve started:", job)
         progress = 0
         while True:

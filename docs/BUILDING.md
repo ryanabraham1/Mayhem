@@ -145,7 +145,7 @@ Notes:
 | Job | What it runs |
 |-----|--------------|
 | `solver` | `uv run pytest -q` on ubuntu-latest and macos-latest |
-| `sidecar` | Frozen solver + stdio smoke solve on Ubuntu, macOS, and Windows |
+| `sidecar` | Frozen solver + stdio smoke solve on Ubuntu and macOS |
 | `java` | `./gradlew test` on JDK 17 |
 | `frontend` | `pnpm install --frozen-lockfile && pnpm build` (`tsc -b` typecheck + Vite build) |
 | `desktop` | `cargo clippy --locked -D warnings` for the Tauri shell (placeholder sidecar) |
@@ -160,7 +160,7 @@ manual dispatch with an existing tag:
    - macOS arm64 (`macos-latest`): `.app` (tar.gz) + `.dmg`
    - macOS x64 (`macos-15-intel`, since GitHub retired `macos-13`): `.app` + `.dmg`
    - Linux x64 (`ubuntu-22.04`, for older glibc): `.AppImage` + `.deb`
-   - Windows x64 (`windows-latest`): NSIS `-setup.exe` + `.msi`
+   Windows installers are pending a fix for the frozen solver worker on Windows.
 3. `mayhemlib` runs `./gradlew build vendordepJson publishJavaPublicationToLocalRepository`
    and attaches `MayhemLib-maven.zip` and `MayhemLib.json`.
 4. `publish` checks that the installers and MayhemLib files are present, then publishes the

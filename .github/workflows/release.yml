@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag like v0.1.0 to build installers and publish a GitHub Release once
-# every platform build succeeds. Failed builds leave a draft for inspection.
+# every supported platform build succeeds. Failed builds leave a draft for inspection.
 on:
   push:
     tags: ["v*"]
@@ -46,7 +46,7 @@ jobs:
           else
             id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
                    -f tag_name="${TAG}" -f name="Mayhem ${TAG}" -F draft=true \
-                   -f body="Download the installer for your system below: .dmg for macOS (choose Apple Silicon or Intel), .AppImage or .deb for Linux, and .exe or .msi for Windows.
+                   -f body="Download the installer for your system below: .dmg for macOS (choose Apple Silicon or Intel), or .AppImage or .deb for Linux.
 
           macOS builds are not notarized. After dragging Mayhem.app into Applications, run \`xattr -dr com.apple.quarantine /Applications/Mayhem.app\` if macOS blocks the first launch.
 
@@ -72,9 +72,6 @@ jobs:
           - name: Linux x64
             os: ubuntu-22.04
             bundles: appimage,deb
-          - name: Windows x64
-            os: windows-latest
-            bundles: nsis,msi
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -151,8 +148,6 @@ jobs:
             app/src-tauri/target/release/bundle/macos/*.app.tar.gz
             app/src-tauri/target/release/bundle/appimage/*.AppImage
             app/src-tauri/target/release/bundle/deb/*.deb
-            app/src-tauri/target/release/bundle/nsis/*.exe
-            app/src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: warn
 
   mayhemlib:
@@ -201,7 +196,7 @@ jobs:
           assets="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
           printf '%s\n' "$assets"
           [ "$(printf '%s\n' "$assets" | grep -cE '\.dmg$')" -ge 2 ]
-          for pattern in '\.AppImage$' '\.deb$' '\.exe$' '\.msi$' '^MayhemLib-maven\.zip$' '^MayhemLib\.json$'; do
+          for pattern in '\.AppImage$' '\.deb$' '^MayhemLib-maven\.zip$' '^MayhemLib\.json$'; do
             printf '%s\n' "$assets" | grep -qE "$pattern"
           done
           gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
