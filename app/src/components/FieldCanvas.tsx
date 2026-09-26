@@ -748,7 +748,7 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
                     const c = Math.cos(ghost.heading), s = Math.sin(ghost.heading);
                     const px = ghost.x + c * mx - s * my, py = ghost.y + s * mx + c * my;
                     const k = 0.004;
-                    return <line key={i} x1={px} y1={py} x2={px + (ghost.fx[i] ?? 0) * k} y2={py + (ghost.fy[i] ?? 0) * k} stroke="var(--panel)" strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />;
+                    return <line key={i} x1={px} y1={py} x2={px + (ghost.fx[i] ?? 0) * k} y2={py + (ghost.fy[i] ?? 0) * k} stroke="var(--panel)" strokeWidth={2 * pxToM} strokeLinecap="round" />;
                   })}
                 </g>
               )}

@@ -103,6 +103,7 @@ def summarize(rows: list[dict]) -> dict:
             "path_time_median": round(statistics.median(paths), 3) if paths else None,
             "path_time_mean": round(statistics.mean(paths), 3) if paths else None,
             "path_time_total": round(sum(paths), 3) if paths else None,
+            "iterations_total": sum(r["iterations"] or 0 for r in ok),
         }
 
     out = {"all": block([r for r in rows if r["group"] != "infeasible"])}

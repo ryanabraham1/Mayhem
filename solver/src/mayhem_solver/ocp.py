@@ -11,7 +11,9 @@ which is how the pipeline does constraint homotopy and elastic diagnostics.
 
 from __future__ import annotations
 
+import json
 import math
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -51,6 +53,7 @@ class OCPResult:
     iterations: int
     seconds: float
     slacks: list[tuple[str, str, float, int]] = field(default_factory=list)  # label, cat, total, worst sample
+    planes: dict = field(default_factory=dict)  # {(piece, k): (n0, n1, b)}
 
 
 @dataclass
@@ -63,6 +66,58 @@ class OCPOptions:
     penalty: float = 100.0
     progress: Optional[Callable[[int, np.ndarray], None]] = None
     progress_period: float = 0.1
+    # intervals (k -> k+1) that also get quarter-point collision checks (swept refinement)
+    dense_intervals: Optional[set[int]] = None
+    warm: bool = False  # the guess is a converged solution of a nearby problem (reuse planes)
+    # zone-scoped constraints: samples to constrain in addition to the guess's membership
+    zone_extra: Optional[dict[str, set[int]]] = None
+    # separating-hyperplane values {(piece, k): (n0, n1, b)} from a previous solve (warm start)
+    plane_init: Optional[dict] = None
+
+
+_LINEAR_SOLVER: Optional[str] = None
+
+
+def linear_solver() -> str:
+    """IPOPT linear solver: HSL MA57 when a libhsl is installed, else the bundled MUMPS.
+
+    Override with MAYHEM_LINEAR_SOLVER (e.g. "ma27", "ma57", "ma86", "mumps"). The HSL
+    solvers are loaded at runtime by IPOPT, so availability is probed once per process on
+    a tiny NLP.
+    """
+    global _LINEAR_SOLVER
+    if _LINEAR_SOLVER is not None:
+        return _LINEAR_SOLVER
+    want = os.environ.get("MAYHEM_LINEAR_SOLVER", "").strip().lower()
+    choices = [want] if want else ["ma57"]
+    _LINEAR_SOLVER = "mumps"
+    for cand in choices:
+        if cand == "mumps":
+            break
+        try:
+            xs = ca.MX.sym("x", 2)
+            f = ca.nlpsol("probe", "ipopt", {"x": xs, "f": ca.sumsqr(xs - 1), "g": xs[0] + xs[1]},
+                          {"print_time": False, "error_on_fail": False,
+                           "ipopt": {"print_level": 0, "sb": "yes", "linear_solver": cand}})
+            f(x0=[0, 0], lbg=0, ubg=3)
+            if f.stats().get("return_status") in SUCCESS:
+                _LINEAR_SOLVER = cand
+                break
+        except Exception:
+            pass
+    return _LINEAR_SOLVER
+
+
+def _env_ipopt_options() -> dict:
+    """Extra IPOPT options from MAYHEM_IPOPT_OPTIONS (JSON object), for experiments."""
+    raw = os.environ.get("MAYHEM_IPOPT_OPTIONS")
+    if not raw:
+        return {}
+    try:
+        d = json.loads(raw)
+        return d if isinstance(d, dict) else {}
+    except ValueError:
+        return {}
 
 
 def waypoint_indices(Ns: list[int]) -> list[int]:
@@ -240,46 +295,72 @@ class OCP:
             self._le(d / (F_curr * v_free) - sw / v_free, "Motor current limit", "motor", all_k)
             self._le(-d / (F_curr * v_free) - sw / v_free, "Motor current limit", "motor", all_k)
 
-        # field walls on every bumper corner
-        L, W, wm = world.length, world.width, world.wall_margin
-        for px, py in dt.bumper_corners:
-            cx = x + c * px - s * py
-            cy = y + s * px + c * py
-            self._le(ca.vertcat(wm - cx, cx - (L - wm), wm - cy, cy - (W - wm)), "Field wall", "wall", all_k)
+        def pose_at(km: list[int], frac: float):
+            """Pose a fraction of the way through intervals km (exact constant-acceleration model)."""
+            hm = hk[0, km] * frac
+            xm = X[0, km] + X[4, km] * hm + 0.5 * X[7, km] * hm ** 2
+            ym = X[1, km] + X[5, km] * hm + 0.5 * X[8, km] * hm ** 2
+            dm = X[6, km] * hm + 0.5 * X[9, km] * hm ** 2
+            cm = X[2, km] * ca.cos(dm) - X[3, km] * ca.sin(dm)
+            sm = X[3, km] * ca.cos(dm) + X[2, km] * ca.sin(dm)
+            return xm, ym, cm, sm
 
-        # obstacles: separating hyperplanes per (piece, sample)
+        def corner_xy(xs, ys, cs, ss):
+            return [(xs + cs * px - ss * py, ys + ss * px + cs * py) for px, py in dt.bumper_corners]
+
+        dense = sorted({int(k) for k in (opts.dense_intervals or ()) if 0 <= k < K - 1})
+        dense_set = set(dense)
+
+        # field walls on every bumper corner at every sample ...
+        L, W, wm = world.length, world.width, world.wall_margin
+
+        def wall_exprs(corners):
+            return ca.vertcat(*[ca.vertcat(wm - cx, cx - (L - wm), wm - cy, cy - (W - wm)) for cx, cy in corners])
+
+        if not os.environ.get("MAYHEM_NOWALL"):
+            self._le(wall_exprs(corner_xy(x, y, c, s)), "Field wall", "wall", all_k)
+        # ... and mid-interval (plus quarter points on dense intervals) near the walls, where
+        # a rotating or curving robot's corners can bulge past the wall between samples.
+        reach = dt.circumradius + wm + 0.3 + float(np.max(np.hypot(g.vx, g.vy)) * np.max(g.h) if K > 1 else 0.0)
+        near = np.minimum.reduce([g.x, L - g.x, g.y, W - g.y]) < reach
+        km_wall = [k for k in range(K - 1) if near[k] or near[k + 1] or k in dense_set]
+        if km_wall:
+            self._le(wall_exprs(corner_xy(*pose_at(km_wall, 0.5))), "Field wall", "wall", km_wall)
+        kd_wall = [k for k in km_wall if k in dense_set]
+        for frac in (0.25, 0.75) if kd_wall else ():
+            self._le(wall_exprs(corner_xy(*pose_at(kd_wall, frac))), "Field wall", "wall", kd_wall)
+
+        # obstacles: one separating hyperplane per (piece, interval k -> k+1). The robot
+        # footprint at k, at the interval midpoint and at k+1 must all lie on the far side
+        # (with the full margin), so the convex hull of the footprints - which is exactly
+        # the swept area of a translating robot - clears the piece. Dense intervals also
+        # check the quarter points.
         self.pair_vars = []
-        corners_guess = None
         for o, ks in pairs.items():
             piece = world.pieces[o]
+            ks = sorted(set(int(k) for k in ks))
             nvar = opti.variable(3, len(ks))
             n0, n1, b = nvar[0, :], nvar[1, :], nvar[2, :]
-            xs, ys, cs, ss = X[0, ks], X[1, ks], X[2, ks], X[3, ks]
             half = piece.margin / 2
-            rob = []
-            for px, py in dt.bumper_corners:
-                cx = xs + cs * px - ss * py
-                cy = ys + ss * px + cs * py
-                rob.append(half - (n0 * cx + n1 * cy - b))
-            self._le(ca.vertcat(*rob), f"Obstacle '{piece.name}'", "obstacle", ks)
-            # Mid-interval pose (exact under the constant-acceleration model)
-            # must be separated by the same hyperplane: halves corner cutting.
+            label = f"Obstacle '{piece.name}'"
+
+            def sep(corners, cols):
+                n0c, n1c, bc = nvar[0, cols], nvar[1, cols], nvar[2, cols]
+                return ca.vertcat(*[half - (n0c * cx + n1c * cy - bc) for cx, cy in corners])
+
+            all_cols = list(range(len(ks)))
+            self._le(sep(corner_xy(X[0, ks], X[1, ks], X[2, ks], X[3, ks]), all_cols), label, "obstacle", ks)
             cols = [ci for ci, k in enumerate(ks) if k < K - 1]
             if cols:
                 km = [ks[ci] for ci in cols]
-                hm = hk[0, km] / 2
-                xm = X[0, km] + X[4, km] * hm + 0.5 * X[7, km] * hm ** 2
-                ym = X[1, km] + X[5, km] * hm + 0.5 * X[8, km] * hm ** 2
-                dm = X[6, km] * hm + 0.5 * X[9, km] * hm ** 2
-                cm = X[2, km] * ca.cos(dm) - X[3, km] * ca.sin(dm)
-                sm = X[3, km] * ca.cos(dm) + X[2, km] * ca.sin(dm)
-                n0m, n1m, bm = nvar[0, cols], nvar[1, cols], nvar[2, cols]
-                mid = []
-                for px, py in dt.bumper_corners:
-                    cx = xm + cm * px - sm * py
-                    cy = ym + sm * px + cm * py
-                    mid.append(half - (n0m * cx + n1m * cy - bm))
-                self._le(ca.vertcat(*mid), f"Obstacle '{piece.name}'", "obstacle", km)
+                k1 = [k + 1 for k in km]
+                self._le(sep(corner_xy(X[0, k1], X[1, k1], X[2, k1], X[3, k1]), cols), label, "obstacle", k1)
+                self._le(sep(corner_xy(*pose_at(km, 0.5)), cols), label, "obstacle", km)
+                dcols = [ci for ci in cols if ks[ci] in dense_set]
+                if dcols:
+                    kd = [ks[ci] for ci in dcols]
+                    for frac in (0.25, 0.75):
+                        self._le(sep(corner_xy(*pose_at(kd, frac)), dcols), label, "obstacle", kd)
             obs = [n0 * qx + n1 * qy - b + half for qx, qy in piece.verts]
             opti.subject_to(ca.vec(ca.vertcat(*obs)) <= 0)
             opti.subject_to(ca.vec(n0 ** 2 + n1 ** 2) <= 1)
@@ -318,10 +399,15 @@ class OCP:
         opti.subject_to(c[0] ** 2 + s[0] ** 2 == 1)
 
         # user constraints
+        self.zone_used: dict[str, set[int]] = {}
         for con in traj.constraints:
             if not con.enabled:
                 continue
             ks = scope_samples(con.scope, Ns, g)
+            if con.scope.kind == "zone":
+                extra = (opts.zone_extra or {}).get(con.id, ())
+                ks = sorted(set(ks) | {int(k) for k in extra if 0 <= k < K})
+                self.zone_used[con.id] = set(ks)
             if not ks:
                 continue
             d = con.data
@@ -393,8 +479,13 @@ class OCP:
             piece = self.world.pieces[o]
             vals = np.zeros((3, len(ks)))
             cen = np.asarray(piece.poly.centroid.coords[0])
+            K = len(g.x)
+            prev = self.opts.plane_init or {}
             for col, k in enumerate(ks):
-                rob = polys[k]
+                if (o, k) in prev:
+                    vals[:, col] = prev[(o, k)]
+                    continue
+                rob = polys[k] if k >= K - 1 else shapely.union(polys[k], polys[k + 1]).convex_hull
                 if rob.intersects(piece.poly) or rob.distance(piece.poly) < 1e-6:
                     n = np.array([g.x[k], g.y[k]]) - cen
                 else:
@@ -425,6 +516,10 @@ class OCP:
             "nlp_scaling_method": "gradient-based",
             "sb": "yes",
         }
+        lin = linear_solver()
+        if lin != "mumps":
+            ipopt["linear_solver"] = lin
+        ipopt.update(_env_ipopt_options())
         opti.solver("ipopt", {"print_time": False, "error_on_fail": False}, ipopt)
 
         last = [0.0]
@@ -459,7 +554,15 @@ class OCP:
         if success and self.slacks and self.opts.mode != "elastic":
             # a soft solve "succeeds" only as a warm start; flag if slack remains
             pass
-        return OCPResult(success, status, sol, iters, secs, slacks)
+        planes = {}
+        for o, ks, nvar in self.pair_vars:
+            try:
+                v = np.asarray(opti.debug.value(nvar)).reshape(3, -1)
+            except Exception:
+                continue
+            for col, k in enumerate(ks):
+                planes[(o, k)] = v[:, col].copy()
+        return OCPResult(success, status, sol, iters, secs, slacks, planes)
 
     def _extract(self) -> Solution:
         opti, g, dt = self.opti, self.guess, self.dt

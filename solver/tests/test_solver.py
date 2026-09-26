@@ -8,7 +8,7 @@ from mayhem_solver.drivetrain import build_drivetrain
 from mayhem_solver.guess import Trap
 from mayhem_solver.models import (Constraint, KeepOut, Marker, MaxVelocity, Obstacle, PointAt, Scope,
                                   Tolerance, Trajectory)
-from mayhem_solver.pipeline import make_world, solve
+from mayhem_solver.pipeline import Solver, make_world, solve
 
 from .conftest import wp
 
@@ -126,3 +126,22 @@ def test_parallel_candidates(box_project):
     r = solve(box_project, t, progress=progress.append, parallel=True)
     assert r.success
     assert any(m["type"] == "candidates" for m in progress)
+
+
+def test_swept_refinement_resolves_a_reported_interval(project, monkeypatch):
+    original_verify = Solver.verify
+    calls = 0
+
+    def report_once(self, sol):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return [geo.Collision(0, 0.0, float(sol.x[0]), float(sol.y[0]), "synthetic", 0.01)]
+        return original_verify(self, sol)
+
+    monkeypatch.setattr(Solver, "verify", report_once)
+    t = Trajectory(name="refine", waypoints=[wp(0, 2, 4, stop=True), wp(1, 8, 4, stop=True)])
+    r = solve(project, t, parallel=False)
+    assert r.success
+    assert calls > 1
+    assert any("densifying" in attempt for attempt in r.output.stats.attempts)

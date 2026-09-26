@@ -1,0 +1,81 @@
+{
+ "meta": {
+  "label": "dbg",
+  "date": "2026-09-26 15:35",
+  "seed": 2026,
+  "n_random": 60,
+  "mode": "app (parallel candidates)",
+  "fast": false,
+  "filters": [
+   "random-046"
+  ],
+  "machine": "arm64 Darwin 10 cores, Python 3.12.14",
+  "elapsed": 14.0
+ },
+ "summary": {
+  "all": {
+   "n": 1,
+   "success": 1,
+   "success_rate": 1.0,
+   "solver_success_but_invalid": 0,
+   "wall_median": 13.957,
+   "wall_p90": 13.957,
+   "wall_max": 13.957,
+   "wall_total": 13.96,
+   "path_time_median": 10.511,
+   "path_time_mean": 10.511,
+   "path_time_total": 10.511
+  },
+  "random": {
+   "n": 1,
+   "success": 1,
+   "success_rate": 1.0,
+   "solver_success_but_invalid": 0,
+   "wall_median": 13.957,
+   "wall_p90": 13.957,
+   "wall_max": 13.957,
+   "wall_total": 13.96,
+   "path_time_median": 10.511,
+   "path_time_mean": 10.511,
+   "path_time_total": 10.511
+  }
+ },
+ "rows": [
+  {
+   "name": "random-046",
+   "group": "random",
+   "tags": [
+    "10wp",
+    "midStops",
+    "velocityZone"
+   ],
+   "waypoints": 10,
+   "wall": 13.957,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 10.5106,
+   "iterations": 575,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (84 it, 2.59s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (49 it, 1.48s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (115 it, 3.90s)",
+    "candidate 1: direct: Solve_Succeeded (125 it, 5.12s)",
+    "candidate 1: zones: membership changed (zone), re-solving",
+    "candidate 1: zones: Solve_Succeeded (69 it, 3.16s)",
+    "candidate 1: zones: membership changed (zone), re-solving",
+    "candidate 1: zones: Solve_Succeeded (133 it, 5.27s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0295,
+    "min_wall_clearance": 0.6037,
+    "max_speed": 4.332,
+    "samples": 161
+   }
+  }
+ ]
+}

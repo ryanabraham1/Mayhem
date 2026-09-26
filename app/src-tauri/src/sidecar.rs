@@ -14,8 +14,9 @@
 //! removes the temp dir and exits. Anything still alive after a short grace period gets
 //! SIGTERM, and whatever survives that is SIGKILLed by the shell plugin right after us.
 //!
-//! On Windows the shell plugin's TerminateProcess is left to do the job (the PyInstaller
-//! bootloader puts its child in a kill-on-close job object there).
+//! Even without this hook the Python server exits once its stdin closes (which happens when
+//! this process dies, however it dies), so this is about cleanliness, not correctness. On
+//! Windows nothing extra is done; the shell plugin's TerminateProcess + stdin EOF handle it.
 
 use std::time::Duration;
 

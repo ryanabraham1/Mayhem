@@ -17,6 +17,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -116,6 +117,26 @@ def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.Worl
         n = len(wps)
         if s.kind in ("waypoint", "range") and not (0 <= s.from_ < n and (s.kind == "waypoint" or 0 <= s.to < n)):
             issues.append(Issue(severity="warning", message=f"Constraint {con.id} refers to a missing waypoint; ignored."))
+        if not con.enabled or not isinstance(con.data, PointAt):
+            continue
+        for j, wp in enumerate(wps):
+            if wp.heading_mode != "fixed" or wp.translation_mode != "fixed" or wp.tolerance.kind != "none":
+                continue
+            if s.kind == "waypoint" and j != s.from_:
+                continue
+            if s.kind == "range" and not min(s.from_, s.to) <= j <= max(s.from_, s.to):
+                continue
+            if s.kind == "zone" and (len(s.region) < 3 or not Polygon(s.region).covers(Point(wp.x, wp.y))):
+                continue
+            dx, dy = con.data.x - wp.x, con.data.y - wp.y
+            if math.hypot(dx, dy) < 1e-4:
+                continue
+            target = math.atan2(dy, dx) + (math.pi if con.data.flip else 0)
+            error = abs(math.remainder(wp.heading - target, 2 * math.pi))
+            if error > con.data.tolerance + wp.heading_tolerance + 1e-4:
+                issues.append(Issue(severity="error",
+                                    message=f"Waypoint {j + 1} heading conflicts with point-at constraint '{con.id}'.",
+                                    waypoint=j, x=wp.x, y=wp.y))
     return issues
 
 
@@ -168,6 +189,10 @@ class Solver:
         self.deadline = deadline or (time.monotonic() + traj.settings.time_limit)
         self.iters = 0
         self.log: list[str] = []
+        self._last_pairs: dict = {}
+        self._last_dense: set = set()
+        self._last_zone_used: dict = {}
+        self._last_planes: dict = {}
 
     def _time_left(self) -> float:
         return max(self.deadline - time.monotonic(), 1.0)
@@ -184,19 +209,26 @@ class Solver:
         return fn
 
     def run_ocp(self, guess: Solution, mode: str, stage: str, limit_scale: float = 1.0,
-                pairs: Optional[dict] = None) -> OCPResult:
+                pairs: Optional[dict] = None, dense: Optional[set] = None, warm: bool = False,
+                time_cap: Optional[float] = None, zone_extra: Optional[dict] = None) -> OCPResult:
         if pairs is None:
             act = max(0.4, 2.5 * float(np.max(np.hypot(guess.vx, guess.vy)) * np.max(guess.h)) + 0.25)
             pairs = select_pairs(self.world, self.dt, guess, act)
         s = self.traj.settings
+        tl = self._time_left() if time_cap is None else min(self._time_left(), time_cap)
         opts = OCPOptions(mode=mode, limit_scale=limit_scale, smoothing=s.smoothing,
-                          max_iter=s.max_iterations, time_limit=self._time_left(),
-                          progress=self._progress_fn(stage))
+                          max_iter=s.max_iterations, time_limit=tl,
+                          progress=self._progress_fn(stage), dense_intervals=dense, warm=warm,
+                          zone_extra=zone_extra, plane_init=self._last_planes if warm else None)
         if self.progress:
             self.progress({"type": "stage", "candidate": self.candidate, "stage": stage})
-        res = OCP(self.dt, self.world, self.traj, guess, pairs, opts).solve()
+        ocp = OCP(self.dt, self.world, self.traj, guess, pairs, opts)
+        res = ocp.solve()
+        self._last_zone_used = ocp.zone_used
+        self._last_planes = res.planes
         self.iters += res.iterations
         self.log.append(f"{stage}: {res.status} ({res.iterations} it, {res.seconds:.2f}s)")
+        self._last_pairs, self._last_dense = pairs, set(dense or ())
         return res
 
     def verify(self, sol: Solution) -> list[geo.Collision]:
@@ -206,58 +238,87 @@ class Solver:
             h.index = int(idx[h.index])
         return hits
 
-    def refine_collisions(self, res: OCPResult, rounds: int = 3) -> OCPResult:
-        """Swept-collision loop: add samples + pairs where the continuous path clips."""
+    def _zone_missing(self, sol: Solution) -> dict[str, set[int]]:
+        """Zone-scoped constraints whose region the solution enters at unconstrained samples."""
+        out = {}
+        for c in self.traj.constraints:
+            if c.enabled and c.scope.kind == "zone":
+                now = set(scope_samples(c.scope, sol.Ns, sol))
+                used = self._last_zone_used.get(c.id, set())
+                if not now <= used:
+                    out[c.id] = now | used
+        return out
+
+    def polish(self, res: OCPResult, local_rounds: int = 2, rounds: int = 5) -> OCPResult:
+        """Make a converged solution verifiably valid.
+
+        Two things can be wrong with a converged NLP solution:
+          * zone-scoped constraints were attached to the samples that were inside the zone
+            in the *guess*; the solution may enter the zone at other samples. Membership is
+            made sticky (union) and the problem re-solved warm until it is a fixpoint.
+          * the swept (continuous-time) check finds clipping between samples. The first
+            rounds keep the mesh and add quarter-point checks (and missing obstacle pairs)
+            on the offending intervals only, warm-started from the solution: a small change
+            to the NLP that re-converges in a few iterations. After that, the offending
+            segments' mesh is refined (resampled 1.6x).
+        """
+        local_left = local_rounds
+        zone_extra: dict[str, set[int]] = {}
         for _ in range(rounds):
             if not res.success:
                 return res
-            hits = self.verify(res.solution)
-            if not hits:
-                return res
             sol = res.solution
+            hits = self.verify(sol)
+            missing = self._zone_missing(sol)
+            if not hits and not missing:
+                return res
+            for cid, ks in missing.items():
+                zone_extra[cid] = set(zone_extra.get(cid, set())) | ks
+            K = sol.K
+            if not hits:
+                self.log.append(f"zones: membership changed ({', '.join(sorted(missing))}), re-solving")
+                res = self.run_ocp(sol, "hard", "zones", pairs=self._last_pairs, dense=self._last_dense,
+                                   warm=True, zone_extra=zone_extra)
+                continue
+            if local_left > 0:
+                local_left -= 1
+                bad = {k for h in hits for k in range(h.index - 1, h.index + 2) if 0 <= k < K - 1}
+                dense_iv = set(self._last_dense) | bad
+                act = max(0.6, 3.0 * float(np.max(np.hypot(sol.vx, sol.vy)) * np.max(sol.h)) + 0.35)
+                pairs = {o: set(ks) for o, ks in select_pairs(self.world, self.dt, sol, act).items()}
+                for o, ks in (self._last_pairs or {}).items():
+                    pairs.setdefault(o, set()).update(ks)
+                names = {h.name for h in hits}
+                for o, piece in enumerate(self.world.pieces):
+                    if piece.name in names:
+                        near = {k for h in hits if h.name == piece.name for k in range(h.index - 2, h.index + 3)
+                                if 0 <= k < K}
+                        pairs.setdefault(o, set()).update(near)
+                pairs = {o: sorted(ks) for o, ks in pairs.items()}
+                self.log.append(f"swept check: {len(hits)} hits, densifying {len(bad)} intervals")
+                res = self.run_ocp(sol, "hard", "refine", pairs=pairs, dense=dense_iv, warm=True,
+                                   zone_extra=zone_extra)
+                continue
             wi = waypoint_indices(sol.Ns)
-            bad_segs = set()
-            for h in hits:
-                for j in range(len(sol.Ns)):
-                    if wi[j] <= h.index < wi[j + 1]:
-                        bad_segs.add(j)
+            bad_segs = {j for h in hits for j in range(len(sol.Ns)) if wi[j] <= h.index < wi[j + 1]}
             Ns = [int(math.ceil(n * 1.6)) if j in bad_segs else n for j, n in enumerate(sol.Ns)]
             self.log.append(f"swept check: {len(hits)} hits, refining segments {sorted(bad_segs)}")
             guess = resample(sol, Ns)
             act = max(0.6, 3.0 * float(np.max(np.hypot(guess.vx, guess.vy)) * np.max(guess.h)) + 0.35)
             pairs = select_pairs(self.world, self.dt, guess, act)
+            zone_extra = {}  # sample indices changed; membership is re-evaluated on the resampled guess
+            local_left = 1
             res = self.run_ocp(guess, "hard", "refine", pairs=pairs)
-        if res.success and self.verify(res.solution):
+        if res.success and (self.verify(res.solution) or self._zone_missing(res.solution)):
             res.success = False
-            res.status = "Swept collision check failed"
-        return res
-
-    def zone_fixpoint(self, res: OCPResult) -> OCPResult:
-        """Re-solve if zone-scoped constraint membership changed."""
-        zones = [c for c in self.traj.constraints if c.enabled and c.scope.kind == "zone"]
-        if not zones or not res.success:
-            return res
-        for _ in range(2):
-            changed = False
-            for c in zones:
-                before = scope_samples(c.scope, res.solution.Ns, self._last_guess)
-                after = scope_samples(c.scope, res.solution.Ns, res.solution)
-                if set(before) != set(after):
-                    changed = True
-            if not changed:
-                break
-            self._last_guess = res.solution
-            res = self.run_ocp(res.solution, "hard", "zones")
+            res.status = "Swept collision / zone check failed"
         return res
 
     def ladder(self, guess: Solution) -> Attempt:
-        self._last_guess = guess
-
         def finish(res: OCPResult) -> Optional[Attempt]:
             if not res.success:
                 return None
-            res = self.zone_fixpoint(res)
-            res = self.refine_collisions(res)
+            res = self.polish(res)
             if res.success:
                 return Attempt(True, res.solution, self.iters, self.log)
             return None
@@ -482,6 +543,10 @@ def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Is
         t = float(times[k]) if 0 <= k < len(times) else None
         x = float(res.solution.x[k]) if 0 <= k < len(times) else None
         y = float(res.solution.y[k]) if 0 <= k < len(times) else None
+        waypoint = (int(match.group(1)) - 1) if (match := re.match(r"Waypoint (\d+)", label)) else None
+        if waypoint is None and cat in ("obstacle", "wall", "keepin") and x is not None and y is not None:
+            waypoint = min(range(len(traj.waypoints)),
+                           key=lambda j: math.hypot(x - traj.waypoints[j].x, y - traj.waypoints[j].y))
         hint = {
             "obstacle": "the path can't clear this obstacle; add a guide waypoint on the side you want, or move nearby waypoints",
             "wall": "the robot gets pushed into a wall; move waypoints away from the wall",
@@ -494,6 +559,7 @@ def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Is
             "motor": "motor torque/current limit exceeded",
         }.get(cat, "")
         issues.append(Issue(severity="error", message=f"{label} is infeasible (violation {total:.3g}): {hint}.",
+                            waypoint=waypoint,
                             t=t, x=x, y=y))
     if not ranked:
         issues.append(Issue(severity="error",

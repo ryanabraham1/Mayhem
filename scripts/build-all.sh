@@ -45,7 +45,7 @@ if [[ $DO_APP == 1 ]]; then
   BUNDLE_DIR="$ROOT/app/src-tauri/target/release/bundle"
   while IFS= read -r f; do ARTIFACTS+=("$f"); done < <(
     find "$BUNDLE_DIR" -maxdepth 2 \( -name '*.app' -o -name '*.dmg' -o -name '*.AppImage' \
-      -o -name '*.deb' -o -name '*.rpm' -o -name '*.msi' -o -name '*-setup.exe' \) 2>/dev/null | sort)
+      -o -name '*.deb' -o -name '*.rpm' -o -name '*.msi' -o -name '*-setup.exe' \) ! -name 'rw.*' 2>/dev/null | sort)
 fi
 
 if [[ $DO_LIB == 1 ]]; then

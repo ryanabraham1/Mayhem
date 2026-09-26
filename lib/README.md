@@ -430,3 +430,29 @@ cd examples/robot-2026
 ./gradlew test        # uses the WPILib JDK 17, e.g. JAVA_HOME=~/wpilib/2026/jdk
 ./gradlew simulateJava            # sim GUI; add -Pheadless to run without it
 ```
+
+## Practice-robot validation
+
+Simulation verifies the command wiring and one tracking-error recovery, but it does not verify
+the Pigeon acceleration trigger or planning time on a roboRIO 2. Use this sequence before a match:
+
+1. Run `./gradlew test` in both `lib/` and `examples/robot-2026/`. In the example, enable
+   `Sim/Random bumps` in simulation and watch a full and split auto return to its path after
+   injected pose offsets. Review `/Mayhem/reference` and `/Mayhem/bridge` against the robot pose.
+2. Deploy the example to a practice robot with a current Mayhem path. Confirm blue-origin pose,
+   FL/FR/BL/BR module order, alliance rotation, and marker commands at low speed with recovery
+   disabled. Then enable recovery and repeat on both alliances.
+3. With the robot in a clear, controlled area, apply a gentle manual displacement during a
+   slow auto. Log `/Mayhem/state`, `/Mayhem/positionError`, `/Mayhem/clockRate`,
+   `/Mayhem/bridge`, `/Mayhem/bridgesPlanned`, and `/Mayhem/lastPlanMs`. The state should move
+   through `BRIDGING` and return to `FOLLOWING`; no bridge should cross a field obstacle or a
+   must-hit marker. Also log Pigeon horizontal acceleration alongside planned acceleration to
+   tune `accelSpikeG` and distinguish a real hit from normal traction-limited driving.
+4. On the roboRIO 2, repeat several bumps and inspect the **maximum** `/Mayhem/lastPlanMs`, not
+   just its average. Target under 5 ms per bridge plan and confirm the 20 ms robot loop stays
+   healthy. If either budget is missed, reduce `joinCandidates`, increase
+   `collisionCheckStep` only after checking clearance, and rerun the same obstacle cases.
+
+Keep the refiner disabled on the roboRIO 2 unless its separate runtime and collision checks are
+measured there. Record the robot configuration, path, DataLog, largest planning time, and final
+pose error for each practice run; simulation results alone do not establish on-field safety.

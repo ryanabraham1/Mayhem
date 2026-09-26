@@ -1,0 +1,2625 @@
+{
+ "meta": {
+  "label": "current",
+  "date": "2026-09-26 15:56",
+  "seed": 2026,
+  "n_random": 60,
+  "mode": "app (parallel candidates)",
+  "fast": false,
+  "filters": [],
+  "machine": "arm64 Darwin 10 cores, Python 3.12.14",
+  "elapsed": 172.6
+ },
+ "summary": {
+  "all": {
+   "n": 91,
+   "success": 91,
+   "success_rate": 1.0,
+   "solver_success_but_invalid": 0,
+   "wall_median": 0.594,
+   "wall_p90": 3.208,
+   "wall_max": 11.218,
+   "wall_total": 117.05,
+   "path_time_median": 3.127,
+   "path_time_mean": 4.231,
+   "path_time_total": 385.002,
+   "iterations_total": 8796
+  },
+  "hard": {
+   "n": 31,
+   "success": 31,
+   "success_rate": 1.0,
+   "solver_success_but_invalid": 0,
+   "wall_median": 0.368,
+   "wall_p90": 2.644,
+   "wall_max": 6.862,
+   "wall_total": 29.8,
+   "path_time_median": 2.85,
+   "path_time_mean": 3.701,
+   "path_time_total": 114.724,
+   "iterations_total": 2508
+  },
+  "infeasible": {
+   "n": 4,
+   "success": 4,
+   "success_rate": 1.0,
+   "solver_success_but_invalid": 0,
+   "wall_median": 2.935,
+   "wall_p90": 36.363,
+   "wall_max": 49.431,
+   "wall_total": 55.3,
+   "path_time_median": null,
+   "path_time_mean": null,
+   "path_time_total": null,
+   "iterations_total": 0
+  },
+  "random": {
+   "n": 60,
+   "success": 60,
+   "success_rate": 1.0,
+   "solver_success_but_invalid": 0,
+   "wall_median": 0.707,
+   "wall_p90": 3.242,
+   "wall_max": 11.218,
+   "wall_total": 87.25,
+   "path_time_median": 3.383,
+   "path_time_mean": 4.505,
+   "path_time_total": 270.277,
+   "iterations_total": 6288
+  }
+ },
+ "rows": [
+  {
+   "name": "trench-lower-straight",
+   "group": "hard",
+   "tags": [
+    "trench"
+   ],
+   "waypoints": 2,
+   "wall": 0.156,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.7741,
+   "iterations": 28,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (28 it, 0.11s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0301,
+    "min_wall_clearance": 0.19,
+    "max_speed": 4.332,
+    "samples": 35
+   }
+  },
+  {
+   "name": "trench-upper-straight",
+   "group": "hard",
+   "tags": [
+    "trench"
+   ],
+   "waypoints": 2,
+   "wall": 0.175,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.815,
+   "iterations": 32,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (32 it, 0.13s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0301,
+    "min_wall_clearance": 0.19,
+    "max_speed": 4.332,
+    "samples": 36
+   }
+  },
+  {
+   "name": "trench-forced-pass",
+   "group": "hard",
+   "tags": [
+    "trench",
+    "sharp"
+   ],
+   "waypoints": 3,
+   "wall": 0.871,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.2391,
+   "iterations": 90,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (90 it, 0.82s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0301,
+    "min_wall_clearance": 0.0199,
+    "max_speed": 4.332,
+    "samples": 53
+   }
+  },
+  {
+   "name": "trench-both-lower",
+   "group": "hard",
+   "tags": [
+    "trench",
+    "long"
+   ],
+   "waypoints": 4,
+   "wall": 2.644,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 7.2414,
+   "iterations": 158,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (158 it, 2.57s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0312,
+    "min_wall_clearance": 0.0286,
+    "max_speed": 4.332,
+    "samples": 102
+   }
+  },
+  {
+   "name": "trench-diag-entry",
+   "group": "hard",
+   "tags": [
+    "trench"
+   ],
+   "waypoints": 3,
+   "wall": 0.61,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.1786,
+   "iterations": 79,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (79 it, 0.56s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0301,
+    "min_wall_clearance": 0.0486,
+    "max_speed": 4.332,
+    "samples": 52
+   }
+  },
+  {
+   "name": "trench-in-out-return",
+   "group": "hard",
+   "tags": [
+    "trench",
+    "reversal"
+   ],
+   "waypoints": 3,
+   "wall": 0.789,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.1615,
+   "iterations": 74,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (74 it, 0.74s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0317,
+    "min_wall_clearance": 0.19,
+    "max_speed": 4.332,
+    "samples": 61
+   }
+  },
+  {
+   "name": "trench-flush-start",
+   "group": "hard",
+   "tags": [
+    "trench",
+    "flush"
+   ],
+   "waypoints": 2,
+   "wall": 0.223,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.0891,
+   "iterations": 41,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (41 it, 0.18s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.034,
+    "min_wall_clearance": 0.1252,
+    "max_speed": 4.332,
+    "samples": 39
+   }
+  },
+  {
+   "name": "trench-rotate-inside",
+   "group": "hard",
+   "tags": [
+    "trench",
+    "rotation"
+   ],
+   "waypoints": 2,
+   "wall": 0.248,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.802,
+   "iterations": 53,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (53 it, 0.21s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.031,
+    "min_wall_clearance": 0.19,
+    "max_speed": 4.332,
+    "samples": 35
+   }
+  },
+  {
+   "name": "hub-straight-through",
+   "group": "hard",
+   "tags": [
+    "hub"
+   ],
+   "waypoints": 2,
+   "wall": 0.279,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.6223,
+   "iterations": 49,
+   "candidate": 1,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (24 it, 0.10s)",
+    "candidate 1: direct: Solve_Succeeded (25 it, 0.10s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0401,
+    "min_wall_clearance": 2.05,
+    "max_speed": 4.332,
+    "samples": 32
+   }
+  },
+  {
+   "name": "hub-circuit",
+   "group": "hard",
+   "tags": [
+    "hub",
+    "loop"
+   ],
+   "waypoints": 5,
+   "wall": 0.822,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.85,
+   "iterations": 68,
+   "candidate": 1,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (23 it, 0.16s)",
+    "candidate 1: direct: Solve_Succeeded (45 it, 0.61s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0414,
+    "min_wall_clearance": 1.9626,
+    "max_speed": 4.332,
+    "samples": 66
+   }
+  },
+  {
+   "name": "hub-point-at-orbit",
+   "group": "hard",
+   "tags": [
+    "hub",
+    "pointAt"
+   ],
+   "waypoints": 4,
+   "wall": 1.501,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.6802,
+   "iterations": 226,
+   "candidate": 2,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (70 it, 0.42s)",
+    "candidate 1: direct: Solve_Succeeded (40 it, 0.49s)",
+    "candidate 2: direct: Solve_Succeeded (116 it, 1.25s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0285,
+    "min_wall_clearance": 1.6128,
+    "max_speed": 3.929,
+    "samples": 68
+   }
+  },
+  {
+   "name": "hub-flush-start",
+   "group": "hard",
+   "tags": [
+    "hub",
+    "flush"
+   ],
+   "waypoints": 2,
+   "wall": 0.507,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.5,
+   "iterations": 149,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (81 it, 0.28s)",
+    "candidate 1: direct: Solve_Succeeded (68 it, 0.33s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0321,
+    "min_wall_clearance": 0.55,
+    "max_speed": 4.332,
+    "samples": 31
+   }
+  },
+  {
+   "name": "hub-flush-end-red",
+   "group": "hard",
+   "tags": [
+    "hub",
+    "flush"
+   ],
+   "waypoints": 2,
+   "wall": 0.368,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.6108,
+   "iterations": 97,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (52 it, 0.18s)",
+    "candidate 1: direct: Solve_Succeeded (45 it, 0.19s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0307,
+    "min_wall_clearance": 1.5183,
+    "max_speed": 4.332,
+    "samples": 32
+   }
+  },
+  {
+   "name": "hub-cross-field",
+   "group": "hard",
+   "tags": [
+    "hub",
+    "long"
+   ],
+   "waypoints": 2,
+   "wall": 0.471,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.4153,
+   "iterations": 110,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (36 it, 0.26s)",
+    "candidate 1: direct: Solve_Succeeded (37 it, 0.28s)",
+    "candidate 2: direct: Solve_Succeeded (37 it, 0.28s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0401,
+    "min_wall_clearance": 1.55,
+    "max_speed": 4.332,
+    "samples": 64
+   }
+  },
+  {
+   "name": "tower-front-end",
+   "group": "hard",
+   "tags": [
+    "tower",
+    "flush"
+   ],
+   "waypoints": 2,
+   "wall": 0.105,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.1073,
+   "iterations": 29,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (29 it, 0.07s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.04,
+    "min_wall_clearance": 1.1846,
+    "max_speed": 4.259,
+    "samples": 19
+   }
+  },
+  {
+   "name": "tower-top-side",
+   "group": "hard",
+   "tags": [
+    "tower",
+    "flush",
+    "wall"
+   ],
+   "waypoints": 2,
+   "wall": 0.149,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.0594,
+   "iterations": 45,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (45 it, 0.12s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.05,
+    "min_wall_clearance": 0.15,
+    "max_speed": 4.332,
+    "samples": 20
+   }
+  },
+  {
+   "name": "tower-red-corner",
+   "group": "hard",
+   "tags": [
+    "tower",
+    "flush"
+   ],
+   "waypoints": 2,
+   "wall": 0.194,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.7136,
+   "iterations": 51,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (51 it, 0.16s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0334,
+    "min_wall_clearance": 0.0184,
+    "max_speed": 4.314,
+    "samples": 30
+   }
+  },
+  {
+   "name": "tower-under-side",
+   "group": "hard",
+   "tags": [
+    "tower",
+    "flush",
+    "wall"
+   ],
+   "waypoints": 2,
+   "wall": 0.203,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.3643,
+   "iterations": 62,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (62 it, 0.17s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0421,
+    "min_wall_clearance": 0.15,
+    "max_speed": 4.332,
+    "samples": 26
+   }
+  },
+  {
+   "name": "wall-corner-to-corner",
+   "group": "hard",
+   "tags": [
+    "wall",
+    "long"
+   ],
+   "waypoints": 2,
+   "wall": 0.333,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 4.3283,
+   "iterations": 21,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (21 it, 0.27s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0307,
+    "min_wall_clearance": 0.03,
+    "max_speed": 4.332,
+    "samples": 80
+   }
+  },
+  {
+   "name": "wall-slide",
+   "group": "hard",
+   "tags": [
+    "wall"
+   ],
+   "waypoints": 3,
+   "wall": 0.446,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.0736,
+   "iterations": 52,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (52 it, 0.39s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0298,
+    "min_wall_clearance": 0.0194,
+    "max_speed": 4.332,
+    "samples": 54
+   }
+  },
+  {
+   "name": "wall-rotate-corner",
+   "group": "hard",
+   "tags": [
+    "wall",
+    "rotation"
+   ],
+   "waypoints": 2,
+   "wall": 0.059,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 0.894,
+   "iterations": 20,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (20 it, 0.04s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 1.0779,
+    "min_wall_clearance": 0.0198,
+    "max_speed": 4.216,
+    "samples": 17
+   }
+  },
+  {
+   "name": "long-12wp-neutral-sweep",
+   "group": "hard",
+   "tags": [
+    "long",
+    "trench"
+   ],
+   "waypoints": 12,
+   "wall": 1.576,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 7.8334,
+   "iterations": 65,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (65 it, 1.49s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0301,
+    "min_wall_clearance": 0.0189,
+    "max_speed": 4.332,
+    "samples": 134
+   }
+  },
+  {
+   "name": "long-11wp-slalom",
+   "group": "hard",
+   "tags": [
+    "long",
+    "slalom"
+   ],
+   "waypoints": 11,
+   "wall": 3.411,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 12.3995,
+   "iterations": 152,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (70 it, 2.00s)",
+    "candidate 1: direct: Solve_Succeeded (82 it, 3.12s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.04,
+    "min_wall_clearance": 1.35,
+    "max_speed": 4.332,
+    "samples": 188
+   }
+  },
+  {
+   "name": "long-14wp-both-sides",
+   "group": "hard",
+   "tags": [
+    "long",
+    "trench"
+   ],
+   "waypoints": 14,
+   "wall": 6.862,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 15.5611,
+   "iterations": 153,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (153 it, 6.73s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0301,
+    "min_wall_clearance": 0.0197,
+    "max_speed": 4.332,
+    "samples": 258
+   }
+  },
+  {
+   "name": "long-10wp-stops",
+   "group": "hard",
+   "tags": [
+    "long",
+    "midStops"
+   ],
+   "waypoints": 10,
+   "wall": 3.609,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 9.2758,
+   "iterations": 127,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (127 it, 3.48s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.03,
+    "min_wall_clearance": 0.2761,
+    "max_speed": 4.332,
+    "samples": 164
+   }
+  },
+  {
+   "name": "reversal-pass",
+   "group": "hard",
+   "tags": [
+    "reversal"
+   ],
+   "waypoints": 3,
+   "wall": 0.267,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.9154,
+   "iterations": 32,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (32 it, 0.21s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.2151,
+    "min_wall_clearance": 1.55,
+    "max_speed": 4.332,
+    "samples": 48
+   }
+  },
+  {
+   "name": "reversal-zigzag",
+   "group": "hard",
+   "tags": [
+    "reversal",
+    "sharp"
+   ],
+   "waypoints": 6,
+   "wall": 0.252,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 5.4067,
+   "iterations": 30,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (30 it, 0.18s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.3301,
+    "min_wall_clearance": 1.4085,
+    "max_speed": 4.332,
+    "samples": 76
+   }
+  },
+  {
+   "name": "spin-while-driving",
+   "group": "hard",
+   "tags": [
+    "rotation"
+   ],
+   "waypoints": 2,
+   "wall": 0.136,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.4471,
+   "iterations": 38,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (38 it, 0.10s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.5034,
+    "min_wall_clearance": 1.3546,
+    "max_speed": 4.332,
+    "samples": 25
+   }
+  },
+  {
+   "name": "reversal-around-hub",
+   "group": "hard",
+   "tags": [
+    "reversal",
+    "hub"
+   ],
+   "waypoints": 3,
+   "wall": 0.86,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.9432,
+   "iterations": 123,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (44 it, 0.33s)",
+    "candidate 1: direct: Solve_Succeeded (79 it, 0.67s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0399,
+    "min_wall_clearance": 2.0071,
+    "max_speed": 4.332,
+    "samples": 50
+   }
+  },
+  {
+   "name": "keepout-corridor",
+   "group": "hard",
+   "tags": [
+    "keepOut"
+   ],
+   "waypoints": 2,
+   "wall": 0.231,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.2946,
+   "iterations": 27,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (27 it, 0.16s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0304,
+    "min_wall_clearance": 0.6902,
+    "max_speed": 4.332,
+    "samples": 44
+   }
+  },
+  {
+   "name": "keepout-zone-pointat",
+   "group": "hard",
+   "tags": [
+    "keepOut",
+    "pointAt",
+    "velocityZone"
+   ],
+   "waypoints": 3,
+   "wall": 1.438,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.1275,
+   "iterations": 227,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (84 it, 0.51s)",
+    "candidate 0: zones: membership changed (vz), re-solving",
+    "candidate 0: zones: Solve_Succeeded (102 it, 0.59s)",
+    "candidate 0: zones: membership changed (vz), re-solving",
+    "candidate 0: zones: Solve_Succeeded (41 it, 0.24s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.027,
+    "min_wall_clearance": 0.55,
+    "max_speed": 4.058,
+    "samples": 34
+   }
+  },
+  {
+   "name": "infeasible-pointat-fixed-heading",
+   "group": "infeasible",
+   "tags": [
+    "infeasible"
+   ],
+   "waypoints": 4,
+   "wall": 0.0,
+   "solver_success": false,
+   "valid": true,
+   "violations": [],
+   "path_time": null,
+   "iterations": null,
+   "candidate": null,
+   "attempts": [],
+   "issues": [
+    "[error] Waypoint 3 heading conflicts with point-at constraint 'pa'."
+   ],
+   "metrics": {}
+  },
+  {
+   "name": "infeasible-pointat-start",
+   "group": "infeasible",
+   "tags": [
+    "infeasible"
+   ],
+   "waypoints": 3,
+   "wall": 0.0,
+   "solver_success": false,
+   "valid": true,
+   "violations": [],
+   "path_time": null,
+   "iterations": null,
+   "candidate": null,
+   "attempts": [],
+   "issues": [
+    "[error] Waypoint 1 heading conflicts with point-at constraint 'pa'.",
+    "[error] Waypoint 3 heading conflicts with point-at constraint 'pa'."
+   ],
+   "metrics": {}
+  },
+  {
+   "name": "infeasible-two-pointat",
+   "group": "infeasible",
+   "tags": [
+    "infeasible"
+   ],
+   "waypoints": 2,
+   "wall": 5.87,
+   "solver_success": false,
+   "valid": true,
+   "violations": [],
+   "path_time": null,
+   "iterations": null,
+   "candidate": null,
+   "attempts": [],
+   "issues": [
+    "[error] Constraint 'pointAt' (pa1) is infeasible (violation 11.9): this constraint conflicts with the others; loosen it.",
+    "[error] Constraint 'pointAt' (pa2) is infeasible (violation 6.83): this constraint conflicts with the others; loosen it.",
+    "[error] Waypoint 2 position is infeasible (violation 4.43): this waypoint can't be reached; add a position tolerance or move it.",
+    "[error] Waypoint 1 position is infeasible (violation 3.84): this waypoint can't be reached; add a position tolerance or move it.",
+    "[error] Obstacle 'Blue Trench Wall (left)' is infeasible (violation 0.132): the path can't clear this obstacle; add a guide waypoint on the side you want, or move nearby waypoints.",
+    "[error] Wheel speed limit is infeasible (violation 0.0794): wheel speed limit is exceeded; the path demands too much speed."
+   ],
+   "metrics": {}
+  },
+  {
+   "name": "infeasible-enclosed-goal",
+   "group": "infeasible",
+   "tags": [
+    "infeasible"
+   ],
+   "waypoints": 2,
+   "wall": 49.431,
+   "solver_success": false,
+   "valid": true,
+   "violations": [],
+   "path_time": null,
+   "iterations": null,
+   "candidate": null,
+   "attempts": [],
+   "issues": [
+    "[error] Obstacle 'Red Hub' is infeasible (violation 0.262): the path can't clear this obstacle; add a guide waypoint on the side you want, or move nearby waypoints.",
+    "[error] Obstacle 'Keep-out k3' is infeasible (violation 0.192): the path can't clear this obstacle; add a guide waypoint on the side you want, or move nearby waypoints.",
+    "[error] Obstacle 'Keep-out k4' is infeasible (violation 0.176): the path can't clear this obstacle; add a guide waypoint on the side you want, or move nearby waypoints."
+   ],
+   "metrics": {}
+  },
+  {
+   "name": "random-000",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "pointAt",
+    "velocityZone"
+   ],
+   "waypoints": 4,
+   "wall": 2.114,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 4.5606,
+   "iterations": 274,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (74 it, 0.53s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (49 it, 0.36s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (89 it, 0.64s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (62 it, 0.46s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0316,
+    "min_wall_clearance": 0.3779,
+    "max_speed": 4.332,
+    "samples": 55
+   }
+  },
+  {
+   "name": "random-001",
+   "group": "random",
+   "tags": [
+    "8wp",
+    "midStops",
+    "velocityZone",
+    "maxAccel",
+    "keepOut"
+   ],
+   "waypoints": 8,
+   "wall": 3.964,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 14.5027,
+   "iterations": 122,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (122 it, 3.87s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.03,
+    "min_wall_clearance": 0.0189,
+    "max_speed": 3.594,
+    "samples": 145
+   }
+  },
+  {
+   "name": "random-002",
+   "group": "random",
+   "tags": [
+    "2wp",
+    "keepOut"
+   ],
+   "waypoints": 2,
+   "wall": 0.648,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.2658,
+   "iterations": 84,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (84 it, 0.58s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0301,
+    "min_wall_clearance": 0.1972,
+    "max_speed": 4.332,
+    "samples": 63
+   }
+  },
+  {
+   "name": "random-003",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "midStops"
+   ],
+   "waypoints": 3,
+   "wall": 0.1,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.4186,
+   "iterations": 32,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (32 it, 0.08s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.8461,
+    "min_wall_clearance": 1.5364,
+    "max_speed": 3.867,
+    "samples": 27
+   }
+  },
+  {
+   "name": "random-004",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "keepOut"
+   ],
+   "waypoints": 4,
+   "wall": 2.681,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 4.3973,
+   "iterations": 180,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (180 it, 2.58s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0304,
+    "min_wall_clearance": 0.6375,
+    "max_speed": 4.332,
+    "samples": 84
+   }
+  },
+  {
+   "name": "random-005",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "tolerance",
+    "keepOut"
+   ],
+   "waypoints": 3,
+   "wall": 0.213,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.1164,
+   "iterations": 69,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (69 it, 0.18s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0301,
+    "min_wall_clearance": 2.3264,
+    "max_speed": 3.916,
+    "samples": 21
+   }
+  },
+  {
+   "name": "random-006",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "midStops",
+    "velocityZone",
+    "maxAccel"
+   ],
+   "waypoints": 3,
+   "wall": 0.487,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.3787,
+   "iterations": 55,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (55 it, 0.43s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0339,
+    "min_wall_clearance": 0.2,
+    "max_speed": 4.332,
+    "samples": 53
+   }
+  },
+  {
+   "name": "random-007",
+   "group": "random",
+   "tags": [
+    "10wp",
+    "tolerance",
+    "midStops",
+    "velocityZone"
+   ],
+   "waypoints": 10,
+   "wall": 2.119,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 9.2557,
+   "iterations": 132,
+   "candidate": 1,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (73 it, 1.89s)",
+    "candidate 1: direct: Solve_Succeeded (59 it, 1.56s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0337,
+    "min_wall_clearance": 0.0198,
+    "max_speed": 4.332,
+    "samples": 154
+   }
+  },
+  {
+   "name": "random-008",
+   "group": "random",
+   "tags": [
+    "2wp",
+    "velocityZone",
+    "maxAccel"
+   ],
+   "waypoints": 2,
+   "wall": 0.118,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.5293,
+   "iterations": 23,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (23 it, 0.08s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.2667,
+    "min_wall_clearance": 0.7572,
+    "max_speed": 3.024,
+    "samples": 24
+   }
+  },
+  {
+   "name": "random-009",
+   "group": "random",
+   "tags": [
+    "10wp",
+    "tolerance",
+    "midStops"
+   ],
+   "waypoints": 10,
+   "wall": 2.971,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 8.8449,
+   "iterations": 172,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (72 it, 1.84s)",
+    "candidate 1: direct: Solve_Succeeded (100 it, 2.74s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0345,
+    "min_wall_clearance": 0.4979,
+    "max_speed": 4.332,
+    "samples": 146
+   }
+  },
+  {
+   "name": "random-010",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "midStops",
+    "velocityZone",
+    "maxAccel",
+    "keepOut"
+   ],
+   "waypoints": 4,
+   "wall": 0.958,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 4.8519,
+   "iterations": 123,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (92 it, 0.66s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (31 it, 0.22s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.031,
+    "min_wall_clearance": 0.8118,
+    "max_speed": 3.672,
+    "samples": 55
+   }
+  },
+  {
+   "name": "random-011",
+   "group": "random",
+   "tags": [
+    "8wp",
+    "tolerance",
+    "midStops"
+   ],
+   "waypoints": 8,
+   "wall": 0.881,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 4.2902,
+   "iterations": 62,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (62 it, 0.82s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0309,
+    "min_wall_clearance": 0.3574,
+    "max_speed": 4.332,
+    "samples": 78
+   }
+  },
+  {
+   "name": "random-012",
+   "group": "random",
+   "tags": [
+    "3wp"
+   ],
+   "waypoints": 3,
+   "wall": 0.387,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.9151,
+   "iterations": 78,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (34 it, 0.14s)",
+    "candidate 1: direct: Solve_Succeeded (44 it, 0.21s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0308,
+    "min_wall_clearance": 1.0945,
+    "max_speed": 4.332,
+    "samples": 33
+   }
+  },
+  {
+   "name": "random-013",
+   "group": "random",
+   "tags": [
+    "5wp",
+    "velocityZone"
+   ],
+   "waypoints": 5,
+   "wall": 1.657,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 4.4642,
+   "iterations": 245,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (105 it, 1.01s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (34 it, 0.32s)",
+    "candidate 1: direct: Solve_Succeeded (70 it, 0.93s)",
+    "candidate 1: zones: membership changed (zone), re-solving",
+    "candidate 1: zones: Solve_Succeeded (36 it, 0.51s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0303,
+    "min_wall_clearance": 0.3594,
+    "max_speed": 4.332,
+    "samples": 66
+   }
+  },
+  {
+   "name": "random-014",
+   "group": "random",
+   "tags": [
+    "9wp",
+    "midStops"
+   ],
+   "waypoints": 9,
+   "wall": 3.208,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 7.7371,
+   "iterations": 162,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (61 it, 1.95s)",
+    "candidate 1: direct: Solve_Succeeded (101 it, 2.96s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0303,
+    "min_wall_clearance": 0.4605,
+    "max_speed": 4.332,
+    "samples": 161
+   }
+  },
+  {
+   "name": "random-015",
+   "group": "random",
+   "tags": [
+    "2wp",
+    "pointAt"
+   ],
+   "waypoints": 2,
+   "wall": 0.078,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.434,
+   "iterations": 20,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (20 it, 0.04s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 1.8298,
+    "min_wall_clearance": 0.7618,
+    "max_speed": 4.221,
+    "samples": 26
+   }
+  },
+  {
+   "name": "random-016",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "midStops",
+    "keepOut"
+   ],
+   "waypoints": 4,
+   "wall": 0.501,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.1093,
+   "iterations": 64,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (64 it, 0.44s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0325,
+    "min_wall_clearance": 0.3349,
+    "max_speed": 4.332,
+    "samples": 56
+   }
+  },
+  {
+   "name": "random-017",
+   "group": "random",
+   "tags": [
+    "4wp"
+   ],
+   "waypoints": 4,
+   "wall": 1.181,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.5232,
+   "iterations": 131,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (46 it, 0.19s)",
+    "candidate 1: direct: Solve_Succeeded (85 it, 1.00s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.1632,
+    "min_wall_clearance": 1.0176,
+    "max_speed": 4.332,
+    "samples": 53
+   }
+  },
+  {
+   "name": "random-018",
+   "group": "random",
+   "tags": [
+    "9wp",
+    "pointAt",
+    "tolerance",
+    "midStops"
+   ],
+   "waypoints": 9,
+   "wall": 1.321,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 7.5066,
+   "iterations": 64,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (64 it, 1.22s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0363,
+    "min_wall_clearance": 0.4037,
+    "max_speed": 4.332,
+    "samples": 121
+   }
+  },
+  {
+   "name": "random-019",
+   "group": "random",
+   "tags": [
+    "2wp"
+   ],
+   "waypoints": 2,
+   "wall": 0.071,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 0.6222,
+   "iterations": 14,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (14 it, 0.04s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.3438,
+    "min_wall_clearance": 1.4646,
+    "max_speed": 3.19,
+    "samples": 12
+   }
+  },
+  {
+   "name": "random-020",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "pointAt",
+    "midStops",
+    "velocityZone"
+   ],
+   "waypoints": 3,
+   "wall": 0.233,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.9749,
+   "iterations": 44,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (33 it, 0.12s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (11 it, 0.06s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.4469,
+    "min_wall_clearance": 0.8413,
+    "max_speed": 2.19,
+    "samples": 29
+   }
+  },
+  {
+   "name": "random-021",
+   "group": "random",
+   "tags": [
+    "2wp",
+    "pointAt"
+   ],
+   "waypoints": 2,
+   "wall": 0.07,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 0.386,
+   "iterations": 24,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (24 it, 0.04s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.4547,
+    "min_wall_clearance": 1.3961,
+    "max_speed": 4.122,
+    "samples": 11
+   }
+  },
+  {
+   "name": "random-022",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "tolerance",
+    "maxAccel"
+   ],
+   "waypoints": 4,
+   "wall": 0.286,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 5.3625,
+   "iterations": 42,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (42 it, 0.24s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.6069,
+    "min_wall_clearance": 1.0508,
+    "max_speed": 3.163,
+    "samples": 46
+   }
+  },
+  {
+   "name": "random-023",
+   "group": "random",
+   "tags": [
+    "6wp",
+    "tolerance",
+    "midStops"
+   ],
+   "waypoints": 6,
+   "wall": 1.183,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.387,
+   "iterations": 69,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (69 it, 1.13s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.1053,
+    "min_wall_clearance": 1.2617,
+    "max_speed": 4.328,
+    "samples": 95
+   }
+  },
+  {
+   "name": "random-024",
+   "group": "random",
+   "tags": [
+    "6wp",
+    "tolerance",
+    "midStops",
+    "keepOut"
+   ],
+   "waypoints": 6,
+   "wall": 1.347,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 5.1789,
+   "iterations": 110,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (55 it, 1.09s)",
+    "candidate 1: direct: Solve_Succeeded (55 it, 0.99s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0298,
+    "min_wall_clearance": 0.36,
+    "max_speed": 4.332,
+    "samples": 93
+   }
+  },
+  {
+   "name": "random-025",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "maxAccel"
+   ],
+   "waypoints": 3,
+   "wall": 0.295,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.9036,
+   "iterations": 60,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (60 it, 0.24s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0287,
+    "min_wall_clearance": 0.6759,
+    "max_speed": 3.935,
+    "samples": 40
+   }
+  },
+  {
+   "name": "random-026",
+   "group": "random",
+   "tags": [
+    "4wp"
+   ],
+   "waypoints": 4,
+   "wall": 0.491,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.0662,
+   "iterations": 59,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (59 it, 0.42s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0294,
+    "min_wall_clearance": 1.2616,
+    "max_speed": 4.332,
+    "samples": 54
+   }
+  },
+  {
+   "name": "random-027",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "pointAt",
+    "tolerance"
+   ],
+   "waypoints": 4,
+   "wall": 0.34,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.5533,
+   "iterations": 65,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (65 it, 0.30s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0302,
+    "min_wall_clearance": 0.5203,
+    "max_speed": 4.312,
+    "samples": 50
+   }
+  },
+  {
+   "name": "random-028",
+   "group": "random",
+   "tags": [
+    "7wp",
+    "tolerance",
+    "midStops"
+   ],
+   "waypoints": 7,
+   "wall": 1.18,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 5.8944,
+   "iterations": 68,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (68 it, 1.11s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0297,
+    "min_wall_clearance": 0.2291,
+    "max_speed": 4.332,
+    "samples": 103
+   }
+  },
+  {
+   "name": "random-029",
+   "group": "random",
+   "tags": [
+    "8wp",
+    "tolerance"
+   ],
+   "waypoints": 8,
+   "wall": 2.123,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 7.7841,
+   "iterations": 153,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (87 it, 1.88s)",
+    "candidate 1: direct: Solve_Succeeded (66 it, 1.58s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0321,
+    "min_wall_clearance": 0.8021,
+    "max_speed": 4.332,
+    "samples": 123
+   }
+  },
+  {
+   "name": "random-030",
+   "group": "random",
+   "tags": [
+    "9wp",
+    "pointAt",
+    "tolerance",
+    "midStops",
+    "velocityZone",
+    "maxAccel"
+   ],
+   "waypoints": 9,
+   "wall": 6.732,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 10.3944,
+   "iterations": 278,
+   "candidate": 1,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (87 it, 2.60s)",
+    "candidate 1: direct: Solve_Succeeded (191 it, 6.43s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0324,
+    "min_wall_clearance": 0.0193,
+    "max_speed": 4.332,
+    "samples": 168
+   }
+  },
+  {
+   "name": "random-031",
+   "group": "random",
+   "tags": [
+    "9wp",
+    "tolerance",
+    "midStops"
+   ],
+   "waypoints": 9,
+   "wall": 1.235,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 6.5731,
+   "iterations": 68,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (68 it, 1.17s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.03,
+    "min_wall_clearance": 0.0199,
+    "max_speed": 4.332,
+    "samples": 105
+   }
+  },
+  {
+   "name": "random-032",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "midStops"
+   ],
+   "waypoints": 3,
+   "wall": 0.535,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.1759,
+   "iterations": 140,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (140 it, 0.49s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0417,
+    "min_wall_clearance": 0.6583,
+    "max_speed": 4.332,
+    "samples": 38
+   }
+  },
+  {
+   "name": "random-033",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "pointAt"
+   ],
+   "waypoints": 3,
+   "wall": 0.623,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.9517,
+   "iterations": 127,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (68 it, 0.42s)",
+    "candidate 1: direct: Solve_Succeeded (59 it, 0.37s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0307,
+    "min_wall_clearance": 0.1672,
+    "max_speed": 4.332,
+    "samples": 49
+   }
+  },
+  {
+   "name": "random-034",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "midStops",
+    "velocityZone"
+   ],
+   "waypoints": 3,
+   "wall": 1.119,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 4.0954,
+   "iterations": 133,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (39 it, 0.28s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (39 it, 0.31s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (55 it, 0.42s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0401,
+    "min_wall_clearance": 0.3407,
+    "max_speed": 4.332,
+    "samples": 54
+   }
+  },
+  {
+   "name": "random-035",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "midStops"
+   ],
+   "waypoints": 4,
+   "wall": 0.236,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.4173,
+   "iterations": 39,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (39 it, 0.19s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.1129,
+    "min_wall_clearance": 1.3489,
+    "max_speed": 4.332,
+    "samples": 39
+   }
+  },
+  {
+   "name": "random-036",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "midStops",
+    "velocityZone"
+   ],
+   "waypoints": 3,
+   "wall": 0.152,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.4797,
+   "iterations": 19,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (19 it, 0.11s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.2147,
+    "min_wall_clearance": 0.2367,
+    "max_speed": 4.332,
+    "samples": 45
+   }
+  },
+  {
+   "name": "random-037",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "pointAt",
+    "midStops"
+   ],
+   "waypoints": 3,
+   "wall": 0.106,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.8947,
+   "iterations": 23,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (23 it, 0.08s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.5677,
+    "min_wall_clearance": 0.5368,
+    "max_speed": 4.305,
+    "samples": 33
+   }
+  },
+  {
+   "name": "random-038",
+   "group": "random",
+   "tags": [
+    "5wp",
+    "tolerance",
+    "midStops"
+   ],
+   "waypoints": 5,
+   "wall": 0.77,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.1977,
+   "iterations": 148,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (90 it, 0.56s)",
+    "candidate 1: direct: Solve_Succeeded (58 it, 0.35s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0431,
+    "min_wall_clearance": 1.0508,
+    "max_speed": 4.332,
+    "samples": 58
+   }
+  },
+  {
+   "name": "random-039",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "maxAccel"
+   ],
+   "waypoints": 4,
+   "wall": 1.362,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 4.9694,
+   "iterations": 138,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (61 it, 0.57s)",
+    "candidate 1: direct: Solve_Succeeded (77 it, 1.15s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0293,
+    "min_wall_clearance": 0.514,
+    "max_speed": 4.332,
+    "samples": 63
+   }
+  },
+  {
+   "name": "random-040",
+   "group": "random",
+   "tags": [
+    "3wp",
+    "midStops",
+    "velocityZone",
+    "keepOut"
+   ],
+   "waypoints": 3,
+   "wall": 0.765,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.1841,
+   "iterations": 135,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (31 it, 0.18s)",
+    "candidate 1: direct: Solve_Succeeded (104 it, 0.57s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0308,
+    "min_wall_clearance": 2.2037,
+    "max_speed": 4.332,
+    "samples": 42
+   }
+  },
+  {
+   "name": "random-041",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "midStops",
+    "velocityZone"
+   ],
+   "waypoints": 4,
+   "wall": 0.61,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.4958,
+   "iterations": 127,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (58 it, 0.23s)",
+    "candidate 1: direct: Solve_Succeeded (69 it, 0.44s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.2037,
+    "min_wall_clearance": 0.349,
+    "max_speed": 4.332,
+    "samples": 43
+   }
+  },
+  {
+   "name": "random-042",
+   "group": "random",
+   "tags": [
+    "2wp"
+   ],
+   "waypoints": 2,
+   "wall": 0.083,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 0.8224,
+   "iterations": 14,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (14 it, 0.04s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.5467,
+    "min_wall_clearance": 0.3537,
+    "max_speed": 4.27,
+    "samples": 16
+   }
+  },
+  {
+   "name": "random-043",
+   "group": "random",
+   "tags": [
+    "2wp"
+   ],
+   "waypoints": 2,
+   "wall": 0.341,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 1.311,
+   "iterations": 99,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (56 it, 0.17s)",
+    "candidate 1: direct: Solve_Succeeded (43 it, 0.17s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0415,
+    "min_wall_clearance": 2.048,
+    "max_speed": 4.332,
+    "samples": 27
+   }
+  },
+  {
+   "name": "random-044",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "tolerance",
+    "midStops",
+    "maxAccel"
+   ],
+   "waypoints": 4,
+   "wall": 0.272,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.5834,
+   "iterations": 63,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (63 it, 0.24s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.8577,
+    "min_wall_clearance": 1.0114,
+    "max_speed": 3.175,
+    "samples": 41
+   }
+  },
+  {
+   "name": "random-045",
+   "group": "random",
+   "tags": [
+    "4wp",
+    "pointAt"
+   ],
+   "waypoints": 4,
+   "wall": 0.306,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 3.3498,
+   "iterations": 37,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (37 it, 0.25s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.1314,
+    "min_wall_clearance": 0.1753,
+    "max_speed": 4.332,
+    "samples": 49
+   }
+  },
+  {
+   "name": "random-046",
+   "group": "random",
+   "tags": [
+    "10wp",
+    "midStops",
+    "velocityZone"
+   ],
+   "waypoints": 10,
+   "wall": 11.218,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 10.5441,
+   "iterations": 491,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (84 it, 2.33s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (59 it, 1.65s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (55 it, 1.55s)",
+    "candidate 1: direct: Solve_Succeeded (125 it, 4.50s)",
+    "candidate 1: zones: membership changed (zone), re-solving",
+    "candidate 1: zones: Solve_Succeeded (88 it, 3.37s)",
+    "candidate 1: zones: membership changed (zone), re-solving",
+    "candidate 1: zones: Solve_Succeeded (80 it, 3.02s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0294,
+    "min_wall_clearance": 0.6035,
+    "max_speed": 4.332,
+    "samples": 161
+   }
+  },
+  {
+   "name": "random-047",
+   "group": "random",
+   "tags": [
+    "3wp"
+   ],
+   "waypoints": 3,
+   "wall": 0.209,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.1616,
+   "iterations": 58,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (58 it, 0.17s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.4535,
+    "min_wall_clearance": 0.0809,
+    "max_speed": 4.332,
+    "samples": 32
+   }
+  },
+  {
+   "name": "random-048",
+   "group": "random",
+   "tags": [
+    "5wp",
+    "pointAt",
+    "midStops"
+   ],
+   "waypoints": 5,
+   "wall": 0.949,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 4.1329,
+   "iterations": 97,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (61 it, 0.74s)",
+    "candidate 1: direct: Solve_Succeeded (36 it, 0.44s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0621,
+    "min_wall_clearance": 1.3115,
+    "max_speed": 4.325,
+    "samples": 80
+   }
+  },
+  {
+   "name": "random-049",
+   "group": "random",
+   "tags": [
+    "2wp"
+   ],
+   "waypoints": 2,
+   "wall": 0.049,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 0.6649,
+   "iterations": 19,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (19 it, 0.03s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 1.1611,
+    "min_wall_clearance": 2.3089,
+    "max_speed": 3.799,
+    "samples": 13
+   }
+  },
+  {
+   "name": "random-050",
+   "group": "random",
+   "tags": [
+    "10wp",
+    "tolerance"
+   ],
+   "waypoints": 10,
+   "wall": 2.687,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 7.8788,
+   "iterations": 143,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (91 it, 2.46s)",
+    "candidate 1: direct: Solve_Succeeded (52 it, 1.64s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0401,
+    "min_wall_clearance": 0.0831,
+    "max_speed": 4.332,
+    "samples": 190
+   }
+  },
+  {
+   "name": "random-051",
+   "group": "random",
+   "tags": [
+    "8wp",
+    "tolerance",
+    "midStops",
+    "maxAccel"
+   ],
+   "waypoints": 8,
+   "wall": 2.665,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 10.571,
+   "iterations": 159,
+   "candidate": 1,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (75 it, 1.86s)",
+    "candidate 1: direct: Solve_Succeeded (84 it, 2.37s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.03,
+    "min_wall_clearance": 0.5071,
+    "max_speed": 4.046,
+    "samples": 135
+   }
+  },
+  {
+   "name": "random-052",
+   "group": "random",
+   "tags": [
+    "2wp",
+    "keepOut"
+   ],
+   "waypoints": 2,
+   "wall": 0.594,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.7621,
+   "iterations": 64,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (64 it, 0.50s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0316,
+    "min_wall_clearance": 0.1136,
+    "max_speed": 4.332,
+    "samples": 55
+   }
+  },
+  {
+   "name": "random-053",
+   "group": "random",
+   "tags": [
+    "10wp",
+    "midStops"
+   ],
+   "waypoints": 10,
+   "wall": 3.065,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 8.6425,
+   "iterations": 154,
+   "candidate": 1,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (57 it, 1.56s)",
+    "candidate 1: direct: Solve_Succeeded (97 it, 2.81s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0406,
+    "min_wall_clearance": 0.0199,
+    "max_speed": 4.332,
+    "samples": 189
+   }
+  },
+  {
+   "name": "random-054",
+   "group": "random",
+   "tags": [
+    "3wp"
+   ],
+   "waypoints": 3,
+   "wall": 0.341,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 2.5076,
+   "iterations": 62,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (62 it, 0.29s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0329,
+    "min_wall_clearance": 0.2822,
+    "max_speed": 4.332,
+    "samples": 39
+   }
+  },
+  {
+   "name": "random-055",
+   "group": "random",
+   "tags": [
+    "10wp",
+    "pointAt",
+    "midStops",
+    "keepOut"
+   ],
+   "waypoints": 10,
+   "wall": 8.018,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 12.4113,
+   "iterations": 259,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (189 it, 7.74s)",
+    "candidate 1: direct: Solve_Succeeded (70 it, 3.29s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0345,
+    "min_wall_clearance": 0.0423,
+    "max_speed": 4.332,
+    "samples": 217
+   }
+  },
+  {
+   "name": "random-056",
+   "group": "random",
+   "tags": [
+    "9wp",
+    "midStops",
+    "velocityZone"
+   ],
+   "waypoints": 9,
+   "wall": 3.73,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 8.531,
+   "iterations": 162,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (56 it, 1.27s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (51 it, 1.08s)",
+    "candidate 0: zones: membership changed (zone), re-solving",
+    "candidate 0: zones: Solve_Succeeded (55 it, 1.25s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0476,
+    "min_wall_clearance": 0.1483,
+    "max_speed": 4.332,
+    "samples": 146
+   }
+  },
+  {
+   "name": "random-057",
+   "group": "random",
+   "tags": [
+    "8wp",
+    "tolerance"
+   ],
+   "waypoints": 8,
+   "wall": 1.677,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 6.7608,
+   "iterations": 100,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (100 it, 1.60s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0301,
+    "min_wall_clearance": 0.0196,
+    "max_speed": 4.332,
+    "samples": 98
+   }
+  },
+  {
+   "name": "random-058",
+   "group": "random",
+   "tags": [
+    "5wp",
+    "midStops",
+    "keepOut"
+   ],
+   "waypoints": 5,
+   "wall": 3.547,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 5.7874,
+   "iterations": 115,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (115 it, 3.43s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 0.0291,
+    "min_wall_clearance": 0.0512,
+    "max_speed": 4.332,
+    "samples": 145
+   }
+  },
+  {
+   "name": "random-059",
+   "group": "random",
+   "tags": [
+    "2wp"
+   ],
+   "waypoints": 2,
+   "wall": 0.05,
+   "solver_success": true,
+   "valid": true,
+   "violations": [],
+   "path_time": 0.8109,
+   "iterations": 17,
+   "candidate": 0,
+   "attempts": [
+    "candidate 0: direct: Solve_Succeeded (17 it, 0.03s)"
+   ],
+   "issues": [],
+   "metrics": {
+    "min_obstacle_clearance": 1.1781,
+    "min_wall_clearance": 2.8522,
+    "max_speed": 4.197,
+    "samples": 16
+   }
+  }
+ ]
+}
