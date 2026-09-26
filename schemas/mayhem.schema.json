@@ -1,0 +1,1331 @@
+{
+  "$defs": {
+    "Bumper": {
+      "description": "Bumper outline as distances from robot center (always positive).",
+      "properties": {
+        "front": {
+          "default": 0.45,
+          "title": "Front",
+          "type": "number"
+        },
+        "back": {
+          "default": 0.45,
+          "title": "Back",
+          "type": "number"
+        },
+        "left": {
+          "default": 0.45,
+          "title": "Left",
+          "type": "number"
+        },
+        "right": {
+          "default": 0.45,
+          "title": "Right",
+          "type": "number"
+        }
+      },
+      "title": "Bumper",
+      "type": "object"
+    },
+    "Constraint": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": {
+            "kind": "range",
+            "from": 0,
+            "to": 0,
+            "region": []
+          }
+        },
+        "data": {
+          "discriminator": {
+            "mapping": {
+              "keepIn": "#/$defs/KeepIn",
+              "keepOut": "#/$defs/KeepOut",
+              "maxAcceleration": "#/$defs/MaxAcceleration",
+              "maxAngularVelocity": "#/$defs/MaxAngularVelocity",
+              "maxVelocity": "#/$defs/MaxVelocity",
+              "pointAt": "#/$defs/PointAt"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MaxVelocity"
+            },
+            {
+              "$ref": "#/$defs/MaxAcceleration"
+            },
+            {
+              "$ref": "#/$defs/MaxAngularVelocity"
+            },
+            {
+              "$ref": "#/$defs/PointAt"
+            },
+            {
+              "$ref": "#/$defs/KeepIn"
+            },
+            {
+              "$ref": "#/$defs/KeepOut"
+            }
+          ],
+          "title": "Data"
+        }
+      },
+      "required": [
+        "id",
+        "data"
+      ],
+      "title": "Constraint",
+      "type": "object"
+    },
+    "EventOut": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "command": {
+          "title": "Command",
+          "type": "string"
+        },
+        "t": {
+          "title": "T",
+          "type": "number"
+        },
+        "endT": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endt"
+        },
+        "recoveryPolicy": {
+          "default": "fireAtJoin",
+          "enum": [
+            "fireAtJoin",
+            "fireImmediately",
+            "skip"
+          ],
+          "title": "Recoverypolicy",
+          "type": "string"
+        },
+        "mustHit": {
+          "default": false,
+          "title": "Musthit",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "command",
+        "t"
+      ],
+      "title": "EventOut",
+      "type": "object"
+    },
+    "Field_": {
+      "description": "A field definition. Named Field_ to avoid clashing with pydantic.Field.",
+      "properties": {
+        "id": {
+          "default": "blank",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "default": "Blank field",
+          "title": "Name",
+          "type": "string"
+        },
+        "length": {
+          "default": 16.541,
+          "title": "Length",
+          "type": "number"
+        },
+        "width": {
+          "default": 8.069,
+          "title": "Width",
+          "type": "number"
+        },
+        "symmetry": {
+          "default": "rotational",
+          "enum": [
+            "mirror",
+            "rotational"
+          ],
+          "title": "Symmetry",
+          "type": "string"
+        },
+        "wallMargin": {
+          "default": 0.02,
+          "title": "Wallmargin",
+          "type": "number"
+        },
+        "obstacles": {
+          "items": {
+            "$ref": "#/$defs/Obstacle"
+          },
+          "title": "Obstacles",
+          "type": "array"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        }
+      },
+      "title": "Field",
+      "type": "object"
+    },
+    "Issue": {
+      "properties": {
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "waypoint": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Waypoint"
+        },
+        "t": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "T"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Y"
+        }
+      },
+      "required": [
+        "severity",
+        "message"
+      ],
+      "title": "Issue",
+      "type": "object"
+    },
+    "KeepIn": {
+      "description": "Robot bumper must stay inside a convex polygon.",
+      "properties": {
+        "type": {
+          "const": "keepIn",
+          "default": "keepIn",
+          "title": "Type",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "title": "KeepIn",
+      "type": "object"
+    },
+    "KeepOut": {
+      "description": "Per-trajectory obstacle (polygon) in addition to field obstacles.",
+      "properties": {
+        "type": {
+          "const": "keepOut",
+          "default": "keepOut",
+          "title": "Type",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "margin": {
+          "default": 0.03,
+          "title": "Margin",
+          "type": "number"
+        }
+      },
+      "title": "KeepOut",
+      "type": "object"
+    },
+    "Limits": {
+      "description": "Conservative limits for the on-robot bridge planner.",
+      "properties": {
+        "maxVelocity": {
+          "title": "Maxvelocity",
+          "type": "number"
+        },
+        "maxAcceleration": {
+          "title": "Maxacceleration",
+          "type": "number"
+        },
+        "maxAngularVelocity": {
+          "title": "Maxangularvelocity",
+          "type": "number"
+        },
+        "maxAngularAcceleration": {
+          "title": "Maxangularacceleration",
+          "type": "number"
+        }
+      },
+      "required": [
+        "maxVelocity",
+        "maxAcceleration",
+        "maxAngularVelocity",
+        "maxAngularAcceleration"
+      ],
+      "title": "Limits",
+      "type": "object"
+    },
+    "Marker": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "command": {
+          "default": "",
+          "title": "Command",
+          "type": "string"
+        },
+        "waypoint": {
+          "default": 0,
+          "title": "Waypoint",
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0.0,
+          "description": "Seconds relative to the waypoint's time",
+          "title": "Offset",
+          "type": "number"
+        },
+        "endWaypoint": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set to make this a zone marker",
+          "title": "Endwaypoint"
+        },
+        "endOffset": {
+          "default": 0.0,
+          "title": "Endoffset",
+          "type": "number"
+        },
+        "recoveryPolicy": {
+          "default": "fireAtJoin",
+          "enum": [
+            "fireAtJoin",
+            "fireImmediately",
+            "skip"
+          ],
+          "title": "Recoverypolicy",
+          "type": "string"
+        },
+        "mustHit": {
+          "default": false,
+          "description": "Recovery may not skip past this marker's time",
+          "title": "Musthit",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Marker",
+      "type": "object"
+    },
+    "MaxAcceleration": {
+      "properties": {
+        "type": {
+          "const": "maxAcceleration",
+          "default": "maxAcceleration",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "default": 3.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "title": "MaxAcceleration",
+      "type": "object"
+    },
+    "MaxAngularVelocity": {
+      "properties": {
+        "type": {
+          "const": "maxAngularVelocity",
+          "default": "maxAngularVelocity",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "default": 3.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "title": "MaxAngularVelocity",
+      "type": "object"
+    },
+    "MaxVelocity": {
+      "properties": {
+        "type": {
+          "const": "maxVelocity",
+          "default": "maxVelocity",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "default": 2.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "title": "MaxVelocity",
+      "type": "object"
+    },
+    "Motor": {
+      "properties": {
+        "type": {
+          "default": "krakenX60",
+          "enum": [
+            "krakenX60",
+            "krakenX60Foc",
+            "krakenX44",
+            "falcon500",
+            "falcon500Foc",
+            "neo",
+            "neoVortex"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "gearing": {
+          "default": 6.75,
+          "description": "Drive reduction (motor turns per wheel turn)",
+          "title": "Gearing",
+          "type": "number"
+        },
+        "currentLimit": {
+          "default": 80.0,
+          "description": "Drive stator current limit [A]",
+          "title": "Currentlimit",
+          "type": "number"
+        },
+        "efficiency": {
+          "default": 0.9,
+          "description": "Drivetrain efficiency multiplier on torque",
+          "title": "Efficiency",
+          "type": "number"
+        }
+      },
+      "title": "Motor",
+      "type": "object"
+    },
+    "Obstacle": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "default": "Obstacle",
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "default": "polygon",
+          "enum": [
+            "polygon",
+            "circle"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "center": {
+          "default": [
+            0.0,
+            0.0
+          ],
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Center",
+          "type": "array"
+        },
+        "radius": {
+          "default": 0.5,
+          "title": "Radius",
+          "type": "number"
+        },
+        "margin": {
+          "default": 0.03,
+          "description": "Extra clearance around this obstacle [m]",
+          "title": "Margin",
+          "type": "number"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Obstacle",
+      "type": "object"
+    },
+    "PointAt": {
+      "properties": {
+        "type": {
+          "const": "pointAt",
+          "default": "pointAt",
+          "title": "Type",
+          "type": "string"
+        },
+        "x": {
+          "default": 0.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "default": 0.0,
+          "title": "Y",
+          "type": "number"
+        },
+        "tolerance": {
+          "default": 0.05,
+          "title": "Tolerance",
+          "type": "number"
+        },
+        "flip": {
+          "default": false,
+          "description": "Face away from the target instead",
+          "title": "Flip",
+          "type": "boolean"
+        }
+      },
+      "title": "PointAt",
+      "type": "object"
+    },
+    "Project": {
+      "properties": {
+        "formatVersion": {
+          "default": 1,
+          "title": "Formatversion",
+          "type": "integer"
+        },
+        "name": {
+          "default": "Mayhem Project",
+          "title": "Name",
+          "type": "string"
+        },
+        "robot": {
+          "$ref": "#/$defs/RobotConfig",
+          "default": {
+            "mass": 60.0,
+            "moi": 6.0,
+            "bumper": {
+              "back": 0.45,
+              "front": 0.45,
+              "left": 0.45,
+              "right": 0.45
+            },
+            "modules": [
+              [
+                0.28,
+                0.28
+              ],
+              [
+                0.28,
+                -0.28
+              ],
+              [
+                -0.28,
+                0.28
+              ],
+              [
+                -0.28,
+                -0.28
+              ]
+            ],
+            "wheelRadius": 0.0508,
+            "wheelCof": 1.2,
+            "motor": {
+              "currentLimit": 80.0,
+              "efficiency": 0.9,
+              "gearing": 6.75,
+              "type": "krakenX60"
+            },
+            "batteryVoltage": 11.0,
+            "cogHeight": 0.0
+          }
+        },
+        "field": {
+          "$ref": "#/$defs/Field_",
+          "default": {
+            "id": "blank",
+            "name": "Blank field",
+            "length": 16.541,
+            "width": 8.069,
+            "symmetry": "rotational",
+            "wallMargin": 0.02,
+            "obstacles": [],
+            "notes": ""
+          }
+        },
+        "commands": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Commands",
+          "type": "array"
+        },
+        "deployDir": {
+          "default": "",
+          "description": "Robot project deploy dir (\u2026/src/main/deploy/mayhem)",
+          "title": "Deploydir",
+          "type": "string"
+        }
+      },
+      "title": "Project",
+      "type": "object"
+    },
+    "RecoveryPayload": {
+      "properties": {
+        "bumper": {
+          "description": "Bumper corners, robot frame",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Bumper",
+          "type": "array"
+        },
+        "obstacles": {
+          "description": "Convex obstacle pieces incl. margin, field frame (blue)",
+          "items": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "title": "Obstacles",
+          "type": "array"
+        },
+        "fieldLength": {
+          "title": "Fieldlength",
+          "type": "number"
+        },
+        "fieldWidth": {
+          "title": "Fieldwidth",
+          "type": "number"
+        },
+        "symmetry": {
+          "enum": [
+            "mirror",
+            "rotational"
+          ],
+          "title": "Symmetry",
+          "type": "string"
+        },
+        "roadmapNodes": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Roadmapnodes",
+          "type": "array"
+        },
+        "roadmapEdges": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Roadmapedges",
+          "type": "array"
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        },
+        "mustHitTimes": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Musthittimes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "bumper",
+        "obstacles",
+        "fieldLength",
+        "fieldWidth",
+        "symmetry",
+        "roadmapNodes",
+        "roadmapEdges",
+        "limits",
+        "mustHitTimes"
+      ],
+      "title": "RecoveryPayload",
+      "type": "object"
+    },
+    "RobotConfig": {
+      "properties": {
+        "mass": {
+          "default": 60.0,
+          "description": "Robot mass incl. bumpers and battery [kg]",
+          "title": "Mass",
+          "type": "number"
+        },
+        "moi": {
+          "default": 6.0,
+          "description": "Rotational inertia about vertical axis [kg m^2]",
+          "title": "Moi",
+          "type": "number"
+        },
+        "bumper": {
+          "$ref": "#/$defs/Bumper",
+          "default": {
+            "front": 0.45,
+            "back": 0.45,
+            "left": 0.45,
+            "right": 0.45
+          }
+        },
+        "modules": {
+          "description": "Module positions relative to robot center [m] (FL, FR, BL, BR)",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Modules",
+          "type": "array"
+        },
+        "wheelRadius": {
+          "default": 0.0508,
+          "title": "Wheelradius",
+          "type": "number"
+        },
+        "wheelCof": {
+          "default": 1.2,
+          "description": "Wheel-carpet coefficient of friction",
+          "title": "Wheelcof",
+          "type": "number"
+        },
+        "motor": {
+          "$ref": "#/$defs/Motor",
+          "default": {
+            "type": "krakenX60",
+            "gearing": 6.75,
+            "currentLimit": 80.0,
+            "efficiency": 0.9
+          }
+        },
+        "batteryVoltage": {
+          "default": 11.0,
+          "description": "Voltage budget used for planning (leave headroom for feedback)",
+          "title": "Batteryvoltage",
+          "type": "number"
+        },
+        "cogHeight": {
+          "default": 0.0,
+          "description": "Center of gravity height [m]; >0 enables weight-transfer model",
+          "title": "Cogheight",
+          "type": "number"
+        }
+      },
+      "title": "RobotConfig",
+      "type": "object"
+    },
+    "Sample": {
+      "properties": {
+        "t": {
+          "title": "T",
+          "type": "number"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "heading": {
+          "title": "Heading",
+          "type": "number"
+        },
+        "vx": {
+          "title": "Vx",
+          "type": "number"
+        },
+        "vy": {
+          "title": "Vy",
+          "type": "number"
+        },
+        "omega": {
+          "title": "Omega",
+          "type": "number"
+        },
+        "ax": {
+          "title": "Ax",
+          "type": "number"
+        },
+        "ay": {
+          "title": "Ay",
+          "type": "number"
+        },
+        "alpha": {
+          "title": "Alpha",
+          "type": "number"
+        },
+        "fx": {
+          "description": "Per-module field-frame force x [N]",
+          "items": {
+            "type": "number"
+          },
+          "title": "Fx",
+          "type": "array"
+        },
+        "fy": {
+          "description": "Per-module field-frame force y [N]",
+          "items": {
+            "type": "number"
+          },
+          "title": "Fy",
+          "type": "array"
+        }
+      },
+      "required": [
+        "t",
+        "x",
+        "y",
+        "heading",
+        "vx",
+        "vy",
+        "omega",
+        "ax",
+        "ay",
+        "alpha",
+        "fx",
+        "fy"
+      ],
+      "title": "Sample",
+      "type": "object"
+    },
+    "Scope": {
+      "description": "Where a constraint applies.\n\nkind=waypoint: at waypoint `from_` only.\nkind=range: every sample between waypoint `from_` and `to` inclusive.\nkind=zone: every sample whose robot center is inside `region`.",
+      "properties": {
+        "kind": {
+          "default": "range",
+          "enum": [
+            "waypoint",
+            "range",
+            "zone"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "from": {
+          "default": 0,
+          "title": "From",
+          "type": "integer"
+        },
+        "to": {
+          "default": 0,
+          "title": "To",
+          "type": "integer"
+        },
+        "region": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Region",
+          "type": "array"
+        }
+      },
+      "title": "Scope",
+      "type": "object"
+    },
+    "SolveStats": {
+      "properties": {
+        "success": {
+          "title": "Success",
+          "type": "boolean"
+        },
+        "totalTime": {
+          "title": "Totaltime",
+          "type": "number"
+        },
+        "solveSeconds": {
+          "title": "Solveseconds",
+          "type": "number"
+        },
+        "iterations": {
+          "title": "Iterations",
+          "type": "integer"
+        },
+        "candidate": {
+          "title": "Candidate",
+          "type": "integer"
+        },
+        "attempts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Attempts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "success",
+        "totalTime",
+        "solveSeconds",
+        "iterations",
+        "candidate"
+      ],
+      "title": "SolveStats",
+      "type": "object"
+    },
+    "SolverSettings": {
+      "properties": {
+        "targetDt": {
+          "default": 0.08,
+          "description": "Target time between samples [s]",
+          "title": "Targetdt",
+          "type": "number"
+        },
+        "smoothing": {
+          "default": 0.02,
+          "description": "Weight of force-rate regularization",
+          "title": "Smoothing",
+          "type": "number"
+        },
+        "candidates": {
+          "default": 3,
+          "description": "Number of homotopy candidates to try",
+          "title": "Candidates",
+          "type": "integer"
+        },
+        "maxIterations": {
+          "default": 1500,
+          "title": "Maxiterations",
+          "type": "integer"
+        },
+        "timeLimit": {
+          "default": 60.0,
+          "description": "Wall-clock budget per trajectory [s]",
+          "title": "Timelimit",
+          "type": "number"
+        }
+      },
+      "title": "SolverSettings",
+      "type": "object"
+    },
+    "Tolerance": {
+      "properties": {
+        "kind": {
+          "default": "none",
+          "enum": [
+            "none",
+            "circle",
+            "box"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "radius": {
+          "default": 0.1,
+          "title": "Radius",
+          "type": "number"
+        },
+        "dx": {
+          "default": 0.1,
+          "title": "Dx",
+          "type": "number"
+        },
+        "dy": {
+          "default": 0.1,
+          "title": "Dy",
+          "type": "number"
+        }
+      },
+      "title": "Tolerance",
+      "type": "object"
+    },
+    "Trajectory": {
+      "properties": {
+        "formatVersion": {
+          "default": 1,
+          "title": "Formatversion",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "waypoints": {
+          "items": {
+            "$ref": "#/$defs/Waypoint"
+          },
+          "title": "Waypoints",
+          "type": "array"
+        },
+        "constraints": {
+          "items": {
+            "$ref": "#/$defs/Constraint"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "markers": {
+          "items": {
+            "$ref": "#/$defs/Marker"
+          },
+          "title": "Markers",
+          "type": "array"
+        },
+        "settings": {
+          "$ref": "#/$defs/SolverSettings",
+          "default": {
+            "targetDt": 0.08,
+            "smoothing": 0.02,
+            "candidates": 3,
+            "maxIterations": 1500,
+            "timeLimit": 60.0
+          }
+        },
+        "output": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrajectoryOutput"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Trajectory",
+      "type": "object"
+    },
+    "TrajectoryOutput": {
+      "properties": {
+        "inputHash": {
+          "title": "Inputhash",
+          "type": "string"
+        },
+        "samples": {
+          "items": {
+            "$ref": "#/$defs/Sample"
+          },
+          "title": "Samples",
+          "type": "array"
+        },
+        "waypointTimes": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Waypointtimes",
+          "type": "array"
+        },
+        "splits": {
+          "description": "Sample indices where a new segment starts",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Splits",
+          "type": "array"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/EventOut"
+          },
+          "title": "Events",
+          "type": "array"
+        },
+        "recovery": {
+          "$ref": "#/$defs/RecoveryPayload"
+        },
+        "stats": {
+          "$ref": "#/$defs/SolveStats"
+        }
+      },
+      "required": [
+        "inputHash",
+        "samples",
+        "waypointTimes",
+        "splits",
+        "events",
+        "recovery",
+        "stats"
+      ],
+      "title": "TrajectoryOutput",
+      "type": "object"
+    },
+    "Waypoint": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "heading": {
+          "default": 0.0,
+          "title": "Heading",
+          "type": "number"
+        },
+        "translationMode": {
+          "default": "fixed",
+          "description": "guide = only shapes the initial guess, not a constraint",
+          "enum": [
+            "fixed",
+            "guide"
+          ],
+          "title": "Translationmode",
+          "type": "string"
+        },
+        "headingMode": {
+          "default": "fixed",
+          "enum": [
+            "fixed",
+            "free"
+          ],
+          "title": "Headingmode",
+          "type": "string"
+        },
+        "headingTolerance": {
+          "default": 0.0,
+          "description": "Allowed heading error [rad]",
+          "title": "Headingtolerance",
+          "type": "number"
+        },
+        "tolerance": {
+          "$ref": "#/$defs/Tolerance",
+          "default": {
+            "kind": "none",
+            "radius": 0.1,
+            "dx": 0.1,
+            "dy": 0.1
+          }
+        },
+        "stop": {
+          "default": false,
+          "title": "Stop",
+          "type": "boolean"
+        },
+        "split": {
+          "default": false,
+          "title": "Split",
+          "type": "boolean"
+        },
+        "intervals": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override sample count to next waypoint",
+          "title": "Intervals"
+        }
+      },
+      "required": [
+        "id",
+        "x",
+        "y"
+      ],
+      "title": "Waypoint",
+      "type": "object"
+    }
+  },
+  "title": "Mayhem"
+}

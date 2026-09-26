@@ -1,7 +1,7 @@
 [project]
 name = "mayhem-solver"
 version = "0.1.0"
-description = "Add your description here"
+description = "Time-optimal swerve trajectory solver for FRC (Mayhem)"
 authors = [
     { name = "Ryan Abraham", email = "ryan.ryanabraham@gmail.com" }
 ]
@@ -15,6 +15,9 @@ dependencies = [
     "websockets>=17.1",
 ]
 
+[project.scripts]
+mayhem-solver = "mayhem_solver.cli:main"
+
 [build-system]
 requires = ["uv_build>=0.12.19,<0.13.0"]
 build-backend = "uv_build"
@@ -24,3 +27,6 @@ dev = [
     "pyinstaller>=6.22.3",
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

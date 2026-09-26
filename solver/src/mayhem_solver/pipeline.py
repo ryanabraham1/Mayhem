@@ -18,7 +18,6 @@ import json
 import math
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -361,7 +360,7 @@ def _solve_candidate(project_json: dict, traj_json: dict, routes, cand: int, dea
 
 
 def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = None,
-          parallel: bool = True, queue_factory=None) -> SolveResult:
+          parallel: bool = True) -> SolveResult:
     t_start = time.monotonic()
     dt = build_drivetrain(project.robot)
     world = make_world(project, traj)
@@ -379,30 +378,12 @@ def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = N
     deadline_wall = time.time() + traj.settings.time_limit
     results = []
     if parallel and len(cands) > 1:
-        import multiprocessing as mp
-        ctx = mp.get_context("spawn")
-        manager = queue_factory() if queue_factory else None
-        queue = manager.Queue() if manager is not None else None
-        with ProcessPoolExecutor(max_workers=min(len(cands), os.cpu_count() or 2), mp_context=ctx) as ex:
-            futs = [ex.submit(_solve_candidate, pj, tj, c, i, deadline_wall, queue) for i, c in enumerate(cands)]
-            pending = set(futs)
-            while pending:
-                if queue is not None and progress:
-                    while not queue.empty():
-                        progress(queue.get_nowait())
-                done = [f for f in pending if f.done()]
-                for f in done:
-                    pending.discard(f)
-                    results.append(f.result())
-                if pending:
-                    time.sleep(0.05)
-            if queue is not None and progress:
-                while not queue.empty():
-                    progress(queue.get_nowait())
+        results = _run_parallel(pj, tj, cands, deadline_wall, progress)
     else:
         for i, c in enumerate(cands):
             results.append(_solve_candidate(pj, tj, c, i, deadline_wall, None if progress is None else _Direct(progress)))
 
+    results = [r for r in results if r.get("sol") is not None] or results
     good = [r for r in results if r["ok"]]
     total_iters = sum(r["iters"] for r in results)
     attempts = [f"candidate {r['candidate']}: {line}" for r in results for line in r["log"]]
@@ -417,10 +398,55 @@ def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = N
     # diagnose with an elastic solve on the most promising candidate
     issues += diagnose(project, traj, results)
     preview = None
-    if results:
+    if results and results[0].get("sol") is not None:
         s = results[0]["sol"]
         preview = np.round(np.vstack([s.x, s.y, s.th]).T, 3).tolist()
     return SolveResult(False, None, issues, preview)
+
+
+def _candidate_entry(pj, tj, routes, cand, deadline_wall, queue):
+    try:
+        res = _solve_candidate(pj, tj, routes, cand, deadline_wall, queue)
+    except Exception as e:  # pragma: no cover - reported to the user
+        res = {"ok": False, "sol": None, "iters": 0, "log": [f"crashed: {e!r}"], "candidate": cand}
+    queue.put({"type": "_result", "result": res})
+
+
+def _run_parallel(pj, tj, cands, deadline_wall, progress) -> list[dict]:
+    """One daemon process per candidate; progress and results share a queue."""
+    import multiprocessing as mp
+    import queue as queue_mod
+
+    ctx = mp.get_context("spawn")
+    q = ctx.Queue()
+    procs = [ctx.Process(target=_candidate_entry, args=(pj, tj, c, i, deadline_wall, q), daemon=True)
+             for i, c in enumerate(cands)]
+    for pr in procs:
+        pr.start()
+    results: dict[int, dict] = {}
+    hard_deadline = deadline_wall + 30
+    try:
+        while len(results) < len(procs):
+            try:
+                msg = q.get(timeout=0.2)
+            except queue_mod.Empty:
+                for i, pr in enumerate(procs):
+                    if i not in results and not pr.is_alive() and pr.exitcode not in (0, None):
+                        results[i] = {"ok": False, "sol": None, "iters": 0,
+                                      "log": [f"process exited with {pr.exitcode}"], "candidate": i}
+                if time.time() > hard_deadline:
+                    break
+                continue
+            if msg.get("type") == "_result":
+                r = msg["result"]
+                results[r["candidate"]] = r
+            elif progress:
+                progress(msg)
+    finally:
+        for pr in procs:
+            if pr.is_alive():
+                pr.terminate()
+    return [r for _, r in sorted(results.items()) if r["sol"] is not None] or list(results.values())
 
 
 class _Direct:
@@ -438,8 +464,8 @@ def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Is
     if not results:
         return [Issue(severity="error", message="No candidate routes could be generated.")]
     solver = Solver(project, traj, None, 0, time.monotonic() + max(10.0, traj.settings.time_limit / 3))
-    sol = results[0]["sol"]
-    if not np.all(np.isfinite(sol.x)):
+    sol = results[0].get("sol")
+    if sol is None or not np.all(np.isfinite(sol.x)):
         cands = candidate_routes(traj, solver.dt, solver.world, 1)
         sol = build_guess(traj, cands[0], solver.dt)
     res = solver.run_ocp(sol, "elastic", "diagnose")
