@@ -542,7 +542,9 @@ def build_output(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.
 def build_recovery(project, traj, dt: Drivetrain, world: geo.World, wtimes, events, T) -> RecoveryPayload:
     obstacles = []
     for piece in world.pieces:
-        buf = piece.poly.buffer(piece.margin, join_style="mitre", mitre_limit=2.0)
+        # The optimizer keeps the full margin at samples and >= half of it between samples,
+        # so export 0.4x margin: the reference itself is always clear of the exported shapes.
+        buf = piece.poly.buffer(0.4 * piece.margin, join_style="mitre", mitre_limit=2.0)
         buf = shapely.geometry.polygon.orient(buf.convex_hull, 1.0)
         obstacles.append([(round(x, 4), round(y, 4)) for x, y in list(buf.exterior.coords)[:-1]])
     rm = geo.build_roadmap(world, dt.circumradius + 0.05)
