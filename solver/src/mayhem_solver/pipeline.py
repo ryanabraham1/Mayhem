@@ -1,0 +1,542 @@
+"""Robust solve pipeline.
+
+1. Build world geometry (convex pieces) and a configuration-space roadmap.
+2. Generate up to K homotopy-distinct routes -> full-state initial guesses.
+3. For each candidate (in parallel), run a continuation ladder:
+      direct -> coarse mesh then refine -> soft geometry then hard
+      -> relaxed limits then nominal
+   each followed by a swept-collision check that refines the mesh and adds
+   obstacle pairs until the continuous path is clean.
+4. Keep the fastest verified candidate. If none, run an elastic solve and turn
+   the remaining slack into human-readable issues.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from typing import Callable, Optional
+
+import numpy as np
+import shapely
+from shapely.geometry import Point, Polygon
+
+from . import geometry as geo
+from .drivetrain import Drivetrain, build_drivetrain
+from .guess import Solution, build_guess, dense, resample
+from .models import (
+    EventOut,
+    Issue,
+    KeepOut,
+    Limits,
+    PointAt,
+    Project,
+    RecoveryPayload,
+    Sample,
+    SolveStats,
+    Trajectory,
+    TrajectoryOutput,
+)
+from .ocp import OCP, OCPOptions, OCPResult, scope_samples, select_pairs, waypoint_indices
+
+ProgressFn = Callable[[dict], None]
+
+
+@dataclass
+class SolveResult:
+    success: bool
+    output: Optional[TrajectoryOutput]
+    issues: list[Issue] = field(default_factory=list)
+    preview: Optional[list[list[float]]] = None  # best-effort path for failed solves
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+
+def input_hash(project: Project, traj: Trajectory) -> str:
+    payload = {
+        "robot": project.robot.dump(),
+        "field": project.field.dump(),
+        "traj": traj.model_dump(by_alias=True, mode="json", exclude={"output"}),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def make_world(project: Project, traj: Trajectory) -> geo.World:
+    extra = []
+    for con in traj.constraints:
+        if con.enabled and isinstance(con.data, KeepOut):
+            extra.append((f"Keep-out {con.id}", con.data.points, con.data.margin))
+    return geo.build_world(project.field, extra)
+
+
+def point_at_members(traj: Trajectory, sol: Solution):
+    out = []
+    for con in traj.constraints:
+        if con.enabled and isinstance(con.data, PointAt):
+            ks = scope_samples(con.scope, sol.Ns, sol)
+            out.append((ks, con.data.x, con.data.y, con.data.flip))
+    return out
+
+
+def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.World) -> list[Issue]:
+    issues = []
+    wps = traj.waypoints
+    if len(wps) < 2:
+        issues.append(Issue(severity="error", message="A trajectory needs at least 2 waypoints."))
+        return issues
+    for j, wp in enumerate(wps):
+        if not (0 <= wp.x <= world.length and 0 <= wp.y <= world.width):
+            issues.append(Issue(severity="error", message=f"Waypoint {j + 1} is outside the field.",
+                                waypoint=j, x=wp.x, y=wp.y))
+            continue
+        if wp.translation_mode != "fixed" or wp.heading_mode != "fixed" or wp.tolerance.kind != "none":
+            continue
+        rob = geo.bumper_polygon(dt.bumper_corners, wp.x, wp.y, wp.heading)
+        for piece in world.pieces:
+            if rob.intersects(piece.poly):
+                issues.append(Issue(
+                    severity="error",
+                    message=f"Waypoint {j + 1}'s bumpers overlap '{piece.name}'. Move it, rotate it, "
+                            "or give it a position tolerance.",
+                    waypoint=j, x=wp.x, y=wp.y))
+                break
+        minx, miny, maxx, maxy = rob.bounds
+        if minx < 0 or miny < 0 or maxx > world.length or maxy > world.width:
+            issues.append(Issue(severity="error", message=f"Waypoint {j + 1}'s bumpers leave the field.",
+                                waypoint=j, x=wp.x, y=wp.y))
+    for con in traj.constraints:
+        s = con.scope
+        n = len(wps)
+        if s.kind in ("waypoint", "range") and not (0 <= s.from_ < n and (s.kind == "waypoint" or 0 <= s.to < n)):
+            issues.append(Issue(severity="warning", message=f"Constraint {con.id} refers to a missing waypoint; ignored."))
+    return issues
+
+
+def candidate_routes(traj: Trajectory, dt: Drivetrain, world: geo.World, k: int) -> list[list[list]]:
+    """Returns a list of candidates; each is a list of per-segment polylines."""
+    wps = traj.waypoints
+    S = len(wps) - 1
+    per_seg: list[list[list]] = []
+    for j in range(S):
+        a = (wps[j].x, wps[j].y)
+        b = (wps[j + 1].x, wps[j + 1].y)
+        routes = []
+        for radius in (dt.circumradius + 0.02, dt.inradius + 0.02):
+            rm = geo.build_roadmap(world, radius)
+            routes = geo.route_candidates(rm, a, b, k)
+            if routes:
+                break
+        if not routes:
+            routes = [[a, b]]
+        per_seg.append(routes)
+    cands = []
+    n_c = max(len(r) for r in per_seg) if per_seg else 1
+    for i in range(min(k, n_c)):
+        cands.append([r[i] if i < len(r) else r[0] for r in per_seg])
+    return cands
+
+
+# ---------------------------------------------------------------------------
+# single-candidate ladder
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Attempt:
+    ok: bool
+    sol: Solution
+    iters: int
+    log: list[str]
+    slacks: list = field(default_factory=list)
+
+
+class Solver:
+    def __init__(self, project: Project, traj: Trajectory, progress: Optional[ProgressFn] = None,
+                 candidate: int = 0, deadline: Optional[float] = None):
+        self.project, self.traj = project, traj
+        self.dt = build_drivetrain(project.robot)
+        self.world = make_world(project, traj)
+        self.progress = progress
+        self.candidate = candidate
+        self.deadline = deadline or (time.monotonic() + traj.settings.time_limit)
+        self.iters = 0
+        self.log: list[str] = []
+
+    def _time_left(self) -> float:
+        return max(self.deadline - time.monotonic(), 1.0)
+
+    def _progress_fn(self, stage: str):
+        if self.progress is None:
+            return None
+
+        def fn(i, v):
+            th = np.arctan2(v[3], v[2])
+            pts = np.round(np.vstack([v[0], v[1], th]).T, 3).tolist()
+            self.progress({"type": "iteration", "candidate": self.candidate, "stage": stage,
+                           "iteration": i, "path": pts})
+        return fn
+
+    def run_ocp(self, guess: Solution, mode: str, stage: str, limit_scale: float = 1.0,
+                pairs: Optional[dict] = None) -> OCPResult:
+        if pairs is None:
+            act = max(0.4, 2.5 * float(np.max(np.hypot(guess.vx, guess.vy)) * np.max(guess.h)) + 0.25)
+            pairs = select_pairs(self.world, self.dt, guess, act)
+        s = self.traj.settings
+        opts = OCPOptions(mode=mode, limit_scale=limit_scale, smoothing=s.smoothing,
+                          max_iter=s.max_iterations, time_limit=self._time_left(),
+                          progress=self._progress_fn(stage))
+        if self.progress:
+            self.progress({"type": "stage", "candidate": self.candidate, "stage": stage})
+        res = OCP(self.dt, self.world, self.traj, guess, pairs, opts).solve()
+        self.iters += res.iterations
+        self.log.append(f"{stage}: {res.status} ({res.iterations} it, {res.seconds:.2f}s)")
+        return res
+
+    def verify(self, sol: Solution) -> list[geo.Collision]:
+        t, x, y, th, idx = dense(sol, 4)
+        hits = geo.check_path(self.world, self.dt.bumper_corners, t, x, y, th)
+        for h in hits:
+            h.index = int(idx[h.index])
+        return hits
+
+    def refine_collisions(self, res: OCPResult, rounds: int = 3) -> OCPResult:
+        """Swept-collision loop: add samples + pairs where the continuous path clips."""
+        for _ in range(rounds):
+            if not res.success:
+                return res
+            hits = self.verify(res.solution)
+            if not hits:
+                return res
+            sol = res.solution
+            wi = waypoint_indices(sol.Ns)
+            bad_segs = set()
+            for h in hits:
+                for j in range(len(sol.Ns)):
+                    if wi[j] <= h.index < wi[j + 1]:
+                        bad_segs.add(j)
+            Ns = [int(math.ceil(n * 1.6)) if j in bad_segs else n for j, n in enumerate(sol.Ns)]
+            self.log.append(f"swept check: {len(hits)} hits, refining segments {sorted(bad_segs)}")
+            guess = resample(sol, Ns)
+            act = max(0.6, 3.0 * float(np.max(np.hypot(guess.vx, guess.vy)) * np.max(guess.h)) + 0.35)
+            pairs = select_pairs(self.world, self.dt, guess, act)
+            res = self.run_ocp(guess, "hard", "refine", pairs=pairs)
+        if res.success and self.verify(res.solution):
+            res.success = False
+            res.status = "Swept collision check failed"
+        return res
+
+    def zone_fixpoint(self, res: OCPResult) -> OCPResult:
+        """Re-solve if zone-scoped constraint membership changed."""
+        zones = [c for c in self.traj.constraints if c.enabled and c.scope.kind == "zone"]
+        if not zones or not res.success:
+            return res
+        for _ in range(2):
+            changed = False
+            for c in zones:
+                before = scope_samples(c.scope, res.solution.Ns, self._last_guess)
+                after = scope_samples(c.scope, res.solution.Ns, res.solution)
+                if set(before) != set(after):
+                    changed = True
+            if not changed:
+                break
+            self._last_guess = res.solution
+            res = self.run_ocp(res.solution, "hard", "zones")
+        return res
+
+    def ladder(self, guess: Solution) -> Attempt:
+        self._last_guess = guess
+
+        def finish(res: OCPResult) -> Optional[Attempt]:
+            if not res.success:
+                return None
+            res = self.zone_fixpoint(res)
+            res = self.refine_collisions(res)
+            if res.success:
+                return Attempt(True, res.solution, self.iters, self.log)
+            return None
+
+        # 1. direct
+        res = self.run_ocp(guess, "hard", "direct")
+        if (a := finish(res)):
+            return a
+        best_fail = res
+
+        # 2. coarse mesh then refine
+        Ns_coarse = [max(3, n // 2) for n in guess.Ns]
+        if Ns_coarse != guess.Ns and self._time_left() > 2:
+            res_c = self.run_ocp(resample(guess, Ns_coarse), "hard", "coarse")
+            if res_c.success:
+                res = self.run_ocp(resample(res_c.solution, guess.Ns), "hard", "coarse->fine")
+                if (a := finish(res)):
+                    return a
+
+        # 3. soft geometry homotopy
+        if self._time_left() > 2:
+            res_s = self.run_ocp(guess, "soft_geometry", "soft-geometry")
+            if res_s.status in ("Solve_Succeeded", "Solved_To_Acceptable_Level", "Maximum_Iterations_Exceeded"):
+                res = self.run_ocp(res_s.solution, "hard", "soft->hard")
+                if (a := finish(res)):
+                    return a
+
+        # 4. relaxed limits
+        if self._time_left() > 2:
+            res_r = self.run_ocp(guess, "hard", "relaxed-limits", limit_scale=1.5)
+            if res_r.success:
+                res = self.run_ocp(res_r.solution, "hard", "relaxed->nominal")
+                if (a := finish(res)):
+                    return a
+
+        # 5. segment-wise warm start (solve each segment alone, stitch)
+        if len(guess.Ns) > 1 and self._time_left() > 2:
+            stitched = self.segmentwise(guess)
+            if stitched is not None:
+                res = self.run_ocp(stitched, "hard", "segmentwise->joint")
+                if (a := finish(res)):
+                    return a
+
+        return Attempt(False, best_fail.solution, self.iters, self.log)
+
+    def segmentwise(self, guess: Solution) -> Optional[Solution]:
+        wps = self.traj.waypoints
+        wi = waypoint_indices(guess.Ns)
+        parts = []
+        for j in range(len(guess.Ns)):
+            sub = self.traj.model_copy(deep=True)
+            sub.waypoints = [wps[j].model_copy(), wps[j + 1].model_copy()]
+            sub.waypoints[0].stop = True
+            sub.waypoints[1].stop = True
+            sub.constraints = []  # segment solve only needs geometry & limits
+            sl = slice(wi[j], wi[j + 1] + 1)
+            g = Solution([guess.Ns[j]], guess.h[j:j + 1], guess.x[sl], guess.y[sl], guess.th[sl],
+                         guess.vx[sl], guess.vy[sl], guess.w[sl], guess.ax[sl], guess.ay[sl], guess.al[sl],
+                         guess.Fx[:, sl], guess.Fy[:, sl])
+            s2 = Solver(self.project, sub, None, self.candidate, self.deadline)
+            s2.world = self.world
+            r = s2.run_ocp(g, "hard", f"segment {j + 1}")
+            self.iters += s2.iters
+            if not r.success:
+                return None
+            parts.append(r.solution)
+        # stitch (drop duplicated boundary samples)
+        def cat(attr):
+            arrs = [getattr(p, attr) for p in parts]
+            return np.concatenate([arrs[0]] + [a[1:] for a in arrs[1:]])
+        Fx = np.hstack([parts[0].Fx] + [p.Fx[:, 1:] for p in parts[1:]])
+        Fy = np.hstack([parts[0].Fy] + [p.Fy[:, 1:] for p in parts[1:]])
+        th = np.unwrap(cat("th"))
+        return Solution(list(guess.Ns), np.concatenate([p.h for p in parts]), cat("x"), cat("y"), th,
+                        cat("vx"), cat("vy"), cat("w"), cat("ax"), cat("ay"), cat("al"), Fx, Fy)
+
+
+# ---------------------------------------------------------------------------
+# candidate worker (runs in a separate process when parallel)
+# ---------------------------------------------------------------------------
+
+
+def _solve_candidate(project_json: dict, traj_json: dict, routes, cand: int, deadline_wall: float,
+                     queue=None) -> dict:
+    project = Project.model_validate(project_json)
+    traj = Trajectory.model_validate(traj_json)
+    progress = (lambda msg: queue.put(msg)) if queue is not None else None
+    deadline = time.monotonic() + max(deadline_wall - time.time(), 1.0)
+    solver = Solver(project, traj, progress, cand, deadline)
+    guess0 = build_guess(traj, routes, solver.dt)
+    pa = point_at_members(traj, guess0)
+    guess = build_guess(traj, routes, solver.dt, pa) if pa else guess0
+    att = solver.ladder(guess)
+    return {"ok": att.ok, "sol": att.sol, "iters": att.iters, "log": att.log, "candidate": cand}
+
+
+# ---------------------------------------------------------------------------
+# public entry point
+# ---------------------------------------------------------------------------
+
+
+def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = None,
+          parallel: bool = True, queue_factory=None) -> SolveResult:
+    t_start = time.monotonic()
+    dt = build_drivetrain(project.robot)
+    world = make_world(project, traj)
+    issues = validate(project, traj, dt, world)
+    if any(i.severity == "error" for i in issues):
+        return SolveResult(False, None, issues)
+
+    k = max(1, traj.settings.candidates)
+    cands = candidate_routes(traj, dt, world, k)
+    if progress:
+        progress({"type": "candidates", "count": len(cands),
+                  "routes": [[[list(p) for p in seg] for seg in c] for c in cands]})
+
+    pj, tj = project.dump(), traj.model_dump(by_alias=True, mode="json", exclude={"output"})
+    deadline_wall = time.time() + traj.settings.time_limit
+    results = []
+    if parallel and len(cands) > 1:
+        import multiprocessing as mp
+        ctx = mp.get_context("spawn")
+        manager = queue_factory() if queue_factory else None
+        queue = manager.Queue() if manager is not None else None
+        with ProcessPoolExecutor(max_workers=min(len(cands), os.cpu_count() or 2), mp_context=ctx) as ex:
+            futs = [ex.submit(_solve_candidate, pj, tj, c, i, deadline_wall, queue) for i, c in enumerate(cands)]
+            pending = set(futs)
+            while pending:
+                if queue is not None and progress:
+                    while not queue.empty():
+                        progress(queue.get_nowait())
+                done = [f for f in pending if f.done()]
+                for f in done:
+                    pending.discard(f)
+                    results.append(f.result())
+                if pending:
+                    time.sleep(0.05)
+            if queue is not None and progress:
+                while not queue.empty():
+                    progress(queue.get_nowait())
+    else:
+        for i, c in enumerate(cands):
+            results.append(_solve_candidate(pj, tj, c, i, deadline_wall, None if progress is None else _Direct(progress)))
+
+    good = [r for r in results if r["ok"]]
+    total_iters = sum(r["iters"] for r in results)
+    attempts = [f"candidate {r['candidate']}: {line}" for r in results for line in r["log"]]
+    if good:
+        best = min(good, key=lambda r: r["sol"].total_time)
+        stats = SolveStats(success=True, total_time=best["sol"].total_time,
+                           solve_seconds=time.monotonic() - t_start, iterations=total_iters,
+                           candidate=best["candidate"], attempts=attempts)
+        out = build_output(project, traj, dt, world, best["sol"], stats)
+        return SolveResult(True, out, issues)
+
+    # diagnose with an elastic solve on the most promising candidate
+    issues += diagnose(project, traj, results)
+    preview = None
+    if results:
+        s = results[0]["sol"]
+        preview = np.round(np.vstack([s.x, s.y, s.th]).T, 3).tolist()
+    return SolveResult(False, None, issues, preview)
+
+
+class _Direct:
+    """Queue-like adapter for sequential solving."""
+
+    def __init__(self, fn):
+        self.fn = fn
+
+    def put(self, msg):
+        self.fn(msg)
+
+
+def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Issue]:
+    issues: list[Issue] = []
+    if not results:
+        return [Issue(severity="error", message="No candidate routes could be generated.")]
+    solver = Solver(project, traj, None, 0, time.monotonic() + max(10.0, traj.settings.time_limit / 3))
+    sol = results[0]["sol"]
+    if not np.all(np.isfinite(sol.x)):
+        cands = candidate_routes(traj, solver.dt, solver.world, 1)
+        sol = build_guess(traj, cands[0], solver.dt)
+    res = solver.run_ocp(sol, "elastic", "diagnose")
+    times = res.solution.times()
+    agg: dict[str, tuple[float, int, str]] = {}
+    for label, cat, total, k in res.slacks:
+        if total <= 1e-3:
+            continue
+        prev = agg.get(label)
+        if prev is None or total > prev[0]:
+            agg[label] = (total, k, cat)
+    ranked = sorted(agg.items(), key=lambda kv: -kv[1][0])
+    for label, (total, k, cat) in ranked[:6]:
+        t = float(times[k]) if 0 <= k < len(times) else None
+        x = float(res.solution.x[k]) if 0 <= k < len(times) else None
+        y = float(res.solution.y[k]) if 0 <= k < len(times) else None
+        hint = {
+            "obstacle": "the path can't clear this obstacle; add a guide waypoint on the side you want, or move nearby waypoints",
+            "wall": "the robot gets pushed into a wall; move waypoints away from the wall",
+            "waypoint": "this waypoint can't be reached; add a position tolerance or move it",
+            "heading": "this heading can't be reached in time; loosen heading tolerance or add distance",
+            "stop": "the robot can't stop here in time",
+            "user": "this constraint conflicts with the others; loosen it",
+            "wheel": "wheel speed limit is exceeded; the path demands too much speed",
+            "force": "traction limit exceeded",
+            "motor": "motor torque/current limit exceeded",
+        }.get(cat, "")
+        issues.append(Issue(severity="error", message=f"{label} is infeasible (violation {total:.3g}): {hint}.",
+                            t=t, x=x, y=y))
+    if not ranked:
+        issues.append(Issue(severity="error",
+                            message="The solver did not converge, but no single constraint looks infeasible. "
+                                    "Try adding a guide waypoint or increasing the time limit."))
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# output
+# ---------------------------------------------------------------------------
+
+
+def build_output(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.World,
+                 sol: Solution, stats: SolveStats) -> TrajectoryOutput:
+    t = sol.times()
+    samples = [
+        Sample(t=float(t[k]), x=float(sol.x[k]), y=float(sol.y[k]), heading=float(sol.th[k]),
+               vx=float(sol.vx[k]), vy=float(sol.vy[k]), omega=float(sol.w[k]),
+               ax=float(sol.ax[k]), ay=float(sol.ay[k]), alpha=float(sol.al[k]),
+               fx=[float(f) for f in sol.Fx[:, k]], fy=[float(f) for f in sol.Fy[:, k]])
+        for k in range(sol.K)
+    ]
+    wi = waypoint_indices(sol.Ns)
+    wtimes = [float(t[i]) for i in wi]
+    wps = traj.waypoints
+    splits = [wi[j] for j, wp in enumerate(wps) if wp.split and 0 < j < len(wps) - 1]
+    T = float(t[-1])
+    events = []
+    for mk in traj.markers:
+        if not (0 <= mk.waypoint < len(wps)):
+            continue
+        te = min(max(wtimes[mk.waypoint] + mk.offset, 0.0), T)
+        end = None
+        if mk.end_waypoint is not None and 0 <= mk.end_waypoint < len(wps):
+            end = min(max(wtimes[mk.end_waypoint] + mk.end_offset, te), T)
+        events.append(EventOut(name=mk.name, command=mk.command or mk.name, t=te, end_t=end,
+                               recovery_policy=mk.recovery_policy, must_hit=mk.must_hit))
+    events.sort(key=lambda e: e.t)
+
+    recovery = build_recovery(project, traj, dt, world, wtimes, events, T)
+    return TrajectoryOutput(input_hash=input_hash(project, traj), samples=samples, waypoint_times=wtimes,
+                            splits=splits, events=events, recovery=recovery, stats=stats)
+
+
+def build_recovery(project, traj, dt: Drivetrain, world: geo.World, wtimes, events, T) -> RecoveryPayload:
+    obstacles = []
+    for piece in world.pieces:
+        buf = piece.poly.buffer(piece.margin, join_style="mitre", mitre_limit=2.0)
+        buf = shapely.geometry.polygon.orient(buf.convex_hull, 1.0)
+        obstacles.append([(round(x, 4), round(y, 4)) for x, y in list(buf.exterior.coords)[:-1]])
+    rm = geo.build_roadmap(world, dt.circumradius + 0.05)
+    nodes = [(round(x, 4), round(y, 4)) for x, y in rm.nodes]
+    edges = [(int(a), int(b)) for a, b in rm.graph.edges() if isinstance(a, int) and isinstance(b, int)]
+    limits = Limits(
+        max_velocity=0.8 * dt.max_speed,
+        max_acceleration=0.7 * dt.max_linear_accel,
+        max_angular_velocity=0.7 * dt.max_angular_velocity,
+        max_angular_acceleration=0.6 * dt.max_angular_accel,
+    )
+    must = set()
+    wps = traj.waypoints
+    for j, wp in enumerate(wps):
+        if j > 0 and (wp.stop or wp.split):
+            must.add(round(wtimes[j], 4))
+    for e in events:
+        if e.must_hit:
+            must.add(round(e.t, 4))
+    must.add(round(T, 4))
+    return RecoveryPayload(bumper=list(dt.bumper_corners), obstacles=obstacles, field_length=world.length,
+                           field_width=world.width, symmetry=project.field.symmetry, roadmap_nodes=nodes,
+                           roadmap_edges=edges, limits=limits, must_hit_times=sorted(must))

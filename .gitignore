@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+solver/build/
+solver/dist/
+*.spec.bak
+.pytest_cache/
+
+# Node / app
+node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/binaries/*
+!app/src-tauri/binaries/.gitkeep
+
+# Java
+lib/build/
+lib/.gradle/
+lib/*/build/
+.gradle/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
