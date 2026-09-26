@@ -660,7 +660,11 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
               </g>
 
               {/* live preview / failed preview */}
-              {solveState?.preview && solveState.status !== "ok" && (
+              {solveState?.status === "solving" && solveState.previews && Object.entries(solveState.previews).map(([ci, path]) => (
+                <polyline key={ci} points={pts(path.map(([x, y]) => [x, y]))} fill="none" stroke="var(--accent)"
+                  strokeOpacity={0.55} strokeWidth={1.6} strokeDasharray={ci === "0" ? "5 3" : "2 4"} vectorEffect="non-scaling-stroke" />
+              ))}
+              {solveState?.preview && solveState.status === "failed" && (
                 <polyline points={pts(solveState.preview.map(([x, y]) => [x, y]))} fill="none"
                   stroke={solveState.status === "failed" ? "var(--red)" : "var(--accent)"} strokeWidth={2.2}
                   strokeDasharray={solveState.status === "failed" ? "6 4" : "5 3"} vectorEffect="non-scaling-stroke" />

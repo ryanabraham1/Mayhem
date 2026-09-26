@@ -24,6 +24,7 @@ export interface SolveState {
   stage?: string;
   iteration?: number;
   preview?: [number, number, number][];
+  previews?: Record<number, [number, number, number][]>;
   candidates?: Vec2[][][];
   issues: Issue[];
   startedAt?: number;
@@ -222,7 +223,7 @@ export const useStore = create<State & Actions>()(
             if (p.type === "iteration") {
               st.iteration = p.iteration;
               st.stage = p.stage;
-              st.preview = p.path;
+              st.previews = { ...(st.previews ?? {}), [p.candidate ?? 0]: p.path };
             }
             if (p.type === "candidates") st.candidates = p.routes;
           });
@@ -238,6 +239,7 @@ export const useStore = create<State & Actions>()(
             cur.lastSeconds = cur.startedAt ? (Date.now() - cur.startedAt) / 1000 : undefined;
             cur.preview = p.success ? undefined : p.preview ?? cur.preview;
             cur.candidates = undefined;
+            cur.previews = undefined;
             if (p.success && s.trajectories[name]) {
               s.trajectories[name].output = p.output;
               s.stale[name] = false;
