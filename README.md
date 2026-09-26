@@ -2,6 +2,22 @@
 
 Time-optimal swerve trajectory planning for FRC (2026 REBUILT), with on-robot bump recovery.
 
+## Download the desktop app
+
+Get the latest installer from [GitHub Releases](https://github.com/ryanabraham1/Mayhem/releases/latest):
+
+| System | File to download |
+|---|---|
+| macOS Apple Silicon | `Mayhem_*_aarch64.dmg` |
+| macOS Intel | `Mayhem_*_x64.dmg` |
+| Linux | `.AppImage` (portable) or `.deb` (Ubuntu/Debian) |
+| Windows | `-setup.exe` or `.msi` |
+
+On macOS, drag Mayhem into Applications. These builds are not notarized, so if macOS blocks
+the first launch, run `xattr -dr com.apple.quarantine /Applications/Mayhem.app` in Terminal.
+For the robot library, download `MayhemLib-maven.zip` and `MayhemLib.json` from the same release;
+see [installation instructions](lib/README.md).
+
 - **Desktop app** (macOS and Linux; Windows builds too): place waypoints on the field. Mayhem computes the fastest path your drivetrain can actually drive: motor torque-speed curves, stator current limits, wheel traction, mass and inertia. It routes around polygon obstacles using the robot's real bumper rectangle.
 - **Robust solver**: CasADi + IPOPT, with parallel route candidates, a continuation ladder, and swept-collision verification. When a path truly can't be made, it tells you which waypoint or constraint is the problem and where.
 - **MayhemLib** (Java vendordep for WPILib 2026 and CTRE Phoenix 6): follows paths with per-module force feedforward. If the robot gets knocked off its path, it detects the hit and rejoins the trajectory, catching up without hitting obstacles.

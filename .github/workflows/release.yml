@@ -1,0 +1,208 @@
+name: Release
+
+# Push a tag like v0.1.0 to build installers and publish a GitHub Release once
+# every platform build succeeds. Failed builds leave a draft for inspection.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v0.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  PNPM_VERSION: "11"
+  NODE_VERSION: "24"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      - id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Use a stable version tag like v0.1.0" >&2; exit 1;
+          }
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq .ref >/dev/null
+          # Reuse the release on reruns. GitHub requires assets to be attached
+          # before publishing when immutable releases are enabled.
+          if id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .id 2>/dev/null)"; then
+            echo "Reusing release $id"
+          else
+            id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
+                   -f tag_name="${TAG}" -f name="Mayhem ${TAG}" -F draft=true \
+                   -f body="Download the installer for your system below: .dmg for macOS (choose Apple Silicon or Intel), .AppImage or .deb for Linux, and .exe or .msi for Windows.
+
+          macOS builds are not notarized. After dragging Mayhem.app into Applications, run \`xattr -dr com.apple.quarantine /Applications/Mayhem.app\` if macOS blocks the first launch.
+
+          For MayhemLib, unzip \`MayhemLib-maven.zip\` into \`~/wpilib/2026/maven\` and copy \`MayhemLib.json\` into your robot project's \`vendordeps/\`." \
+                   --jq .id)"
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  desktop:
+    name: Desktop (${{ matrix.name }})
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-latest
+            bundles: app,dmg
+          - name: macOS x64
+            os: macos-15-intel
+            bundles: app,dmg
+          # Oldest supported Ubuntu -> widest glibc compatibility for the AppImage / .deb.
+          - name: Linux x64
+            os: ubuntu-22.04
+            bundles: appimage,deb
+          - name: Windows x64
+            os: windows-latest
+            bundles: nsis,msi
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf libxdo-dev libssl-dev build-essential file
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: solver/uv.lock
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - name: Build solver sidecar (PyInstaller) + smoke test
+        if: runner.os != 'Windows'
+        run: scripts/build-sidecar.sh
+      - name: Build solver sidecar (PyInstaller) + smoke test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build-sidecar.ps1
+
+      - name: Set app version from tag
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs"), p = "app/src-tauri/tauri.conf.json";
+            const c = JSON.parse(fs.readFileSync(p, "utf8"));
+            c.version = process.env.TAG.replace(/^v/, "").replace(/-.*$/, "");
+            fs.writeFileSync(p, JSON.stringify(c, null, 2) + "\n");
+            console.log("version", c.version);'
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: app
+
+      - uses: tauri-apps/tauri-action@v0.6.2
+        id: tauri
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PyInstaller onefile binaries break if stripped (linuxdeploy strips AppImage contents).
+          NO_STRIP: "true"
+          # Skip the Finder AppleScript window-layout step when building the DMG headless.
+          CI: "true"
+        with:
+          projectPath: app
+          tauriScript: pnpm tauri
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          tagName: ${{ env.TAG }}
+          releaseDraft: true
+          args: --bundles ${{ matrix.bundles }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mayhem-${{ env.TAG }}-${{ matrix.os }}
+          path: |
+            app/src-tauri/target/release/bundle/dmg/*.dmg
+            app/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            app/src-tauri/target/release/bundle/appimage/*.AppImage
+            app/src-tauri/target/release/bundle/deb/*.deb
+            app/src-tauri/target/release/bundle/nsis/*.exe
+            app/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: warn
+
+  mayhemlib:
+    name: MayhemLib (maven repo + vendordep)
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build, test, publish to build/repos/releases
+        working-directory: lib
+        run: ./gradlew build vendordepJson publishJavaPublicationToLocalRepository
+      - name: Package
+        working-directory: lib/build
+        run: |
+          (cd repos/releases && zip -qr ../../MayhemLib-maven.zip .)
+          cp vendordeps/MayhemLib.json MayhemLib.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MayhemLib-${{ env.TAG }}
+          path: |
+            lib/build/MayhemLib-maven.zip
+            lib/build/MayhemLib.json
+      - name: Attach to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${TAG}" lib/build/MayhemLib-maven.zip lib/build/MayhemLib.json \
+            --repo "${GITHUB_REPOSITORY}" --clobber
+
+  publish:
+    name: Publish complete release
+    needs: [create-release, desktop, mayhemlib]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify assets and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          assets="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
+          printf '%s\n' "$assets"
+          [ "$(printf '%s\n' "$assets" | grep -cE '\.dmg$')" -ge 2 ]
+          for pattern in '\.AppImage$' '\.deb$' '\.exe$' '\.msi$' '^MayhemLib-maven\.zip$' '^MayhemLib\.json$'; do
+            printf '%s\n' "$assets" | grep -qE "$pattern"
+          done
+          gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
+          gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
