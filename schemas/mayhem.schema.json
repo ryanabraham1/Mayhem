@@ -55,7 +55,8 @@
               "maxAcceleration": "#/$defs/MaxAcceleration",
               "maxAngularVelocity": "#/$defs/MaxAngularVelocity",
               "maxVelocity": "#/$defs/MaxVelocity",
-              "pointAt": "#/$defs/PointAt"
+              "pointAt": "#/$defs/PointAt",
+              "straightLine": "#/$defs/StraightLine"
             },
             "propertyName": "type"
           },
@@ -77,6 +78,9 @@
             },
             {
               "$ref": "#/$defs/KeepOut"
+            },
+            {
+              "$ref": "#/$defs/StraightLine"
             }
           ],
           "title": "Data"
@@ -710,6 +714,39 @@
       "title": "PointAt",
       "type": "object"
     },
+    "PoseVariable": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "heading": {
+          "default": 0.0,
+          "title": "Heading",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "x",
+        "y"
+      ],
+      "title": "PoseVariable",
+      "type": "object"
+    },
     "Project": {
       "properties": {
         "formatVersion": {
@@ -789,6 +826,21 @@
           "description": "Robot project deploy dir (\u2026/src/main/deploy/mayhem)",
           "title": "Deploydir",
           "type": "string"
+        },
+        "poses": {
+          "items": {
+            "$ref": "#/$defs/PoseVariable"
+          },
+          "title": "Poses",
+          "type": "array"
+        },
+        "folders": {
+          "description": "Path folders shown in the sidebar, in order",
+          "items": {
+            "type": "string"
+          },
+          "title": "Folders",
+          "type": "array"
         }
       },
       "title": "Project",
@@ -1182,6 +1234,25 @@
       "title": "SolverSettings",
       "type": "object"
     },
+    "StraightLine": {
+      "description": "Robot center stays on the straight segment between the scope's two end waypoints.",
+      "properties": {
+        "type": {
+          "const": "straightLine",
+          "default": "straightLine",
+          "title": "Type",
+          "type": "string"
+        },
+        "tolerance": {
+          "default": 0.02,
+          "description": "Allowed distance from the line [m]",
+          "title": "Tolerance",
+          "type": "number"
+        }
+      },
+      "title": "StraightLine",
+      "type": "object"
+    },
     "Tolerance": {
       "properties": {
         "kind": {
@@ -1254,6 +1325,19 @@
             "maxIterations": 1500,
             "timeLimit": 60.0
           }
+        },
+        "folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sidebar folder; organisational only, ignored by the solver",
+          "title": "Folder"
         },
         "output": {
           "anyOf": [
@@ -1402,6 +1486,19 @@
           "default": null,
           "description": "Override sample count to next waypoint",
           "title": "Intervals"
+        },
+        "poseRef": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id of a project pose variable; when set, x/y/heading come from it",
+          "title": "Poseref"
         }
       },
       "required": [

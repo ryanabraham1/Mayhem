@@ -76,7 +76,8 @@ def check_output(project: Project, traj: Trajectory, out: TrajectoryOutput, sub:
         # torque-speed line (same smoothing as the NLP)
         cap = d.wheel_stall_force * (1 - sw / d.wheel_free_speed)
         worst["motor"] = max(worst["motor"], float(np.max(long_f - cap) / d.wheel_stall_force) + 1.0)
-        worst["current"] = max(worst["current"], float(np.max(np.abs(long_f)) / d.wheel_current_force))
+        # stator current limit on the total module force (lateral force needs current too)
+        worst["current"] = max(worst["current"], float(np.max(F) / d.wheel_current_force))
     for k, v in worst.items():
         if v > 1 + REL:
             viol.append(f"{k} limit exceeded ({v:.4f}x)")

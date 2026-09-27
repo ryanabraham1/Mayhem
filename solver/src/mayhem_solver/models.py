@@ -149,6 +149,7 @@ class Waypoint(Model):
     stop: bool = False
     split: bool = False
     intervals: Optional[int] = Field(None, description="Override sample count to next waypoint")
+    pose_ref: Optional[str] = Field(None, description="id of a project pose variable; when set, x/y/heading come from it")
 
 
 class Scope(Model):
@@ -203,8 +204,14 @@ class KeepOut(Model):
     margin: float = 0.03
 
 
+class StraightLine(Model):
+    """Robot center stays on the straight segment between the scope's two end waypoints."""
+    type: Literal["straightLine"] = "straightLine"
+    tolerance: float = Field(0.02, description="Allowed distance from the line [m]")
+
+
 ConstraintData = Annotated[
-    Union[MaxVelocity, MaxAcceleration, MaxAngularVelocity, PointAt, KeepIn, KeepOut],
+    Union[MaxVelocity, MaxAcceleration, MaxAngularVelocity, PointAt, KeepIn, KeepOut, StraightLine],
     Field(discriminator="type"),
 ]
 
@@ -245,6 +252,9 @@ class Trajectory(Model):
     constraints: list[Constraint] = Field(default_factory=list)
     markers: list[Marker] = Field(default_factory=list)
     settings: SolverSettings = SolverSettings()
+    folder: Optional[str] = Field(
+        None, description="Sidebar folder; organisational only, ignored by the solver"
+    )
     output: Optional["TrajectoryOutput"] = None
 
 
@@ -327,6 +337,14 @@ Trajectory.model_rebuild()
 # ---------------------------------------------------------------------------
 
 
+class PoseVariable(Model):
+    id: str
+    name: str
+    x: float
+    y: float
+    heading: float = 0.0
+
+
 class Project(Model):
     format_version: int = FORMAT_VERSION
     name: str = "Mayhem Project"
@@ -335,6 +353,10 @@ class Project(Model):
     commands: list[str] = Field(default_factory=list)
     deploy_dir: str = Field(
         "", description="Robot project deploy dir (…/src/main/deploy/mayhem)"
+    )
+    poses: list[PoseVariable] = Field(default_factory=list)
+    folders: list[str] = Field(
+        default_factory=list, description="Path folders shown in the sidebar, in order"
     )
 
 

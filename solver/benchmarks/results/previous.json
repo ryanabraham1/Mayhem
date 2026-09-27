@@ -1,14 +1,14 @@
 {
  "meta": {
-  "label": "current",
-  "date": "2026-09-26 19:14",
+  "label": "previous",
+  "date": "2026-09-26 15:56",
   "seed": 2026,
   "n_random": 60,
   "mode": "app (parallel candidates)",
   "fast": false,
   "filters": [],
   "machine": "arm64 Darwin 10 cores, Python 3.12.14",
-  "elapsed": 86.5
+  "elapsed": 172.6
  },
  "summary": {
   "all": {
@@ -16,38 +16,38 @@
    "success": 91,
    "success_rate": 1.0,
    "solver_success_but_invalid": 0,
-   "wall_median": 0.45,
-   "wall_p90": 2.101,
-   "wall_max": 8.009,
-   "wall_total": 85.8,
-   "path_time_median": 3.162,
-   "path_time_mean": 4.223,
-   "path_time_total": 384.253,
-   "iterations_total": 7150
+   "wall_median": 0.594,
+   "wall_p90": 3.208,
+   "wall_max": 11.218,
+   "wall_total": 117.05,
+   "path_time_median": 3.127,
+   "path_time_mean": 4.231,
+   "path_time_total": 385.002,
+   "iterations_total": 8796
   },
   "hard": {
    "n": 31,
    "success": 31,
    "success_rate": 1.0,
    "solver_success_but_invalid": 0,
-   "wall_median": 0.391,
-   "wall_p90": 1.489,
-   "wall_max": 5.954,
-   "wall_total": 22.82,
+   "wall_median": 0.368,
+   "wall_p90": 2.644,
+   "wall_max": 6.862,
+   "wall_total": 29.8,
    "path_time_median": 2.85,
-   "path_time_mean": 3.676,
-   "path_time_total": 113.96,
-   "iterations_total": 2177
+   "path_time_mean": 3.701,
+   "path_time_total": 114.724,
+   "iterations_total": 2508
   },
   "infeasible": {
    "n": 4,
    "success": 4,
    "success_rate": 1.0,
    "solver_success_but_invalid": 0,
-   "wall_median": 0.001,
-   "wall_p90": 0.262,
-   "wall_max": 0.374,
-   "wall_total": 0.38,
+   "wall_median": 2.935,
+   "wall_p90": 36.363,
+   "wall_max": 49.431,
+   "wall_total": 55.3,
    "path_time_median": null,
    "path_time_mean": null,
    "path_time_total": null,
@@ -58,14 +58,14 @@
    "success": 60,
    "success_rate": 1.0,
    "solver_success_but_invalid": 0,
-   "wall_median": 0.513,
-   "wall_p90": 2.352,
-   "wall_max": 8.009,
-   "wall_total": 62.98,
+   "wall_median": 0.707,
+   "wall_p90": 3.242,
+   "wall_max": 11.218,
+   "wall_total": 87.25,
    "path_time_median": 3.383,
    "path_time_mean": 4.505,
-   "path_time_total": 270.293,
-   "iterations_total": 4973
+   "path_time_total": 270.277,
+   "iterations_total": 6288
   }
  },
  "rows": [
@@ -76,15 +76,15 @@
     "trench"
    ],
    "waypoints": 2,
-   "wall": 0.222,
+   "wall": 0.156,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.7741,
-   "iterations": 51,
+   "iterations": 28,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (51 it, 0.18s)"
+    "candidate 0: direct: Solve_Succeeded (28 it, 0.11s)"
    ],
    "issues": [],
    "metrics": {
@@ -101,15 +101,15 @@
     "trench"
    ],
    "waypoints": 2,
-   "wall": 0.271,
+   "wall": 0.175,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.815,
-   "iterations": 65,
+   "iterations": 32,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (65 it, 0.23s)"
+    "candidate 0: direct: Solve_Succeeded (32 it, 0.13s)"
    ],
    "issues": [],
    "metrics": {
@@ -127,20 +127,20 @@
     "sharp"
    ],
    "waypoints": 3,
-   "wall": 0.698,
+   "wall": 0.871,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 3.2593,
-   "iterations": 75,
+   "path_time": 3.2391,
+   "iterations": 90,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (75 it, 0.65s)"
+    "candidate 0: direct: Solve_Succeeded (90 it, 0.82s)"
    ],
    "issues": [],
    "metrics": {
     "min_obstacle_clearance": 0.0301,
-    "min_wall_clearance": 0.0198,
+    "min_wall_clearance": 0.0199,
     "max_speed": 4.332,
     "samples": 53
    }
@@ -153,20 +153,20 @@
     "long"
    ],
    "waypoints": 4,
-   "wall": 0.91,
+   "wall": 2.644,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 6.3702,
-   "iterations": 56,
+   "path_time": 7.2414,
+   "iterations": 158,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (56 it, 0.83s)"
+    "candidate 0: direct: Solve_Succeeded (158 it, 2.57s)"
    ],
    "issues": [],
    "metrics": {
-    "min_obstacle_clearance": 0.0302,
-    "min_wall_clearance": 0.0487,
+    "min_obstacle_clearance": 0.0312,
+    "min_wall_clearance": 0.0286,
     "max_speed": 4.332,
     "samples": 102
    }
@@ -178,15 +178,15 @@
     "trench"
    ],
    "waypoints": 3,
-   "wall": 0.454,
+   "wall": 0.61,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.1786,
-   "iterations": 63,
+   "iterations": 79,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (63 it, 0.41s)"
+    "candidate 0: direct: Solve_Succeeded (79 it, 0.56s)"
    ],
    "issues": [],
    "metrics": {
@@ -204,15 +204,15 @@
     "reversal"
    ],
    "waypoints": 3,
-   "wall": 0.427,
+   "wall": 0.789,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.1615,
-   "iterations": 37,
+   "iterations": 74,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (37 it, 0.37s)"
+    "candidate 0: direct: Solve_Succeeded (74 it, 0.74s)"
    ],
    "issues": [],
    "metrics": {
@@ -230,15 +230,15 @@
     "flush"
    ],
    "waypoints": 2,
-   "wall": 0.2,
+   "wall": 0.223,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.0891,
-   "iterations": 40,
+   "iterations": 41,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (40 it, 0.16s)"
+    "candidate 0: direct: Solve_Succeeded (41 it, 0.18s)"
    ],
    "issues": [],
    "metrics": {
@@ -256,15 +256,15 @@
     "rotation"
    ],
    "waypoints": 2,
-   "wall": 0.201,
+   "wall": 0.248,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.802,
-   "iterations": 43,
+   "iterations": 53,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (43 it, 0.16s)"
+    "candidate 0: direct: Solve_Succeeded (53 it, 0.21s)"
    ],
    "issues": [],
    "metrics": {
@@ -281,16 +281,16 @@
     "hub"
    ],
    "waypoints": 2,
-   "wall": 0.391,
+   "wall": 0.279,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.6223,
-   "iterations": 116,
+   "iterations": 49,
    "candidate": 1,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (63 it, 0.21s)",
-    "candidate 1: direct: Solve_Succeeded (53 it, 0.17s)"
+    "candidate 0: direct: Solve_Succeeded (24 it, 0.10s)",
+    "candidate 1: direct: Solve_Succeeded (25 it, 0.10s)"
    ],
    "issues": [],
    "metrics": {
@@ -308,16 +308,16 @@
     "loop"
    ],
    "waypoints": 5,
-   "wall": 0.591,
+   "wall": 0.822,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.85,
-   "iterations": 66,
+   "iterations": 68,
    "candidate": 1,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (25 it, 0.16s)",
-    "candidate 1: direct: Solve_Succeeded (41 it, 0.39s)"
+    "candidate 0: direct: Solve_Succeeded (23 it, 0.16s)",
+    "candidate 1: direct: Solve_Succeeded (45 it, 0.61s)"
    ],
    "issues": [],
    "metrics": {
@@ -335,17 +335,17 @@
     "pointAt"
    ],
    "waypoints": 4,
-   "wall": 1.054,
+   "wall": 1.501,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.6802,
-   "iterations": 146,
+   "iterations": 226,
    "candidate": 2,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (28 it, 0.20s)",
-    "candidate 1: direct: Solve_Succeeded (44 it, 0.51s)",
-    "candidate 2: direct: Solve_Succeeded (74 it, 0.86s)"
+    "candidate 0: direct: Solve_Succeeded (70 it, 0.42s)",
+    "candidate 1: direct: Solve_Succeeded (40 it, 0.49s)",
+    "candidate 2: direct: Solve_Succeeded (116 it, 1.25s)"
    ],
    "issues": [],
    "metrics": {
@@ -363,16 +363,16 @@
     "flush"
    ],
    "waypoints": 2,
-   "wall": 0.414,
+   "wall": 0.507,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.5,
-   "iterations": 115,
+   "iterations": 149,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (60 it, 0.21s)",
-    "candidate 1: direct: Solve_Succeeded (55 it, 0.24s)"
+    "candidate 0: direct: Solve_Succeeded (81 it, 0.28s)",
+    "candidate 1: direct: Solve_Succeeded (68 it, 0.33s)"
    ],
    "issues": [],
    "metrics": {
@@ -390,16 +390,16 @@
     "flush"
    ],
    "waypoints": 2,
-   "wall": 0.422,
+   "wall": 0.368,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.6108,
-   "iterations": 93,
+   "iterations": 97,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (29 it, 0.11s)",
-    "candidate 1: direct: Solve_Succeeded (64 it, 0.25s)"
+    "candidate 0: direct: Solve_Succeeded (52 it, 0.18s)",
+    "candidate 1: direct: Solve_Succeeded (45 it, 0.19s)"
    ],
    "issues": [],
    "metrics": {
@@ -417,17 +417,17 @@
     "long"
    ],
    "waypoints": 2,
-   "wall": 0.638,
+   "wall": 0.471,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.4153,
-   "iterations": 185,
+   "iterations": 110,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (65 it, 0.45s)",
-    "candidate 1: direct: Solve_Succeeded (60 it, 0.43s)",
-    "candidate 2: direct: Solve_Succeeded (60 it, 0.43s)"
+    "candidate 0: direct: Solve_Succeeded (36 it, 0.26s)",
+    "candidate 1: direct: Solve_Succeeded (37 it, 0.28s)",
+    "candidate 2: direct: Solve_Succeeded (37 it, 0.28s)"
    ],
    "issues": [],
    "metrics": {
@@ -445,15 +445,15 @@
     "flush"
    ],
    "waypoints": 2,
-   "wall": 0.128,
+   "wall": 0.105,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.1073,
-   "iterations": 47,
+   "iterations": 29,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (47 it, 0.09s)"
+    "candidate 0: direct: Solve_Succeeded (29 it, 0.07s)"
    ],
    "issues": [],
    "metrics": {
@@ -472,15 +472,15 @@
     "wall"
    ],
    "waypoints": 2,
-   "wall": 0.085,
+   "wall": 0.149,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.0594,
-   "iterations": 15,
+   "iterations": 45,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (15 it, 0.05s)"
+    "candidate 0: direct: Solve_Succeeded (45 it, 0.12s)"
    ],
    "issues": [],
    "metrics": {
@@ -498,15 +498,15 @@
     "flush"
    ],
    "waypoints": 2,
-   "wall": 0.118,
+   "wall": 0.194,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.7136,
-   "iterations": 25,
+   "iterations": 51,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (25 it, 0.08s)"
+    "candidate 0: direct: Solve_Succeeded (51 it, 0.16s)"
    ],
    "issues": [],
    "metrics": {
@@ -525,15 +525,15 @@
     "wall"
    ],
    "waypoints": 2,
-   "wall": 0.135,
+   "wall": 0.203,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.3643,
-   "iterations": 41,
+   "iterations": 62,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (41 it, 0.10s)"
+    "candidate 0: direct: Solve_Succeeded (62 it, 0.17s)"
    ],
    "issues": [],
    "metrics": {
@@ -551,7 +551,7 @@
     "long"
    ],
    "waypoints": 2,
-   "wall": 0.317,
+   "wall": 0.333,
    "solver_success": true,
    "valid": true,
    "violations": [],
@@ -559,7 +559,7 @@
    "iterations": 21,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (21 it, 0.25s)"
+    "candidate 0: direct: Solve_Succeeded (21 it, 0.27s)"
    ],
    "issues": [],
    "metrics": {
@@ -576,15 +576,15 @@
     "wall"
    ],
    "waypoints": 3,
-   "wall": 0.295,
+   "wall": 0.446,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.0736,
-   "iterations": 38,
+   "iterations": 52,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (38 it, 0.24s)"
+    "candidate 0: direct: Solve_Succeeded (52 it, 0.39s)"
    ],
    "issues": [],
    "metrics": {
@@ -602,15 +602,15 @@
     "rotation"
    ],
    "waypoints": 2,
-   "wall": 0.049,
+   "wall": 0.059,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 0.894,
-   "iterations": 13,
+   "iterations": 20,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (13 it, 0.03s)"
+    "candidate 0: direct: Solve_Succeeded (20 it, 0.04s)"
    ],
    "issues": [],
    "metrics": {
@@ -628,15 +628,15 @@
     "trench"
    ],
    "waypoints": 12,
-   "wall": 1.222,
+   "wall": 1.576,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 7.8334,
-   "iterations": 53,
+   "iterations": 65,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (53 it, 1.14s)"
+    "candidate 0: direct: Solve_Succeeded (65 it, 1.49s)"
    ],
    "issues": [],
    "metrics": {
@@ -654,16 +654,16 @@
     "slalom"
    ],
    "waypoints": 11,
-   "wall": 2.626,
+   "wall": 3.411,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 12.3995,
-   "iterations": 115,
+   "iterations": 152,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (48 it, 1.23s)",
-    "candidate 1: direct: Solve_Succeeded (67 it, 2.34s)"
+    "candidate 0: direct: Solve_Succeeded (70 it, 2.00s)",
+    "candidate 1: direct: Solve_Succeeded (82 it, 3.12s)"
    ],
    "issues": [],
    "metrics": {
@@ -681,15 +681,15 @@
     "trench"
    ],
    "waypoints": 14,
-   "wall": 5.954,
+   "wall": 6.862,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 15.5897,
-   "iterations": 132,
+   "path_time": 15.5611,
+   "iterations": 153,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (132 it, 5.80s)"
+    "candidate 0: direct: Solve_Succeeded (153 it, 6.73s)"
    ],
    "issues": [],
    "metrics": {
@@ -707,15 +707,15 @@
     "midStops"
    ],
    "waypoints": 10,
-   "wall": 1.992,
+   "wall": 3.609,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 9.2758,
-   "iterations": 66,
+   "iterations": 127,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (66 it, 1.84s)"
+    "candidate 0: direct: Solve_Succeeded (127 it, 3.48s)"
    ],
    "issues": [],
    "metrics": {
@@ -732,15 +732,15 @@
     "reversal"
    ],
    "waypoints": 3,
-   "wall": 0.22,
+   "wall": 0.267,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.9154,
-   "iterations": 21,
+   "iterations": 32,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (21 it, 0.16s)"
+    "candidate 0: direct: Solve_Succeeded (32 it, 0.21s)"
    ],
    "issues": [],
    "metrics": {
@@ -758,15 +758,15 @@
     "sharp"
    ],
    "waypoints": 6,
-   "wall": 0.239,
+   "wall": 0.252,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 5.4067,
-   "iterations": 23,
+   "iterations": 30,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (23 it, 0.16s)"
+    "candidate 0: direct: Solve_Succeeded (30 it, 0.18s)"
    ],
    "issues": [],
    "metrics": {
@@ -783,15 +783,15 @@
     "rotation"
    ],
    "waypoints": 2,
-   "wall": 0.127,
+   "wall": 0.136,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.4471,
-   "iterations": 28,
+   "iterations": 38,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (28 it, 0.08s)"
+    "candidate 0: direct: Solve_Succeeded (38 it, 0.10s)"
    ],
    "issues": [],
    "metrics": {
@@ -809,16 +809,16 @@
     "hub"
    ],
    "waypoints": 3,
-   "wall": 0.677,
+   "wall": 0.86,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.9432,
-   "iterations": 97,
+   "iterations": 123,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (48 it, 0.33s)",
-    "candidate 1: direct: Solve_Succeeded (49 it, 0.39s)"
+    "candidate 0: direct: Solve_Succeeded (44 it, 0.33s)",
+    "candidate 1: direct: Solve_Succeeded (79 it, 0.67s)"
    ],
    "issues": [],
    "metrics": {
@@ -835,15 +835,15 @@
     "keepOut"
    ],
    "waypoints": 2,
-   "wall": 0.253,
+   "wall": 0.231,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.2946,
-   "iterations": 31,
+   "iterations": 27,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (31 it, 0.19s)"
+    "candidate 0: direct: Solve_Succeeded (27 it, 0.16s)"
    ],
    "issues": [],
    "metrics": {
@@ -862,25 +862,25 @@
     "velocityZone"
    ],
    "waypoints": 3,
-   "wall": 1.489,
+   "wall": 1.438,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 3.1861,
-   "iterations": 260,
+   "path_time": 3.1275,
+   "iterations": 227,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (68 it, 0.35s)",
+    "candidate 0: direct: Solve_Succeeded (84 it, 0.51s)",
     "candidate 0: zones: membership changed (vz), re-solving",
-    "candidate 0: zones: Solve_Succeeded (76 it, 0.44s)",
+    "candidate 0: zones: Solve_Succeeded (102 it, 0.59s)",
     "candidate 0: zones: membership changed (vz), re-solving",
-    "candidate 0: zones: Solve_Succeeded (116 it, 0.60s)"
+    "candidate 0: zones: Solve_Succeeded (41 it, 0.24s)"
    ],
    "issues": [],
    "metrics": {
-    "min_obstacle_clearance": 0.0298,
-    "min_wall_clearance": 0.5477,
-    "max_speed": 4.055,
+    "min_obstacle_clearance": 0.027,
+    "min_wall_clearance": 0.55,
+    "max_speed": 4.058,
     "samples": 34
    }
   },
@@ -932,7 +932,7 @@
     "infeasible"
    ],
    "waypoints": 2,
-   "wall": 0.374,
+   "wall": 5.87,
    "solver_success": false,
    "valid": true,
    "violations": [],
@@ -941,9 +941,12 @@
    "candidate": null,
    "attempts": [],
    "issues": [
-    "[error] Constraint 'pointAt' (pa1) is infeasible (violation 17.5): this constraint conflicts with the others; loosen it.",
-    "[error] Constraint 'pointAt' (pa2) is infeasible (violation 8.1): this constraint conflicts with the others; loosen it.",
-    "[error] Wheel speed limit is infeasible (violation 0.203): wheel speed limit is exceeded; the path demands too much speed."
+    "[error] Constraint 'pointAt' (pa1) is infeasible (violation 11.9): this constraint conflicts with the others; loosen it.",
+    "[error] Constraint 'pointAt' (pa2) is infeasible (violation 6.83): this constraint conflicts with the others; loosen it.",
+    "[error] Waypoint 2 position is infeasible (violation 4.43): this waypoint can't be reached; add a position tolerance or move it.",
+    "[error] Waypoint 1 position is infeasible (violation 3.84): this waypoint can't be reached; add a position tolerance or move it.",
+    "[error] Obstacle 'Blue Trench Wall (left)' is infeasible (violation 0.132): the path can't clear this obstacle; add a guide waypoint on the side you want, or move nearby waypoints.",
+    "[error] Wheel speed limit is infeasible (violation 0.0794): wheel speed limit is exceeded; the path demands too much speed."
    ],
    "metrics": {}
   },
@@ -954,7 +957,7 @@
     "infeasible"
    ],
    "waypoints": 2,
-   "wall": 0.001,
+   "wall": 49.431,
    "solver_success": false,
    "valid": true,
    "violations": [],
@@ -963,7 +966,9 @@
    "candidate": null,
    "attempts": [],
    "issues": [
-    "[error] Waypoint 2 can't be reached from waypoint 1: it is enclosed by 'Keep-out k1', 'Keep-out k2', 'Keep-out k3', 'Keep-out k4' with no gap wide enough for the robot."
+    "[error] Obstacle 'Red Hub' is infeasible (violation 0.262): the path can't clear this obstacle; add a guide waypoint on the side you want, or move nearby waypoints.",
+    "[error] Obstacle 'Keep-out k3' is infeasible (violation 0.192): the path can't clear this obstacle; add a guide waypoint on the side you want, or move nearby waypoints.",
+    "[error] Obstacle 'Keep-out k4' is infeasible (violation 0.176): the path can't clear this obstacle; add a guide waypoint on the side you want, or move nearby waypoints."
    ],
    "metrics": {}
   },
@@ -976,21 +981,21 @@
     "velocityZone"
    ],
    "waypoints": 4,
-   "wall": 2.101,
+   "wall": 2.114,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 4.5606,
-   "iterations": 221,
+   "iterations": 274,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (61 it, 0.49s)",
+    "candidate 0: direct: Solve_Succeeded (74 it, 0.53s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (38 it, 0.35s)",
+    "candidate 0: zones: Solve_Succeeded (49 it, 0.36s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (82 it, 0.79s)",
+    "candidate 0: zones: Solve_Succeeded (89 it, 0.64s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (40 it, 0.34s)"
+    "candidate 0: zones: Solve_Succeeded (62 it, 0.46s)"
    ],
    "issues": [],
    "metrics": {
@@ -1011,20 +1016,20 @@
     "keepOut"
    ],
    "waypoints": 8,
-   "wall": 2.303,
+   "wall": 3.964,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 14.5026,
-   "iterations": 79,
+   "path_time": 14.5027,
+   "iterations": 122,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (79 it, 2.21s)"
+    "candidate 0: direct: Solve_Succeeded (122 it, 3.87s)"
    ],
    "issues": [],
    "metrics": {
     "min_obstacle_clearance": 0.03,
-    "min_wall_clearance": 0.0188,
+    "min_wall_clearance": 0.0189,
     "max_speed": 3.594,
     "samples": 145
    }
@@ -1037,21 +1042,21 @@
     "keepOut"
    ],
    "waypoints": 2,
-   "wall": 0.468,
+   "wall": 0.648,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 3.2828,
-   "iterations": 64,
+   "path_time": 3.2658,
+   "iterations": 84,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (64 it, 0.40s)"
+    "candidate 0: direct: Solve_Succeeded (84 it, 0.58s)"
    ],
    "issues": [],
    "metrics": {
     "min_obstacle_clearance": 0.0301,
-    "min_wall_clearance": 0.2052,
-    "max_speed": 4.305,
+    "min_wall_clearance": 0.1972,
+    "max_speed": 4.332,
     "samples": 63
    }
   },
@@ -1063,15 +1068,15 @@
     "midStops"
    ],
    "waypoints": 3,
-   "wall": 0.085,
+   "wall": 0.1,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.4186,
-   "iterations": 33,
+   "iterations": 32,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (33 it, 0.06s)"
+    "candidate 0: direct: Solve_Succeeded (32 it, 0.08s)"
    ],
    "issues": [],
    "metrics": {
@@ -1089,20 +1094,20 @@
     "keepOut"
    ],
    "waypoints": 4,
-   "wall": 0.792,
+   "wall": 2.681,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 4.3969,
-   "iterations": 48,
+   "path_time": 4.3973,
+   "iterations": 180,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (48 it, 0.70s)"
+    "candidate 0: direct: Solve_Succeeded (180 it, 2.58s)"
    ],
    "issues": [],
    "metrics": {
-    "min_obstacle_clearance": 0.0315,
-    "min_wall_clearance": 0.6078,
+    "min_obstacle_clearance": 0.0304,
+    "min_wall_clearance": 0.6375,
     "max_speed": 4.332,
     "samples": 84
    }
@@ -1116,15 +1121,15 @@
     "keepOut"
    ],
    "waypoints": 3,
-   "wall": 0.156,
+   "wall": 0.213,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.1164,
-   "iterations": 51,
+   "iterations": 69,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (51 it, 0.12s)"
+    "candidate 0: direct: Solve_Succeeded (69 it, 0.18s)"
    ],
    "issues": [],
    "metrics": {
@@ -1144,15 +1149,15 @@
     "maxAccel"
    ],
    "waypoints": 3,
-   "wall": 0.518,
+   "wall": 0.487,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.3787,
-   "iterations": 66,
+   "iterations": 55,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (66 it, 0.47s)"
+    "candidate 0: direct: Solve_Succeeded (55 it, 0.43s)"
    ],
    "issues": [],
    "metrics": {
@@ -1172,16 +1177,16 @@
     "velocityZone"
    ],
    "waypoints": 10,
-   "wall": 1.746,
+   "wall": 2.119,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 9.2557,
-   "iterations": 113,
+   "iterations": 132,
    "candidate": 1,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (66 it, 1.52s)",
-    "candidate 1: direct: Solve_Succeeded (47 it, 1.10s)"
+    "candidate 0: direct: Solve_Succeeded (73 it, 1.89s)",
+    "candidate 1: direct: Solve_Succeeded (59 it, 1.56s)"
    ],
    "issues": [],
    "metrics": {
@@ -1200,19 +1205,19 @@
     "maxAccel"
    ],
    "waypoints": 2,
-   "wall": 0.151,
+   "wall": 0.118,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.5293,
-   "iterations": 46,
+   "iterations": 23,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (46 it, 0.11s)"
+    "candidate 0: direct: Solve_Succeeded (23 it, 0.08s)"
    ],
    "issues": [],
    "metrics": {
-    "min_obstacle_clearance": 0.2684,
+    "min_obstacle_clearance": 0.2667,
     "min_wall_clearance": 0.7572,
     "max_speed": 3.024,
     "samples": 24
@@ -1227,16 +1232,16 @@
     "midStops"
    ],
    "waypoints": 10,
-   "wall": 1.914,
+   "wall": 2.971,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 8.8449,
-   "iterations": 121,
+   "iterations": 172,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (50 it, 1.16s)",
-    "candidate 1: direct: Solve_Succeeded (71 it, 1.69s)"
+    "candidate 0: direct: Solve_Succeeded (72 it, 1.84s)",
+    "candidate 1: direct: Solve_Succeeded (100 it, 2.74s)"
    ],
    "issues": [],
    "metrics": {
@@ -1257,17 +1262,17 @@
     "keepOut"
    ],
    "waypoints": 4,
-   "wall": 0.972,
+   "wall": 0.958,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 4.8519,
-   "iterations": 117,
+   "iterations": 123,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (73 it, 0.59s)",
+    "candidate 0: direct: Solve_Succeeded (92 it, 0.66s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (44 it, 0.30s)"
+    "candidate 0: zones: Solve_Succeeded (31 it, 0.22s)"
    ],
    "issues": [],
    "metrics": {
@@ -1286,15 +1291,15 @@
     "midStops"
    ],
    "waypoints": 8,
-   "wall": 0.572,
+   "wall": 0.881,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 4.2902,
-   "iterations": 40,
+   "iterations": 62,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (40 it, 0.51s)"
+    "candidate 0: direct: Solve_Succeeded (62 it, 0.82s)"
    ],
    "issues": [],
    "metrics": {
@@ -1311,16 +1316,16 @@
     "3wp"
    ],
    "waypoints": 3,
-   "wall": 0.383,
+   "wall": 0.387,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.9151,
-   "iterations": 74,
+   "iterations": 78,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (28 it, 0.12s)",
-    "candidate 1: direct: Solve_Succeeded (46 it, 0.21s)"
+    "candidate 0: direct: Solve_Succeeded (34 it, 0.14s)",
+    "candidate 1: direct: Solve_Succeeded (44 it, 0.21s)"
    ],
    "issues": [],
    "metrics": {
@@ -1338,20 +1343,20 @@
     "velocityZone"
    ],
    "waypoints": 5,
-   "wall": 2.056,
+   "wall": 1.657,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 4.4642,
-   "iterations": 238,
+   "iterations": 245,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (56 it, 0.45s)",
+    "candidate 0: direct: Solve_Succeeded (105 it, 1.01s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (41 it, 0.37s)",
-    "candidate 1: direct: Solve_Succeeded (70 it, 0.91s)",
+    "candidate 0: zones: Solve_Succeeded (34 it, 0.32s)",
+    "candidate 1: direct: Solve_Succeeded (70 it, 0.93s)",
     "candidate 1: zones: membership changed (zone), re-solving",
-    "candidate 1: zones: Solve_Succeeded (71 it, 0.94s)"
+    "candidate 1: zones: Solve_Succeeded (36 it, 0.51s)"
    ],
    "issues": [],
    "metrics": {
@@ -1369,16 +1374,16 @@
     "midStops"
    ],
    "waypoints": 9,
-   "wall": 1.788,
+   "wall": 3.208,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 7.7371,
-   "iterations": 100,
+   "iterations": 162,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (48 it, 1.44s)",
-    "candidate 1: direct: Solve_Succeeded (52 it, 1.57s)"
+    "candidate 0: direct: Solve_Succeeded (61 it, 1.95s)",
+    "candidate 1: direct: Solve_Succeeded (101 it, 2.96s)"
    ],
    "issues": [],
    "metrics": {
@@ -1396,15 +1401,15 @@
     "pointAt"
    ],
    "waypoints": 2,
-   "wall": 0.064,
+   "wall": 0.078,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.434,
-   "iterations": 17,
+   "iterations": 20,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (17 it, 0.03s)"
+    "candidate 0: direct: Solve_Succeeded (20 it, 0.04s)"
    ],
    "issues": [],
    "metrics": {
@@ -1423,15 +1428,15 @@
     "keepOut"
    ],
    "waypoints": 4,
-   "wall": 0.312,
+   "wall": 0.501,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.1093,
-   "iterations": 38,
+   "iterations": 64,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (38 it, 0.25s)"
+    "candidate 0: direct: Solve_Succeeded (64 it, 0.44s)"
    ],
    "issues": [],
    "metrics": {
@@ -1448,21 +1453,21 @@
     "4wp"
    ],
    "waypoints": 4,
-   "wall": 0.833,
+   "wall": 1.181,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 2.5236,
-   "iterations": 101,
+   "path_time": 2.5232,
+   "iterations": 131,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (37 it, 0.14s)",
-    "candidate 1: direct: Solve_Succeeded (64 it, 0.65s)"
+    "candidate 0: direct: Solve_Succeeded (46 it, 0.19s)",
+    "candidate 1: direct: Solve_Succeeded (85 it, 1.00s)"
    ],
    "issues": [],
    "metrics": {
     "min_obstacle_clearance": 0.1632,
-    "min_wall_clearance": 1.0187,
+    "min_wall_clearance": 1.0176,
     "max_speed": 4.332,
     "samples": 53
    }
@@ -1477,15 +1482,15 @@
     "midStops"
    ],
    "waypoints": 9,
-   "wall": 1.24,
+   "wall": 1.321,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 7.5066,
-   "iterations": 59,
+   "iterations": 64,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (59 it, 1.14s)"
+    "candidate 0: direct: Solve_Succeeded (64 it, 1.22s)"
    ],
    "issues": [],
    "metrics": {
@@ -1502,15 +1507,15 @@
     "2wp"
    ],
    "waypoints": 2,
-   "wall": 0.064,
+   "wall": 0.071,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 0.6222,
-   "iterations": 11,
+   "iterations": 14,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (11 it, 0.04s)"
+    "candidate 0: direct: Solve_Succeeded (14 it, 0.04s)"
    ],
    "issues": [],
    "metrics": {
@@ -1530,17 +1535,17 @@
     "velocityZone"
    ],
    "waypoints": 3,
-   "wall": 0.198,
+   "wall": 0.233,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.9749,
-   "iterations": 41,
+   "iterations": 44,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (30 it, 0.09s)",
+    "candidate 0: direct: Solve_Succeeded (33 it, 0.12s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (11 it, 0.05s)"
+    "candidate 0: zones: Solve_Succeeded (11 it, 0.06s)"
    ],
    "issues": [],
    "metrics": {
@@ -1558,15 +1563,15 @@
     "pointAt"
    ],
    "waypoints": 2,
-   "wall": 0.058,
+   "wall": 0.07,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 0.386,
-   "iterations": 17,
+   "iterations": 24,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (17 it, 0.03s)"
+    "candidate 0: direct: Solve_Succeeded (24 it, 0.04s)"
    ],
    "issues": [],
    "metrics": {
@@ -1585,19 +1590,19 @@
     "maxAccel"
    ],
    "waypoints": 4,
-   "wall": 0.282,
+   "wall": 0.286,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 5.3625,
-   "iterations": 50,
+   "iterations": 42,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (50 it, 0.24s)"
+    "candidate 0: direct: Solve_Succeeded (42 it, 0.24s)"
    ],
    "issues": [],
    "metrics": {
-    "min_obstacle_clearance": 0.5832,
+    "min_obstacle_clearance": 0.6069,
     "min_wall_clearance": 1.0508,
     "max_speed": 3.163,
     "samples": 46
@@ -1612,15 +1617,15 @@
     "midStops"
    ],
    "waypoints": 6,
-   "wall": 0.886,
+   "wall": 1.183,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.387,
-   "iterations": 56,
+   "iterations": 69,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (56 it, 0.83s)"
+    "candidate 0: direct: Solve_Succeeded (69 it, 1.13s)"
    ],
    "issues": [],
    "metrics": {
@@ -1640,20 +1645,20 @@
     "keepOut"
    ],
    "waypoints": 6,
-   "wall": 1.271,
+   "wall": 1.347,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 5.1784,
-   "iterations": 97,
+   "path_time": 5.1789,
+   "iterations": 110,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (56 it, 1.05s)",
-    "candidate 1: direct: Solve_Succeeded (41 it, 0.78s)"
+    "candidate 0: direct: Solve_Succeeded (55 it, 1.09s)",
+    "candidate 1: direct: Solve_Succeeded (55 it, 0.99s)"
    ],
    "issues": [],
    "metrics": {
-    "min_obstacle_clearance": 0.03,
+    "min_obstacle_clearance": 0.0298,
     "min_wall_clearance": 0.36,
     "max_speed": 4.332,
     "samples": 93
@@ -1667,15 +1672,15 @@
     "maxAccel"
    ],
    "waypoints": 3,
-   "wall": 0.235,
+   "wall": 0.295,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.9036,
-   "iterations": 35,
+   "iterations": 60,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (35 it, 0.18s)"
+    "candidate 0: direct: Solve_Succeeded (60 it, 0.24s)"
    ],
    "issues": [],
    "metrics": {
@@ -1692,15 +1697,15 @@
     "4wp"
    ],
    "waypoints": 4,
-   "wall": 0.386,
+   "wall": 0.491,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.0662,
-   "iterations": 48,
+   "iterations": 59,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (48 it, 0.32s)"
+    "candidate 0: direct: Solve_Succeeded (59 it, 0.42s)"
    ],
    "issues": [],
    "metrics": {
@@ -1719,15 +1724,15 @@
     "tolerance"
    ],
    "waypoints": 4,
-   "wall": 0.212,
+   "wall": 0.34,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.5533,
-   "iterations": 35,
+   "iterations": 65,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (35 it, 0.17s)"
+    "candidate 0: direct: Solve_Succeeded (65 it, 0.30s)"
    ],
    "issues": [],
    "metrics": {
@@ -1746,15 +1751,15 @@
     "midStops"
    ],
    "waypoints": 7,
-   "wall": 0.744,
+   "wall": 1.18,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 5.8944,
-   "iterations": 45,
+   "iterations": 68,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (45 it, 0.68s)"
+    "candidate 0: direct: Solve_Succeeded (68 it, 1.11s)"
    ],
    "issues": [],
    "metrics": {
@@ -1772,16 +1777,16 @@
     "tolerance"
    ],
    "waypoints": 8,
-   "wall": 1.209,
+   "wall": 2.123,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 7.7841,
-   "iterations": 100,
+   "iterations": 153,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (49 it, 0.87s)",
-    "candidate 1: direct: Solve_Succeeded (51 it, 0.97s)"
+    "candidate 0: direct: Solve_Succeeded (87 it, 1.88s)",
+    "candidate 1: direct: Solve_Succeeded (66 it, 1.58s)"
    ],
    "issues": [],
    "metrics": {
@@ -1803,16 +1808,16 @@
     "maxAccel"
    ],
    "waypoints": 9,
-   "wall": 4.204,
+   "wall": 6.732,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 10.3944,
-   "iterations": 230,
+   "iterations": 278,
    "candidate": 1,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (96 it, 2.23s)",
-    "candidate 1: direct: Solve_Succeeded (134 it, 3.97s)"
+    "candidate 0: direct: Solve_Succeeded (87 it, 2.60s)",
+    "candidate 1: direct: Solve_Succeeded (191 it, 6.43s)"
    ],
    "issues": [],
    "metrics": {
@@ -1831,15 +1836,15 @@
     "midStops"
    ],
    "waypoints": 9,
-   "wall": 0.848,
+   "wall": 1.235,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 6.5731,
-   "iterations": 56,
+   "iterations": 68,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (56 it, 0.79s)"
+    "candidate 0: direct: Solve_Succeeded (68 it, 1.17s)"
    ],
    "issues": [],
    "metrics": {
@@ -1857,15 +1862,15 @@
     "midStops"
    ],
    "waypoints": 3,
-   "wall": 0.188,
+   "wall": 0.535,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.1759,
-   "iterations": 54,
+   "iterations": 140,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (54 it, 0.15s)"
+    "candidate 0: direct: Solve_Succeeded (140 it, 0.49s)"
    ],
    "issues": [],
    "metrics": {
@@ -1883,20 +1888,20 @@
     "pointAt"
    ],
    "waypoints": 3,
-   "wall": 0.567,
+   "wall": 0.623,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 2.9331,
-   "iterations": 123,
+   "path_time": 2.9517,
+   "iterations": 127,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (66 it, 0.31s)",
-    "candidate 1: direct: Solve_Succeeded (57 it, 0.38s)"
+    "candidate 0: direct: Solve_Succeeded (68 it, 0.42s)",
+    "candidate 1: direct: Solve_Succeeded (59 it, 0.37s)"
    ],
    "issues": [],
    "metrics": {
-    "min_obstacle_clearance": 0.0342,
+    "min_obstacle_clearance": 0.0307,
     "min_wall_clearance": 0.1672,
     "max_speed": 4.332,
     "samples": 49
@@ -1911,23 +1916,23 @@
     "velocityZone"
    ],
    "waypoints": 3,
-   "wall": 1.632,
+   "wall": 1.119,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 4.0997,
-   "iterations": 191,
+   "path_time": 4.0954,
+   "iterations": 133,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (33 it, 0.26s)",
+    "candidate 0: direct: Solve_Succeeded (39 it, 0.28s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (84 it, 0.72s)",
+    "candidate 0: zones: Solve_Succeeded (39 it, 0.31s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (74 it, 0.56s)"
+    "candidate 0: zones: Solve_Succeeded (55 it, 0.42s)"
    ],
    "issues": [],
    "metrics": {
-    "min_obstacle_clearance": 0.037,
+    "min_obstacle_clearance": 0.0401,
     "min_wall_clearance": 0.3407,
     "max_speed": 4.332,
     "samples": 54
@@ -1941,15 +1946,15 @@
     "midStops"
    ],
    "waypoints": 4,
-   "wall": 0.152,
+   "wall": 0.236,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.4173,
-   "iterations": 21,
+   "iterations": 39,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (21 it, 0.11s)"
+    "candidate 0: direct: Solve_Succeeded (39 it, 0.19s)"
    ],
    "issues": [],
    "metrics": {
@@ -1968,15 +1973,15 @@
     "velocityZone"
    ],
    "waypoints": 3,
-   "wall": 0.139,
+   "wall": 0.152,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.4797,
-   "iterations": 20,
+   "iterations": 19,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (20 it, 0.10s)"
+    "candidate 0: direct: Solve_Succeeded (19 it, 0.11s)"
    ],
    "issues": [],
    "metrics": {
@@ -1995,15 +2000,15 @@
     "midStops"
    ],
    "waypoints": 3,
-   "wall": 0.101,
+   "wall": 0.106,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.8947,
-   "iterations": 27,
+   "iterations": 23,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (27 it, 0.07s)"
+    "candidate 0: direct: Solve_Succeeded (23 it, 0.08s)"
    ],
    "issues": [],
    "metrics": {
@@ -2022,16 +2027,16 @@
     "midStops"
    ],
    "waypoints": 5,
-   "wall": 0.431,
+   "wall": 0.77,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.1977,
-   "iterations": 89,
+   "iterations": 148,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (45 it, 0.24s)",
-    "candidate 1: direct: Solve_Succeeded (44 it, 0.25s)"
+    "candidate 0: direct: Solve_Succeeded (90 it, 0.56s)",
+    "candidate 1: direct: Solve_Succeeded (58 it, 0.35s)"
    ],
    "issues": [],
    "metrics": {
@@ -2049,16 +2054,16 @@
     "maxAccel"
    ],
    "waypoints": 4,
-   "wall": 0.976,
+   "wall": 1.362,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 4.9694,
-   "iterations": 101,
+   "iterations": 138,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (44 it, 0.37s)",
-    "candidate 1: direct: Solve_Succeeded (57 it, 0.78s)"
+    "candidate 0: direct: Solve_Succeeded (61 it, 0.57s)",
+    "candidate 1: direct: Solve_Succeeded (77 it, 1.15s)"
    ],
    "issues": [],
    "metrics": {
@@ -2078,16 +2083,16 @@
     "keepOut"
    ],
    "waypoints": 3,
-   "wall": 0.452,
+   "wall": 0.765,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.1841,
-   "iterations": 72,
+   "iterations": 135,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (28 it, 0.15s)",
-    "candidate 1: direct: Solve_Succeeded (44 it, 0.25s)"
+    "candidate 0: direct: Solve_Succeeded (31 it, 0.18s)",
+    "candidate 1: direct: Solve_Succeeded (104 it, 0.57s)"
    ],
    "issues": [],
    "metrics": {
@@ -2106,16 +2111,16 @@
     "velocityZone"
    ],
    "waypoints": 4,
-   "wall": 0.508,
+   "wall": 0.61,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.4958,
-   "iterations": 119,
+   "iterations": 127,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (57 it, 0.21s)",
-    "candidate 1: direct: Solve_Succeeded (62 it, 0.33s)"
+    "candidate 0: direct: Solve_Succeeded (58 it, 0.23s)",
+    "candidate 1: direct: Solve_Succeeded (69 it, 0.44s)"
    ],
    "issues": [],
    "metrics": {
@@ -2132,15 +2137,15 @@
     "2wp"
    ],
    "waypoints": 2,
-   "wall": 0.06,
+   "wall": 0.083,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 0.8224,
-   "iterations": 11,
+   "iterations": 14,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (11 it, 0.03s)"
+    "candidate 0: direct: Solve_Succeeded (14 it, 0.04s)"
    ],
    "issues": [],
    "metrics": {
@@ -2157,16 +2162,16 @@
     "2wp"
    ],
    "waypoints": 2,
-   "wall": 0.326,
+   "wall": 0.341,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 1.311,
-   "iterations": 88,
+   "iterations": 99,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (57 it, 0.15s)",
-    "candidate 1: direct: Solve_Succeeded (31 it, 0.11s)"
+    "candidate 0: direct: Solve_Succeeded (56 it, 0.17s)",
+    "candidate 1: direct: Solve_Succeeded (43 it, 0.17s)"
    ],
    "issues": [],
    "metrics": {
@@ -2186,15 +2191,15 @@
     "maxAccel"
    ],
    "waypoints": 4,
-   "wall": 0.169,
+   "wall": 0.272,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 3.5834,
-   "iterations": 36,
+   "iterations": 63,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (36 it, 0.14s)"
+    "candidate 0: direct: Solve_Succeeded (63 it, 0.24s)"
    ],
    "issues": [],
    "metrics": {
@@ -2212,7 +2217,7 @@
     "pointAt"
    ],
    "waypoints": 4,
-   "wall": 0.309,
+   "wall": 0.306,
    "solver_success": true,
    "valid": true,
    "violations": [],
@@ -2220,7 +2225,7 @@
    "iterations": 37,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (37 it, 0.26s)"
+    "candidate 0: direct: Solve_Succeeded (37 it, 0.25s)"
    ],
    "issues": [],
    "metrics": {
@@ -2239,24 +2244,24 @@
     "velocityZone"
    ],
    "waypoints": 10,
-   "wall": 8.009,
+   "wall": 11.218,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 10.5441,
-   "iterations": 385,
+   "iterations": 491,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (53 it, 1.43s)",
+    "candidate 0: direct: Solve_Succeeded (84 it, 2.33s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (60 it, 1.82s)",
+    "candidate 0: zones: Solve_Succeeded (59 it, 1.65s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (47 it, 1.36s)",
-    "candidate 1: direct: Solve_Succeeded (90 it, 3.13s)",
+    "candidate 0: zones: Solve_Succeeded (55 it, 1.55s)",
+    "candidate 1: direct: Solve_Succeeded (125 it, 4.50s)",
     "candidate 1: zones: membership changed (zone), re-solving",
-    "candidate 1: zones: Solve_Succeeded (68 it, 2.37s)",
+    "candidate 1: zones: Solve_Succeeded (88 it, 3.37s)",
     "candidate 1: zones: membership changed (zone), re-solving",
-    "candidate 1: zones: Solve_Succeeded (67 it, 2.20s)"
+    "candidate 1: zones: Solve_Succeeded (80 it, 3.02s)"
    ],
    "issues": [],
    "metrics": {
@@ -2273,15 +2278,15 @@
     "3wp"
    ],
    "waypoints": 3,
-   "wall": 0.126,
+   "wall": 0.209,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.1616,
-   "iterations": 25,
+   "iterations": 58,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (25 it, 0.09s)"
+    "candidate 0: direct: Solve_Succeeded (58 it, 0.17s)"
    ],
    "issues": [],
    "metrics": {
@@ -2300,16 +2305,16 @@
     "midStops"
    ],
    "waypoints": 5,
-   "wall": 0.862,
+   "wall": 0.949,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 4.1329,
-   "iterations": 140,
+   "iterations": 97,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (97 it, 0.66s)",
-    "candidate 1: direct: Solve_Succeeded (43 it, 0.36s)"
+    "candidate 0: direct: Solve_Succeeded (61 it, 0.74s)",
+    "candidate 1: direct: Solve_Succeeded (36 it, 0.44s)"
    ],
    "issues": [],
    "metrics": {
@@ -2326,15 +2331,15 @@
     "2wp"
    ],
    "waypoints": 2,
-   "wall": 0.041,
+   "wall": 0.049,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 0.6649,
-   "iterations": 10,
+   "iterations": 19,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (10 it, 0.02s)"
+    "candidate 0: direct: Solve_Succeeded (19 it, 0.03s)"
    ],
    "issues": [],
    "metrics": {
@@ -2352,16 +2357,16 @@
     "tolerance"
    ],
    "waypoints": 10,
-   "wall": 1.829,
+   "wall": 2.687,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 7.8788,
-   "iterations": 99,
+   "iterations": 143,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (55 it, 1.60s)",
-    "candidate 1: direct: Solve_Succeeded (44 it, 1.31s)"
+    "candidate 0: direct: Solve_Succeeded (91 it, 2.46s)",
+    "candidate 1: direct: Solve_Succeeded (52 it, 1.64s)"
    ],
    "issues": [],
    "metrics": {
@@ -2381,16 +2386,16 @@
     "maxAccel"
    ],
    "waypoints": 8,
-   "wall": 2.791,
+   "wall": 2.665,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 10.571,
-   "iterations": 184,
+   "iterations": 159,
    "candidate": 1,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (123 it, 2.59s)",
-    "candidate 1: direct: Solve_Succeeded (61 it, 1.50s)"
+    "candidate 0: direct: Solve_Succeeded (75 it, 1.86s)",
+    "candidate 1: direct: Solve_Succeeded (84 it, 2.37s)"
    ],
    "issues": [],
    "metrics": {
@@ -2408,15 +2413,15 @@
     "keepOut"
    ],
    "waypoints": 2,
-   "wall": 0.45,
+   "wall": 0.594,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.7621,
-   "iterations": 55,
+   "iterations": 64,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (55 it, 0.38s)"
+    "candidate 0: direct: Solve_Succeeded (64 it, 0.50s)"
    ],
    "issues": [],
    "metrics": {
@@ -2434,16 +2439,16 @@
     "midStops"
    ],
    "waypoints": 10,
-   "wall": 1.976,
+   "wall": 3.065,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 8.6425,
-   "iterations": 105,
+   "iterations": 154,
    "candidate": 1,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (47 it, 1.17s)",
-    "candidate 1: direct: Solve_Succeeded (58 it, 1.72s)"
+    "candidate 0: direct: Solve_Succeeded (57 it, 1.56s)",
+    "candidate 1: direct: Solve_Succeeded (97 it, 2.81s)"
    ],
    "issues": [],
    "metrics": {
@@ -2460,15 +2465,15 @@
     "3wp"
    ],
    "waypoints": 3,
-   "wall": 0.182,
+   "wall": 0.341,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 2.5076,
-   "iterations": 27,
+   "iterations": 62,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (27 it, 0.13s)"
+    "candidate 0: direct: Solve_Succeeded (62 it, 0.29s)"
    ],
    "issues": [],
    "metrics": {
@@ -2488,20 +2493,20 @@
     "keepOut"
    ],
    "waypoints": 10,
-   "wall": 4.13,
+   "wall": 8.018,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 12.4384,
-   "iterations": 172,
+   "path_time": 12.4113,
+   "iterations": 259,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (90 it, 3.85s)",
-    "candidate 1: direct: Solve_Succeeded (82 it, 3.71s)"
+    "candidate 0: direct: Solve_Succeeded (189 it, 7.74s)",
+    "candidate 1: direct: Solve_Succeeded (70 it, 3.29s)"
    ],
    "issues": [],
    "metrics": {
-    "min_obstacle_clearance": 0.0313,
+    "min_obstacle_clearance": 0.0345,
     "min_wall_clearance": 0.0423,
     "max_speed": 4.332,
     "samples": 217
@@ -2516,19 +2521,19 @@
     "velocityZone"
    ],
    "waypoints": 9,
-   "wall": 3.259,
+   "wall": 3.73,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 8.531,
-   "iterations": 147,
+   "iterations": 162,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (37 it, 0.74s)",
+    "candidate 0: direct: Solve_Succeeded (56 it, 1.27s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (59 it, 1.28s)",
+    "candidate 0: zones: Solve_Succeeded (51 it, 1.08s)",
     "candidate 0: zones: membership changed (zone), re-solving",
-    "candidate 0: zones: Solve_Succeeded (51 it, 1.10s)"
+    "candidate 0: zones: Solve_Succeeded (55 it, 1.25s)"
    ],
    "issues": [],
    "metrics": {
@@ -2546,15 +2551,15 @@
     "tolerance"
    ],
    "waypoints": 8,
-   "wall": 1.243,
+   "wall": 1.677,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 6.7608,
-   "iterations": 70,
+   "iterations": 100,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (70 it, 1.16s)"
+    "candidate 0: direct: Solve_Succeeded (100 it, 1.60s)"
    ],
    "issues": [],
    "metrics": {
@@ -2573,19 +2578,19 @@
     "keepOut"
    ],
    "waypoints": 5,
-   "wall": 2.973,
+   "wall": 3.547,
    "solver_success": true,
    "valid": true,
    "violations": [],
-   "path_time": 5.7737,
-   "iterations": 105,
+   "path_time": 5.7874,
+   "iterations": 115,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (105 it, 2.86s)"
+    "candidate 0: direct: Solve_Succeeded (115 it, 3.43s)"
    ],
    "issues": [],
    "metrics": {
-    "min_obstacle_clearance": 0.0199,
+    "min_obstacle_clearance": 0.0291,
     "min_wall_clearance": 0.0512,
     "max_speed": 4.332,
     "samples": 145
@@ -2598,15 +2603,15 @@
     "2wp"
    ],
    "waypoints": 2,
-   "wall": 0.046,
+   "wall": 0.05,
    "solver_success": true,
    "valid": true,
    "violations": [],
    "path_time": 0.8109,
-   "iterations": 13,
+   "iterations": 17,
    "candidate": 0,
    "attempts": [
-    "candidate 0: direct: Solve_Succeeded (13 it, 0.02s)"
+    "candidate 0: direct: Solve_Succeeded (17 it, 0.03s)"
    ],
    "issues": [],
    "metrics": {

@@ -24,7 +24,8 @@ from typing import Callable, Optional
 
 import numpy as np
 import shapely
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon, box
+from shapely.ops import unary_union
 
 from . import geometry as geo
 from .drivetrain import Drivetrain, build_drivetrain
@@ -39,10 +40,11 @@ from .models import (
     RecoveryPayload,
     Sample,
     SolveStats,
+    StraightLine,
     Trajectory,
     TrajectoryOutput,
 )
-from .ocp import OCP, OCPOptions, OCPResult, scope_samples, select_pairs, waypoint_indices
+from .ocp import SUCCESS, OCP, OCPOptions, OCPResult, scope_samples, select_pairs, waypoint_indices
 
 ProgressFn = Callable[[dict], None]
 
@@ -60,11 +62,29 @@ class SolveResult:
 # ---------------------------------------------------------------------------
 
 
+def resolve_poses(project: Project, traj: Trajectory) -> Trajectory:
+    """Copy of `traj` whose pose-linked waypoints take x/y/heading from the project's pose variables.
+
+    Waypoints keep their `pose_ref`, so resolving twice is a no-op. Unknown refs keep the
+    waypoint's stored pose (validate() warns about them). Only the waypoints are copied.
+    """
+    poses = {p.id: p for p in project.poses}
+    wps = []
+    for wp in traj.waypoints:
+        p = poses.get(wp.pose_ref) if wp.pose_ref else None
+        wps.append(wp.model_copy(update={"x": p.x, "y": p.y, "heading": p.heading}) if p else wp.model_copy())
+    return traj.model_copy(update={"waypoints": wps})
+
+
 def input_hash(project: Project, traj: Trajectory) -> str:
+    traj = resolve_poses(project, traj)
     payload = {
         "robot": project.robot.dump(),
         "field": project.field.dump(),
-        "traj": traj.model_dump(by_alias=True, mode="json", exclude={"output"}),
+        # Pose refs are hashed through their resolved values: moving a pose variable marks the
+        # paths that use it stale, and files without refs keep their old hashes.
+        "traj": traj.model_dump(by_alias=True, mode="json",
+                                exclude={"output": True, "folder": True, "waypoints": {"__all__": {"pose_ref"}}}),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
@@ -86,8 +106,134 @@ def point_at_members(traj: Trajectory, sol: Solution):
     return out
 
 
+def straight_line_ranges(traj: Trajectory) -> list[tuple[str, StraightLine, int, int]]:
+    """Enabled straight-line constraints that can be applied: (id, data, a, b) with a < b.
+
+    Only range scopes between two distinct, in-range waypoints at different positions count;
+    validate() warns about the others and the OCP ignores them.
+    """
+    wps = traj.waypoints
+    out = []
+    for con in traj.constraints:
+        if not con.enabled or not isinstance(con.data, StraightLine) or con.scope.kind != "range":
+            continue
+        a, b = sorted((con.scope.from_, con.scope.to))
+        if a < 0 or b >= len(wps) or a == b:
+            continue
+        if math.hypot(wps[b].x - wps[a].x, wps[b].y - wps[a].y) < 1e-6:
+            continue
+        out.append((con.id, con.data, a, b))
+    return out
+
+
+def _free_components(world: geo.World, dt: Drivetrain) -> list:
+    """Connected regions the robot center can move through, whatever the heading.
+
+    The bumper always contains its inscribed circle, so the center must stay at least the
+    inradius away from every obstacle and inside the walls. A hair is taken off the radius so
+    this is never stricter than the optimizer.
+    """
+    r = max(dt.inradius - 5e-3, 0.0)
+    fld = box(0, 0, world.length, world.width).buffer(-(r + world.wall_margin), join_style="mitre")
+    blocked = unary_union([p.buffer(r) for _, p, _ in world.obstacle_polys]) if world.obstacle_polys else Polygon()
+    free = fld.difference(blocked)
+    return [g for g in getattr(free, "geoms", [free]) if g.geom_type == "Polygon" and not g.is_empty]
+
+
+def _enclosure_issues(traj: Trajectory, dt: Drivetrain, world: geo.World) -> list[Issue]:
+    """Fixed waypoints in different free-space components can never be joined by a path."""
+    comps = _free_components(world, dt)
+    if len(comps) < 2:
+        return []
+    located = []
+    for j, wp in enumerate(traj.waypoints):
+        if wp.translation_mode != "fixed" or wp.tolerance.kind != "none":
+            continue
+        pt = Point(wp.x, wp.y)
+        ci = next((i for i, c in enumerate(comps) if c.distance(pt) < 1e-9), None)
+        if ci is not None:  # a center inside the blocked area is left to the footprint checks
+            located.append((j, ci))
+    issues, blamed = [], set()
+    r = max(dt.inradius - 5e-3, 0.0)
+    inner = box(0, 0, world.length, world.width).buffer(-(r + world.wall_margin) - 1e-3, join_style="mitre")
+    for (ja, ca_), (jb, cb) in zip(located, located[1:]):
+        if ca_ == cb:
+            continue
+        # blame the waypoint in the smaller region: that's the one that is walled in
+        j, other, ci = (ja, jb, ca_) if comps[ca_].area <= comps[cb].area else (jb, ja, cb)
+        if j in blamed:
+            continue
+        blamed.add(j)
+        comp = comps[ci]
+        names = []
+        for name, poly, _ in world.obstacle_polys:
+            if name not in names and poly.buffer(r).distance(comp) < 1e-3:
+                names.append(f"'{name}'")
+        if not inner.contains(comp):
+            names.append("the field wall")
+        what = ", ".join(names[:5]) or "obstacles"
+        wp = traj.waypoints[j]
+        issues.append(Issue(
+            severity="error",
+            message=f"Waypoint {j + 1} can't be reached from waypoint {other + 1}: it is enclosed by {what} "
+                    "with no gap wide enough for the robot.",
+            waypoint=j, x=wp.x, y=wp.y))
+    return issues
+
+
+def _straight_line_issues(traj: Trajectory, dt: Drivetrain, world: geo.World) -> list[Issue]:
+    issues = []
+    wps = traj.waypoints
+    n = len(wps)
+    for con in traj.constraints:
+        if not con.enabled or not isinstance(con.data, StraightLine):
+            continue
+        s = con.scope
+        if s.kind != "range":
+            issues.append(Issue(severity="warning",
+                                message=f"Straight-line constraint '{con.id}' needs a range scope "
+                                        "(from one waypoint to another); ignored."))
+            continue
+        a, b = sorted((s.from_, s.to))
+        if a < 0 or b >= n:
+            continue  # already reported as a missing waypoint
+        if a == b or math.hypot(wps[b].x - wps[a].x, wps[b].y - wps[a].y) < 1e-6:
+            issues.append(Issue(severity="warning",
+                                message=f"Straight-line constraint '{con.id}' starts and ends at the same point; "
+                                        "ignored.", waypoint=a))
+            continue
+        seg = LineString([(wps[a].x, wps[a].y), (wps[b].x, wps[b].y)])
+        swept = seg.buffer(max(dt.inradius - 1e-3, 0.0))
+        for name, poly, _ in world.obstacle_polys:
+            if swept.intersects(poly):
+                q = shapely.ops.nearest_points(seg, poly)[0]
+                issues.append(Issue(severity="error",
+                                    message=f"Straight-line constraint '{con.id}' passes through obstacle '{name}'.",
+                                    waypoint=a, x=q.x, y=q.y))
+                break
+        tol = max(con.data.tolerance, 0.0)
+        for j in range(a + 1, b):
+            wp = wps[j]
+            if wp.translation_mode != "fixed" or wp.tolerance.kind != "none":
+                continue
+            off = seg.distance(Point(wp.x, wp.y))
+            if off > tol + 1e-4:
+                issues.append(Issue(severity="error",
+                                    message=f"Waypoint {j + 1} is {off:.2f} m off the line of straight-line "
+                                            f"constraint '{con.id}'. Move it onto the line or make it a guide.",
+                                    waypoint=j, x=wp.x, y=wp.y))
+    return issues
+
+
 def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.World) -> list[Issue]:
     issues = []
+    pose_ids = {p.id for p in project.poses}
+    for j, wp in enumerate(traj.waypoints):
+        if wp.pose_ref and wp.pose_ref not in pose_ids:
+            issues.append(Issue(severity="warning",
+                                message=f"Waypoint {j + 1} links to a missing pose variable; using its own position.",
+                                waypoint=j, x=wp.x, y=wp.y))
+    traj = resolve_poses(project, traj)
     wps = traj.waypoints
     if len(wps) < 2:
         issues.append(Issue(severity="error", message="A trajectory needs at least 2 waypoints."))
@@ -137,6 +283,9 @@ def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.Worl
                 issues.append(Issue(severity="error",
                                     message=f"Waypoint {j + 1} heading conflicts with point-at constraint '{con.id}'.",
                                     waypoint=j, x=wp.x, y=wp.y))
+    issues += _straight_line_issues(traj, dt, world)
+    if not any(i.severity == "error" for i in issues):
+        issues += _enclosure_issues(traj, dt, world)
     return issues
 
 
@@ -157,6 +306,23 @@ def candidate_routes(traj: Trajectory, dt: Drivetrain, world: geo.World, k: int)
         if not routes:
             routes = [[a, b]]
         per_seg.append(routes)
+    # straight-line constraints: when the line is clear, every leg in the range follows it.
+    # Intermediate waypoints are projected onto the segment (fixed ones must already lie on
+    # it - validate() rejects those that don't - so this only moves guides and tolerances).
+    lines = straight_line_ranges(traj)
+    if lines:
+        rm = geo.build_roadmap(world, dt.inradius + 0.02)
+        for _, _, a, b in lines:
+            p, q = np.array([wps[a].x, wps[a].y]), np.array([wps[b].x, wps[b].y])
+            if not geo._segment_free(rm, tuple(p), tuple(q)):
+                continue
+            d = q - p
+            pts = []
+            for j in range(a, b + 1):
+                u = float(np.clip(np.dot(np.array([wps[j].x, wps[j].y]) - p, d) / np.dot(d, d), 0.0, 1.0))
+                pts.append(tuple(p + u * d))
+            for j in range(a, b):
+                per_seg[j] = [[pts[j - a], pts[j - a + 1]]]
     cands = []
     n_c = max(len(r) for r in per_seg) if per_seg else 1
     for i in range(min(k, n_c)):
@@ -176,6 +342,27 @@ class Attempt:
     iters: int
     log: list[str]
     slacks: list = field(default_factory=list)
+    probe: Optional[OCPResult] = None  # converged elastic probe that proved a hard violation
+    infeasible: bool = False
+
+
+# IPOPT statuses that suggest the hard problem has no feasible point near the guess
+INFEASIBLE_STATUSES = {"Infeasible_Problem_Detected", "Restoration_Failed"}
+# Elastic slack (per constraint label) above which a constraint is counted as truly violated.
+# Drivetrain categories are absent on purpose: the elastic solve trades small wheel/motor
+# violations for time, which says nothing about feasibility.
+DECISIVE_SLACK = {"user": 1e-2, "heading": 1e-2, "stop": 1e-2, "waypoint": 1e-2,
+                  "obstacle": 0.05, "wall": 0.05, "keepin": 0.05}
+
+
+def hard_violations(slacks) -> list[tuple[str, str, float]]:
+    """(label, category, total) of the constraints an elastic solve could not satisfy."""
+    agg: dict[str, tuple[str, float]] = {}
+    for label, cat, total, _ in slacks:
+        if total > agg.get(label, ("", -1.0))[1]:
+            agg[label] = (cat, total)
+    bad = [(lab, cat, tot) for lab, (cat, tot) in agg.items() if tot > DECISIVE_SLACK.get(cat, math.inf)]
+    return sorted(bad, key=lambda v: -v[2])
 
 
 class Solver:
@@ -329,6 +516,21 @@ class Solver:
             return a
         best_fail = res
 
+        # 1b. IPOPT says infeasible: an elastic probe tells a real conflict (stop now and let the
+        # caller report it) from a bad guess (its solution is then a feasible warm start).
+        if res.status in INFEASIBLE_STATUSES and self._time_left() > 2:
+            probe = self.run_ocp(guess, "elastic", "elastic-probe", time_cap=min(8.0, 0.3 * self._time_left()))
+            if probe.status in SUCCESS and np.all(np.isfinite(probe.solution.x)):
+                bad = hard_violations(probe.slacks)
+                if bad:
+                    self.log.append("elastic probe: " + ", ".join(lab for lab, _, _ in bad[:3])
+                                    + " cannot be met; stopping")
+                    return Attempt(False, best_fail.solution, self.iters, self.log, probe=probe, infeasible=True)
+                if max((t for _, _, t, _ in probe.slacks), default=0.0) < 1e-3:
+                    res = self.run_ocp(probe.solution, "hard", "elastic->hard")
+                    if (a := finish(res)):
+                        return a
+
         # 2. coarse mesh then refine
         Ns_coarse = [max(3, n // 2) for n in guess.Ns]
         if Ns_coarse != guess.Ns and self._time_left() > 2:
@@ -412,7 +614,11 @@ def _solve_candidate(project_json: dict, traj_json: dict, routes, cand: int, dea
     pa = point_at_members(traj, guess0)
     guess = build_guess(traj, routes, solver.dt, pa) if pa else guess0
     att = solver.ladder(guess)
-    return {"ok": att.ok, "sol": att.sol, "iters": att.iters, "log": att.log, "candidate": cand}
+    out = {"ok": att.ok, "sol": att.sol, "iters": att.iters, "log": att.log, "candidate": cand,
+           "infeasible": att.infeasible}
+    if att.probe is not None:
+        out["probe_sol"], out["probe_slacks"] = att.probe.solution, att.probe.slacks
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -423,9 +629,11 @@ def _solve_candidate(project_json: dict, traj_json: dict, routes, cand: int, dea
 def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = None,
           parallel: bool = True) -> SolveResult:
     t_start = time.monotonic()
+    traj_in = traj
+    traj = resolve_poses(project, traj)  # everything below sees plain waypoints
     dt = build_drivetrain(project.robot)
     world = make_world(project, traj)
-    issues = validate(project, traj, dt, world)
+    issues = validate(project, traj_in, dt, world)  # (validate resolves too, and warns about bad refs)
     if any(i.severity == "error" for i in issues):
         return SolveResult(False, None, issues)
 
@@ -524,15 +732,24 @@ def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Is
     issues: list[Issue] = []
     if not results:
         return [Issue(severity="error", message="No candidate routes could be generated.")]
-    solver = Solver(project, traj, None, 0, time.monotonic() + max(10.0, traj.settings.time_limit / 3))
-    sol = results[0].get("sol")
-    if sol is None or not np.all(np.isfinite(sol.x)):
-        cands = candidate_routes(traj, solver.dt, solver.world, 1)
-        sol = build_guess(traj, cands[0], solver.dt)
-    res = solver.run_ocp(sol, "elastic", "diagnose")
-    times = res.solution.times()
+    traj = resolve_poses(project, traj)
+    probes = [r for r in results if r.get("infeasible") and r.get("probe_sol") is not None]
+    if probes:
+        # a candidate's elastic probe already proved the conflict; the closest-to-feasible
+        # candidate gives the most specific report
+        best = min(probes, key=lambda r: sum(t for _, _, t, _ in r["probe_slacks"]))
+        dsol, dslacks = best["probe_sol"], best["probe_slacks"]
+    else:
+        solver = Solver(project, traj, None, 0, time.monotonic() + max(10.0, traj.settings.time_limit / 3))
+        sol = results[0].get("sol")
+        if sol is None or not np.all(np.isfinite(sol.x)):
+            cands = candidate_routes(traj, solver.dt, solver.world, 1)
+            sol = build_guess(traj, cands[0], solver.dt)
+        res = solver.run_ocp(sol, "elastic", "diagnose")
+        dsol, dslacks = res.solution, res.slacks
+    times = dsol.times()
     agg: dict[str, tuple[float, int, str]] = {}
-    for label, cat, total, k in res.slacks:
+    for label, cat, total, k in dslacks:
         if total <= 1e-3:
             continue
         prev = agg.get(label)
@@ -541,8 +758,8 @@ def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Is
     ranked = sorted(agg.items(), key=lambda kv: -kv[1][0])
     for label, (total, k, cat) in ranked[:6]:
         t = float(times[k]) if 0 <= k < len(times) else None
-        x = float(res.solution.x[k]) if 0 <= k < len(times) else None
-        y = float(res.solution.y[k]) if 0 <= k < len(times) else None
+        x = float(dsol.x[k]) if 0 <= k < len(times) else None
+        y = float(dsol.y[k]) if 0 <= k < len(times) else None
         waypoint = (int(match.group(1)) - 1) if (match := re.match(r"Waypoint (\d+)", label)) else None
         if waypoint is None and cat in ("obstacle", "wall", "keepin") and x is not None and y is not None:
             waypoint = min(range(len(traj.waypoints)),

@@ -44,3 +44,23 @@ def test_stdio_roundtrip(tmp_path):
     finally:
         proc.stdin.close()
         proc.wait(timeout=10)
+
+
+def test_folders_roundtrip_and_do_not_affect_input_hash(tmp_path):
+    from mayhem_solver.models import Project
+    from mayhem_solver.pipeline import input_hash
+    from mayhem_solver.rpc import Server
+
+    server = Server(lambda msg: None)
+    opened = server.m_createProject(str(tmp_path / "proj"))
+    project = {**opened["project"], "folders": ["Left side", "Empty"]}
+    server.m_saveProject(opened["dir"], project)
+    t = Trajectory(name="Auto 1", waypoints=[wp(0, 2, 2), wp(1, 6, 6)])
+    server.m_saveTrajectory(opened["dir"], {**t.model_dump(by_alias=True, mode="json"), "folder": "Left side"})
+    reopened = server.m_openProject(opened["dir"])
+    assert reopened["project"]["folders"] == ["Left side", "Empty"]
+    assert reopened["trajectories"][0]["folder"] == "Left side"
+
+    p = Project.model_validate(project)
+    moved = t.model_copy(update={"folder": "Elsewhere"})
+    assert input_hash(p, t) == input_hash(p, moved)

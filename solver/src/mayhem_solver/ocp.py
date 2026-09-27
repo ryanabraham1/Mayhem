@@ -26,7 +26,7 @@ from shapely.geometry import Point, Polygon
 from .drivetrain import G, Drivetrain
 from .geometry import World, bumper_polygons
 from .guess import Solution
-from .models import KeepIn, MaxAcceleration, MaxAngularVelocity, MaxVelocity, PointAt, Trajectory
+from .models import KeepIn, MaxAcceleration, MaxAngularVelocity, MaxVelocity, PointAt, StraightLine, Trajectory
 
 SOFT_MODES = {
     "hard": set(),
@@ -35,6 +35,15 @@ SOFT_MODES = {
 }
 
 SUCCESS = {"Solve_Succeeded", "Solved_To_Acceptable_Level"}
+
+# Smallest robot-obstacle separation used by the hyperplane constraints [m], whatever the
+# obstacle's margin (a zero margin makes the degenerate plane n = 0 feasible).
+MIN_SEPARATION = 1e-2
+
+# Per-category slack weights. In elastic (diagnostic) solves, moving a fixed waypoint is made
+# expensive so the report blames the conflicting constraint rather than relocating the robot
+# (e.g. parking it on a point-at target, where the heading constraint degenerates).
+SLACK_WEIGHTS = {"elastic": {"waypoint": 10.0}}
 
 
 @dataclass
@@ -292,8 +301,10 @@ class OCP:
             d = (Fx[i] * vfx + Fy[i] * vfy) * F_ref  # longitudinal force * |v_w|
             self._le(d / (F_stall * v_free) - (sw / v_free) * (1 - sw / v_free),
                      "Motor torque-speed limit", "motor", all_k)
-            self._le(d / (F_curr * v_free) - sw / v_free, "Motor current limit", "motor", all_k)
-            self._le(-d / (F_curr * v_free) - sw / v_free, "Motor current limit", "motor", all_k)
+            # Current limit on the total module force. Capping only the longitudinal part
+            # (F . v_wheel) leaves lateral force free and is a no-op at v ~ 0, which lets
+            # low-current-limit paths weave on "unmotored" side force.
+            self._le((Fx[i] ** 2 + Fy[i] ** 2) * (F_ref / F_curr) ** 2 - 1, "Motor current limit", "motor", all_k)
 
         def pose_at(km: list[int], frac: float):
             """Pose a fraction of the way through intervals km (exact constant-acceleration model)."""
@@ -341,7 +352,8 @@ class OCP:
             ks = sorted(set(int(k) for k in ks))
             nvar = opti.variable(3, len(ks))
             n0, n1, b = nvar[0, :], nvar[1, :], nvar[2, :]
-            half = piece.margin / 2
+            # a zero margin would let n = 0, b = 0 satisfy every separation constraint
+            half = max(piece.margin, MIN_SEPARATION) / 2
             label = f"Obstacle '{piece.name}'"
 
             def sep(corners, cols):
@@ -442,6 +454,27 @@ class OCP:
                         cy = X[1, ks] + X[3, ks] * px + X[2, ks] * py
                         exprs.append(-(ex * (cy - y1) - ey * (cx - x1)) / nrm)
                 self._le(ca.vertcat(*exprs), lab, "keepin", ks)
+            elif isinstance(d, StraightLine):
+                # range scope only (validate() warns about other scopes); line through the
+                # two end waypoints' positions
+                if con.scope.kind != "range":
+                    continue
+                a, b = sorted((con.scope.from_, con.scope.to))
+                if a < 0 or b >= len(wps) or a == b:
+                    continue
+                px, py = wps[a].x, wps[a].y
+                ex, ey = wps[b].x - px, wps[b].y - py
+                seg = math.hypot(ex, ey)
+                if seg < 1e-6:
+                    continue
+                tol = max(d.tolerance, 1e-3)
+                rx, ry = X[0, ks] - px, X[1, ks] - py
+                # perpendicular distance (squared cross product / length^2) within tolerance
+                cross = ex * ry - ey * rx
+                self._le(cross ** 2 / (seg * tol) ** 2 - 1, lab, "user", ks)
+                # projection onto the segment stays within [0, length] (+/- tolerance)
+                proj = (ex * rx + ey * ry) / seg
+                self._le(ca.vertcat(-proj - tol, proj - seg - tol) / tol, lab, "user", ks)
             # KeepOut is handled as world geometry by the pipeline.
 
         # objective
@@ -451,7 +484,8 @@ class OCP:
             obj = obj + opts.smoothing * g.total_time * ca.sumsqr(dF) / (M * (K - 1))
         if self.slacks:
             weight = opts.penalty * max(g.total_time, 0.5)
-            obj = obj + weight * sum(ca.sum1(ca.vec(sl.var)) for sl in self.slacks)
+            cw = SLACK_WEIGHTS.get(opts.mode, {})
+            obj = obj + weight * sum(cw.get(sl.category, 1.0) * ca.sum1(ca.vec(sl.var)) for sl in self.slacks)
         opti.minimize(obj)
 
         # initial values

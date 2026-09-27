@@ -5,6 +5,7 @@
     uv run python -m benchmarks.run --fast             # CI subset
     uv run python -m benchmarks.run --only trench      # name substring filter
     uv run python -m benchmarks.run --jobs 4           # throughput mode (candidates run sequentially)
+    uv run python -m benchmarks.run --compare baseline,previous   # keep several earlier runs in RESULTS.md
 
 Default mode solves one scenario at a time with ``parallel=True`` (exactly what the app
 does), so the wall times are what a user sees. ``--jobs N`` runs N scenarios at once with
@@ -192,7 +193,9 @@ def main(argv=None) -> int:
     ap.add_argument("--sequential", action="store_true", help="parallel=False even with --jobs 1")
     ap.add_argument("--label", default="current")
     ap.add_argument("--no-write", action="store_true")
-    ap.add_argument("--compare", default="baseline", help="label of the run to compare against in RESULTS.md")
+    ap.add_argument("--compare", default="baseline",
+                    help="comma-separated labels of earlier runs to keep in RESULTS.md (the first is the "
+                         "per-scenario reference)")
     args = ap.parse_args(argv)
 
     from .scenarios import FAST_SUBSET, all_scenarios
@@ -262,9 +265,10 @@ def main(argv=None) -> int:
     print(f"wrote {out}")
     if not (args.fast or args.only or args.group):
         runs = {}
-        cmp_path = RESULTS_DIR / f"{args.compare}.json"
-        if args.compare != args.label and cmp_path.exists():
-            runs[args.compare] = json.loads(cmp_path.read_text())
+        for lab in [c.strip() for c in args.compare.split(",") if c.strip()]:
+            cmp_path = RESULTS_DIR / f"{lab}.json"
+            if lab != args.label and cmp_path.exists():
+                runs[lab] = json.loads(cmp_path.read_text())
         runs[args.label] = result
         write_markdown(HERE / "RESULTS.md", runs)
         print(f"wrote {HERE / 'RESULTS.md'}")
