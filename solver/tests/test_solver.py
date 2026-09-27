@@ -208,23 +208,24 @@ def test_warm_resolve_with_duals_stays_at_the_optimum(box_project):
     assert again.solution.total_time == pytest.approx(res.solution.total_time, rel=1e-3)
 
 
-def test_slower_candidates_get_a_grace_period(box_project, monkeypatch):
-    import time
+def test_tight_trench_is_offered_as_a_route():
+    """A gap narrower than the robot's circumscribed circle but wider than the robot (when
+    turned square to it) must still be tried: the optimizer only refines the routes it gets.
+    Regression: with a 10 cm margin on the REBUILT trench wall, every candidate went around
+    over the bump and U-turned into the trench."""
+    from benchmarks.scenarios import rebuilt_project
 
-    from mayhem_solver import pipeline
-
-    deadlines = []
-    original = pipeline._solve_candidate
-
-    def record(pj, tj, routes, cand, deadline_wall, queue=None):
-        deadlines.append((cand, deadline_wall, time.time()))
-        return original(pj, tj, routes, cand, deadline_wall, queue)
-
-    monkeypatch.setattr(pipeline, "_solve_candidate", record)
-    t = Trajectory(name="g", waypoints=[wp(0, 2, 3.5, stop=True), wp(1, 8, 3.5, stop=True)])
-    t0 = time.time()
-    r = solve(box_project, t, parallel=False)
-    assert r.success and len(deadlines) >= 2
-    # candidate 0 succeeded, so the next one must finish within the grace period, not the time limit
-    _, d1, started = deadlines[1]
-    assert d1 <= started + pipeline.GRACE_FACTOR * (started - t0) + pipeline.GRACE_SECONDS + 1e-6
+    project = rebuilt_project()
+    for o in project.field.obstacles:
+        if o.name == "Blue Trench Wall (right)":
+            o.margin = 0.1
+    d = build_drivetrain(project.robot)
+    wall = next(o for o in project.field.obstacles if o.name == "Blue Trench Wall (right)")
+    gap = min(y for _, y in wall.points) - wall.margin - project.field.wall_margin
+    assert 2 * d.inradius < gap < 2 * (d.circumradius + 0.02)  # only the aligned robot fits
+    t = Trajectory(name="trench", waypoints=[wp(0, 6.65, 0.75, stop=True), wp(1, 4.61, 0.61),
+                                             wp(2, 2.4, 0.97, stop=True)])
+    r = solve(project, t, parallel=False)
+    assert r.success, r.issues
+    a, _ = arrays(r.output)
+    assert a["y"].max() < gap  # stayed under the trench wall instead of looping over the bump

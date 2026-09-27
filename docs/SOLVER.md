@@ -96,6 +96,23 @@ For enclosure, two fixed waypoints are in different connected regions of the fre
 the robot's inscribed circle, so no heading can get the robot through. Each check reports
 the exact waypoint index, avoiding a long infeasible solve.
 
+## Route candidates
+
+Each segment's routes come from two configuration-space roadmaps: one for the robot's
+circumscribed circle (it fits at any heading) and one for its inscribed circle (it fits when
+turned square to a gap). Candidate 0 takes the shortest route from either roadmap on every
+segment, so a gap only the aligned robot fits through, such as a trench a few cm wider than
+the robot, is always tried. The optimizer only refines the route it is given, so a gap that
+isn't offered is never found. The remaining candidates are the any-heading roadmap's k
+homotopy-distinct routes, as before. The candidate set is therefore a superset of the
+any-heading-only one, and adding candidate 0 can only make the best path faster. All
+candidates run to completion, and the fastest verified path wins.
+
+Before this, the inscribed-circle roadmap was only used when the any-heading one found no
+route at all. With a 10 cm margin on the REBUILT trench wall, every candidate went over the
+bump and U-turned into the trench (10.9 s instead of 8.7 s). On the benchmark, offering the
+tight routes made 25 of 91 paths faster (up to 58%) and none slower.
+
 ## Speed
 
 Measured on the benchmark, where the time goes and what keeps it short:
@@ -115,10 +132,6 @@ Measured on the benchmark, where the time goes and what keeps it short:
   same 1e-4 constraint-violation bound as a full solve and the objective has changed by
   less than 1e-4 (relative) for two iterations. That skips the final iterations spent
   polishing multipliers of a path that no longer moves.
-- **Candidates.** Once one candidate has a verified path, the others get
-  `GRACE_FACTOR` (1.0) times the time it took, plus `GRACE_SECONDS` (1 s), to finish;
-  then they are cancelled. Stopping at the first success lost up to 33% of path time on
-  the benchmark (another route class can be much faster), while this grace period lost none.
 
 Adaptive barrier updates (the quality-function oracle) cost a large share of each
 iteration, but the alternatives were slower overall: monotone mu, and the probing and LOQO
@@ -146,12 +159,12 @@ probe, along with the total-force current limit and the minimum obstacle separat
 validates all 91/91 feasible scenes with 0.450 s median and 2.101 s p90 wall time, and
 diagnoses all 4/4 infeasible cases with a p90 of 0.26 s (max 0.37 s).
 
-The speed work (see Speed above) was measured on the same field and machine with the
-changes switched off (`before-speedup` in RESULTS.md) and on (`current`). Both runs validate
-91/91 feasible scenes and diagnose 4/4 infeasible ones. The total wall time for the
-feasible scenes fell from 137.8 s to 65.2 s, p90 from 2.52 s to 1.30 s, and the slowest
-scene from 37.3 s to 7.2 s. Total path time is unchanged (385.69 s vs 385.66 s). On 100
-unseen random scenes (seed 7, throughput mode) wall time fell from 429 s to 164 s. One
-scene that failed before now solves, and no path got more than 0.05% slower.
+The speed work and the route fix (see Speed and Route candidates above) were measured on
+the same field and machine against the solver as of v0.4.0 (`before-speedup` in RESULTS.md).
+Both validate 91/91 feasible scenes and diagnose 4/4 infeasible ones. Total path time fell
+from 385.7 s to 363.4 s: 25 paths are faster (up to 58%, mostly trench routes) and none is
+slower. Total wall time fell from 137.8 s to 78.3 s, and the slowest scene from 37.3 s to
+7.4 s. On 100 unseen random scenes (seed 7), 25 paths are faster (up to 33%), none is
+slower, and one scene that failed before now solves.
 
 A failed solve is not deployment-ready; edit the path or constraint and generate again.

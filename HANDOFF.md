@@ -254,7 +254,7 @@ The example builds with GradleRIO 2026.2.1 using `JAVA_HOME=~/wpilib/2026/jdk`, 
    - Deploy writing into `deployDir`
    - rename a path by double-clicking it in the sidebar
    - the Generate all queue (at most two paths at a time)
-4. **Solver speed:** done (2026-09-27): AMF MUMPS ordering, dual warm starts for re-solves, objective-stall stopping and a candidate grace period roughly halve benchmark wall time with identical paths (docs/SOLVER.md, Speed). Remaining ideas: fewer zone-membership re-solve rounds, HSL MA57 where licensing allows.
+4. **Solver speed:** done (2026-09-27): AMF MUMPS ordering, dual warm starts for re-solves, objective-stall stopping roughly halve benchmark wall time with identical paths. v0.5.1: candidates also take tight gaps the robot only fits through when aligned (trench), and all candidates run to completion (path time over solve time, per the user) (docs/SOLVER.md, Speed). Remaining ideas: fewer zone-membership re-solve rounds, HSL MA57 where licensing allows.
 5. **On-robot validation plan** (document it for the team): run `examples/robot-2026` in simulation with `BumpInjector`, then on a practice bot. Watch `/Mayhem/*` NetworkTables topics and the `lastPlanMs` topic on a roboRIO 2; target under ~5 ms.
 6. **Nice to have:**
    - drag-to-reorder waypoints (currently up/down buttons)

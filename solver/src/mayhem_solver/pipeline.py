@@ -343,22 +343,46 @@ def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.Worl
     return issues
 
 
+def _route_length(pts) -> float:
+    return sum(math.dist(p, q) for p, q in zip(pts[:-1], pts[1:]))
+
+
+def segment_routes(world: geo.World, dt: Drivetrain, a, b, k: int) -> tuple[list, list[list]]:
+    """(shortest route, up to k homotopy-distinct routes) from a to b.
+
+    Routes come from two roadmaps: the circumscribed circle's (the robot fits at any heading)
+    and the inscribed circle's (it fits when turned square to the gap, e.g. a trench only a
+    few cm wider than the robot). The optimizer turns the robot through a tight gap by itself,
+    but it only refines the route it is given, so a gap only the inscribed-circle roadmap sees
+    has to be offered as a route.
+
+    The k routes are the any-heading roadmap's (the inscribed circle's when that one finds
+    none). The shortest route is the shortest from either roadmap.
+    """
+    outer = geo.route_candidates(geo.build_roadmap(world, dt.circumradius + 0.02), a, b, k)
+    inner = geo.route_candidates(geo.build_roadmap(world, dt.inradius + 0.02), a, b, k)
+    routes = outer or inner or [[a, b]]
+    shortest = min(routes + inner, key=_route_length)
+    return shortest, routes
+
+
 def candidate_routes(traj: Trajectory, dt: Drivetrain, world: geo.World, k: int) -> list[list[list]]:
-    """Returns a list of candidates; each is a list of per-segment polylines."""
+    """Returns a list of candidates; each is a list of per-segment polylines.
+
+    Candidate 0 takes the shortest route on every segment, tight gaps included. The next k
+    take each segment's i-th any-heading route (see segment_routes), so they are the routes
+    the solver tried before tight gaps were considered, and adding candidate 0 can only make
+    the best path faster. Candidate 0 is dropped when it duplicates candidate 1.
+    """
     wps = traj.waypoints
     S = len(wps) - 1
+    shortest: list[list] = []
     per_seg: list[list[list]] = []
     for j in range(S):
         a = (wps[j].x, wps[j].y)
         b = (wps[j + 1].x, wps[j + 1].y)
-        routes = []
-        for radius in (dt.circumradius + 0.02, dt.inradius + 0.02):
-            rm = geo.build_roadmap(world, radius)
-            routes = geo.route_candidates(rm, a, b, k)
-            if routes:
-                break
-        if not routes:
-            routes = [[a, b]]
+        best, routes = segment_routes(world, dt, a, b, k)
+        shortest.append(best)
         per_seg.append(routes)
     # straight-line constraints: when the line is clear, every leg in the range follows it.
     # Intermediate waypoints are projected onto the segment (fixed ones must already lie on
@@ -377,10 +401,13 @@ def candidate_routes(traj: Trajectory, dt: Drivetrain, world: geo.World, k: int)
                 pts.append(tuple(p + u * d))
             for j in range(a, b):
                 per_seg[j] = [[pts[j - a], pts[j - a + 1]]]
-    cands = []
+                shortest[j] = per_seg[j][0]
+    cands = [shortest]
     n_c = max(len(r) for r in per_seg) if per_seg else 1
     for i in range(min(k, n_c)):
-        cands.append([r[i] if i < len(r) else r[0] for r in per_seg])
+        c = [r[i] if i < len(r) else r[0] for r in per_seg]
+        if c != cands[0]:
+            cands.append(c)
     return cands
 
 
@@ -718,14 +745,8 @@ def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = N
     if parallel and len(cands) > 1:
         results = _run_parallel(pj, tj, cands, deadline_wall, progress)
     else:
-        t0, stop = time.time(), deadline_wall
         for i, c in enumerate(cands):
-            if time.time() >= stop - 0.5:
-                break
-            r = _solve_candidate(pj, tj, c, i, stop, None if progress is None else _Direct(progress))
-            results.append(r)
-            if r["ok"]:
-                stop = min(stop, _grace_deadline(t0, time.time()))
+            results.append(_solve_candidate(pj, tj, c, i, deadline_wall, None if progress is None else _Direct(progress)))
 
     results = [r for r in results if r.get("sol") is not None] or results
     good = [r for r in results if r["ok"]]
@@ -748,18 +769,6 @@ def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = N
     return SolveResult(False, None, issues, preview)
 
 
-# Once one candidate has a verified path, the others get this long to finish before they are
-# cancelled: GRACE_FACTOR times the time the first one took, plus GRACE_SECONDS. A slower
-# candidate may still win (another homotopy class can be much faster to drive), so this is
-# generous; in the benchmark no scenario loses path time to it.
-GRACE_FACTOR = 1.0
-GRACE_SECONDS = 1.0
-
-
-def _grace_deadline(t_start: float, t_first_ok: float) -> float:
-    return t_first_ok + GRACE_FACTOR * (t_first_ok - t_start) + GRACE_SECONDS
-
-
 def _candidate_entry(pj, tj, routes, cand, deadline_wall, queue):
     try:
         res = _solve_candidate(pj, tj, routes, cand, deadline_wall, queue)
@@ -777,7 +786,6 @@ def _run_parallel(pj, tj, cands, deadline_wall, progress) -> list[dict]:
     q = ctx.Queue()
     procs = [ctx.Process(target=_candidate_entry, args=(pj, tj, c, i, deadline_wall, q), daemon=True)
              for i, c in enumerate(cands)]
-    t_start = time.time()
     for pr in procs:
         pr.start()
     results: dict[int, dict] = {}
@@ -796,8 +804,6 @@ def _run_parallel(pj, tj, cands, deadline_wall, progress) -> list[dict]:
             if msg.get("type") == "_result":
                 r = msg["result"]
                 results[r["candidate"]] = r
-                if r["ok"]:
-                    hard_deadline = min(hard_deadline, _grace_deadline(t_start, time.time()))
             elif progress:
                 progress(msg)
     finally:
