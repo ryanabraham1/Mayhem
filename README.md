@@ -41,18 +41,79 @@ cd app && pnpm install && pnpm dev
 
 Open http://localhost:5173. To run as a desktop app, build the solver sidecar once and use `pnpm tauri dev`; see [docs/BUILDING.md](docs/BUILDING.md).
 
-## Using the paths on the robot
+## Using the paths on the robot (MayhemLib)
+
+MayhemLib's API is modeled on ChoreoLib's `AutoFactory` / `AutoRoutine` / `AutoTrajectory` /
+`AutoChooser`, so if you've used Choreo it should feel familiar. The main difference: you don't
+write a controller. MayhemLib runs feedback, time dilation and bump recovery itself and hands
+your drivetrain field speeds plus per-module force feedforward.
+
+**1. Install the vendordep** into your robot project (or grab `MayhemLib.json` and
+`MayhemLib-maven.zip` from the release; see [lib/README.md](lib/README.md#installation)):
 
 ```bash
 cd lib && ./gradlew installVendordep -ProbotProject=/path/to/robot
 ```
 
+**2. Deploy paths from the app.** They land in `src/main/deploy/mayhem/<Name>.mtraj`.
+
+**3. Create the factory** once, in `RobotContainer`. For a CTRE Tuner X swerve it's one line:
+
 ```java
-var auto = CtreSwerve.autoFactory(drivetrain).withTelemetry(true);
-auto.bind("intake", intake.intakeCommand());
-var cycle = auto.trajectory("Hub Cycle");
-return Commands.sequence(cycle.resetOdometry(), cycle.cmd());
+AutoFactory autoFactory = CtreSwerve.autoFactory(drivetrain)
+    .withTelemetry(true);                       // NetworkTables under /Mayhem
 ```
+
+Other drivetrains use the constructor, which mirrors Choreo's plus a measured-speeds supplier:
+
+```java
+AutoFactory autoFactory = new AutoFactory(
+    drive::getPose,                  // Supplier<Pose2d>, blue-origin
+    drive::resetOdometry,            // Consumer<Pose2d>
+    drive::getFieldRelativeSpeeds,   // Supplier<ChassisSpeeds>
+    dc -> drive.driveFieldRelative(dc.fieldSpeeds, dc.wheelForceX, dc.wheelForceY),
+    true,                            // flip paths for the red alliance
+    drive);                          // drive subsystem
+```
+
+**4. Bind event markers** to commands by name (the marker's command field, or its name):
+
+```java
+autoFactory.bind("intake", () -> intake.run());   // Supplier: fresh command per firing
+```
+
+**5. Build routines.** A routine polls its own triggers while it runs:
+
+```java
+AutoRoutine hubCycle() {
+  AutoRoutine routine = autoFactory.newRoutine("Hub Cycle");
+  AutoTrajectory toHub = routine.trajectory("Hub Cycle", 0);     // split segment 0
+  AutoTrajectory toIntake = routine.trajectory("Hub Cycle", 1);  // split segment 1
+
+  routine.active().onTrue(Commands.sequence(toHub.resetOdometry(), toHub.cmd()));
+  toHub.done().onTrue(shooter.shootOnce().andThen(toIntake.cmd()));
+  toIntake.atTime("deploy").onTrue(intake.deploy());   // marker (or zone) named "deploy"
+  toHub.recovering().onTrue(leds.flashRed());          // MayhemLib extra: bumped off the path
+  return routine;
+}
+```
+
+For a one-path auto without triggers:
+`Commands.sequence(autoFactory.resetOdometry("Straight"), autoFactory.trajectoryCmd("Straight"))`.
+
+**6. Pick autos from the dashboard.** Only the selected routine is built, while disabled:
+
+```java
+AutoChooser autoChooser = new AutoChooser();
+autoChooser.addRoutine("Hub Cycle", this::hubCycle);
+autoChooser.addCmd("Drive forward", () -> autoFactory.trajectoryCmd("Straight"));
+SmartDashboard.putData("Auto Chooser", autoChooser);
+RobotModeTriggers.autonomous().whileTrue(autoChooser.selectedCommandScheduler());
+```
+
+Paths are authored on blue and flipped with the field's symmetry when each trajectory command
+starts. Full reference (every trigger, recovery tuning, telemetry, troubleshooting):
+[lib/README.md](lib/README.md). A complete robot project: [examples/robot-2026](examples/robot-2026/).
 
 ## Tests
 

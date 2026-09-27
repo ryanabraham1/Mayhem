@@ -1,93 +1,123 @@
 package mayhemlib.auto;
 
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.wpilibj.Timer;
-import edu.wpi.first.wpilibj.event.EventLoop;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import edu.wpi.first.wpilibj2.command.Commands;
+import edu.wpi.first.wpilibj2.command.ScheduleCommand;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Predicate;
 import mayhemlib.follow.DriveCommand;
 import mayhemlib.runner.TrajectoryRunner;
+import mayhemlib.trajectory.FieldSymmetry;
 import mayhemlib.trajectory.MayhemTrajectory;
+import mayhemlib.trajectory.RecoveryData;
 import mayhemlib.trajectory.TrajectoryEvent;
 
-/** A trajectory (or one split segment) bound to a factory: commands, triggers and helpers. */
+/**
+ * A trajectory (or one split segment) in an {@link AutoRoutine}, modeled on Choreo's
+ * {@code choreo.auto.AutoTrajectory}: a follow command plus triggers for its timeline.
+ *
+ * <p>Triggers are polled by the routine, so they only fire while the routine runs. One-cycle
+ * triggers ({@link #done()}, {@link #atTime(double)}, instant markers) are true on the routine
+ * poll right after the event happened.
+ */
 public final class AutoTrajectory {
-  private final MayhemAutoFactory f;
-  private final MayhemTrajectory base; // blue alliance, full trajectory
-  private final int segment; // -1 = whole trajectory
+  private final AutoFactory f;
+  private final AutoRoutine routine;
+  private final MayhemTrajectory base; // blue alliance
 
-  private final Map<String, MarkerState> markers = new HashMap<>();
+  private final Map<String, Pulse> markerPulses = new HashMap<>();
+  private final Map<String, Boolean> zoneActive = new HashMap<>();
   private final Map<String, Command> runningZones = new HashMap<>();
-  private boolean active;
+  private final Map<Double, Pulse> timePulses = new HashMap<>();
+  private final Pulse donePulse = new Pulse();
+
+  private Command activeCmd;
+  private boolean isActive;
   private boolean recovering;
-  private int doneSeq;
-  private int doneSeen;
+  private boolean hasFinished;
+  private double finishedAt = Double.NEGATIVE_INFINITY;
+  private int startsAtFinish = -1;
+  private double time;
+  private MayhemTrajectory running; // alliance-correct trajectory of the current run
   private TrajectoryRunner runner;
 
-  private static final class MarkerState {
-    int fireSeq;
-    int seenSeq;
-    boolean zoneActive;
-  }
+  /** Marks the routine poll an event happened on, so every binding of a trigger sees it once. */
+  private final class Pulse {
+    long at = Long.MIN_VALUE / 2;
 
-  AutoTrajectory(MayhemAutoFactory f, MayhemTrajectory base, int segment) {
-    this.f = f;
-    this.base = base;
-    this.segment = segment;
-  }
-
-  /** Blue-alliance trajectory data for this (segment of the) trajectory. */
-  public MayhemTrajectory rawTrajectory() {
-    return segment < 0 ? base : base.segment(segment);
-  }
-
-  /** Alliance-correct trajectory, resolved now. */
-  public MayhemTrajectory resolved() {
-    MayhemTrajectory t = rawTrajectory();
-    return f.isRed() ? t.flipped() : t;
-  }
-
-  public int segmentCount() {
-    return base.segmentCount();
-  }
-
-  /** Split segment {@code i} as its own AutoTrajectory. */
-  public AutoTrajectory segment(int i) {
-    if (segment >= 0) {
-      throw new IllegalStateException("Already a segment");
+    void fire() {
+      at = routine.pollCount();
     }
-    base.segment(i); // validates the index
-    return new AutoTrajectory(f, base, i);
+
+    boolean high(int delayCycles) {
+      return routine.pollCount() == at + 1 + delayCycles;
+    }
   }
 
-  public Pose2d initialPose() {
-    return resolved().initialPose();
+  AutoTrajectory(AutoFactory f, AutoRoutine routine, MayhemTrajectory base) {
+    this.f = f;
+    this.routine = routine;
+    this.base = base;
   }
 
-  public Pose2d finalPose() {
-    return resolved().finalPose();
+  public String name() {
+    return base.name();
   }
 
-  /** Resets odometry to the (alliance-correct) start pose. */
+  /** The trajectory as authored (blue alliance). */
+  public MayhemTrajectory getRawTrajectory() {
+    return base;
+  }
+
+  /** Alliance-correct start pose, resolved now. */
+  public Optional<Pose2d> getInitialPose() {
+    return Optional.of(resolved().initialPose());
+  }
+
+  /** Alliance-correct end pose, resolved now. */
+  public Optional<Pose2d> getFinalPose() {
+    return Optional.of(resolved().finalPose());
+  }
+
+  private MayhemTrajectory resolved() {
+    return f.isRed() ? base.flipped() : base;
+  }
+
+  // --------------------------------------------------------------------------- commands
+
+  /** Resets odometry to the alliance-correct start pose (resolved when the command runs). */
   public Command resetOdometry() {
-    return Commands.runOnce(() -> f.resetPose.accept(initialPose()));
+    return Commands.runOnce(() -> f.resetOdometry.accept(resolved().initialPose()))
+        .withName("Mayhem reset " + name());
   }
 
-  /** Follows the trajectory with bump recovery; ends when it finishes. */
+  /**
+   * Follows the trajectory with bump recovery, requires the drivetrain, and ends when it finishes.
+   * The alliance is resolved when the command starts.
+   */
   public Command cmd() {
     Command c = new Command() {
       @Override
       public void initialize() {
-        MayhemTrajectory traj = resolved();
-        runner = new TrajectoryRunner(traj, f.followerConfig, f.recoveryConfig, new Listener(), f.refiner);
+        running = resolved();
+        runner = new TrajectoryRunner(running, f.followerConfig, f.recoveryConfig, new Listener(), f.refiner);
+        activeCmd = this;
+        isActive = true;
+        time = 0;
+        routine.onTrajectoryStart();
         runner.start(Timer.getFPGATimestamp());
-        active = true;
         if (f.telemetry != null) {
-          f.telemetry.startTrajectory(traj);
+          f.telemetry.startTrajectory(running);
         }
       }
 
@@ -96,6 +126,13 @@ public final class AutoTrajectory {
         double now = Timer.getFPGATimestamp();
         DriveCommand dc = runner.update(now, f.pose.get(), f.fieldSpeeds.get(), f.accelG.getAsDouble());
         f.output.accept(dc);
+        double prev = time;
+        time = runner.trajectoryTime();
+        for (Map.Entry<Double, Pulse> e : timePulses.entrySet()) {
+          if (prev < e.getKey() && time >= e.getKey()) {
+            e.getValue().fire();
+          }
+        }
         recovering = runner.isRecovering();
         f.visionBoost.accept(runner.visionBoostActive());
         if (f.telemetry != null) {
@@ -121,30 +158,43 @@ public final class AutoTrajectory {
           z.cancel();
         }
         runningZones.clear();
-        for (MarkerState m : markers.values()) {
-          m.zoneActive = false;
-        }
-        active = false;
+        zoneActive.clear();
+        isActive = false;
         recovering = false;
+        activeCmd = null;
         f.visionBoost.accept(false);
-        doneSeq++;
+        if (!interrupted) {
+          hasFinished = true;
+          finishedAt = Timer.getFPGATimestamp();
+          startsAtFinish = routine.trajectoryStarts();
+          donePulse.fire();
+        }
         if (f.telemetry != null) {
           f.telemetry.stop();
         }
       }
     };
-    c.addRequirements(f.requirements);
-    c.setName("Mayhem " + rawTrajectory().name());
+    c.addRequirements(f.driveSubsystem);
+    c.setName("Mayhem " + name());
     return c;
+  }
+
+  /** Schedules {@link #cmd()} without waiting for it, so a sequence can move on. */
+  public Command spawnCmd() {
+    return new ScheduleCommand(cmd()).withName("Mayhem spawn " + name());
+  }
+
+  /** Starts {@code next} as soon as this trajectory finishes. */
+  public void chain(AutoTrajectory next) {
+    done().onTrue(next.cmd());
   }
 
   private final class Listener implements TrajectoryRunner.EventListener {
     @Override
     public void onEvent(TrajectoryEvent e) {
-      MarkerState m = markers.computeIfAbsent(e.name, k -> new MarkerState());
-      m.fireSeq++;
+      markerPulses.computeIfAbsent(e.name, k -> new Pulse()).fire();
       if (e.isZone()) {
-        m.zoneActive = true;
+        zoneActive.put(e.name, true);
       }
       f.boundCommand(e.command).ifPresent(cmd -> {
         CommandScheduler.getInstance().schedule(cmd);
@@ -156,8 +206,7 @@ public final class AutoTrajectory {
 
     @Override
     public void onZoneEnd(TrajectoryEvent e) {
-      MarkerState m = markers.computeIfAbsent(e.name, k -> new MarkerState());
-      m.zoneActive = false;
+      zoneActive.remove(e.name);
       Command z = runningZones.remove(e.name);
       if (z != null) {
         z.cancel();
@@ -165,45 +214,126 @@ public final class AutoTrajectory {
     }
   }
 
-  private EventLoop loop() {
-    return CommandScheduler.getInstance().getDefaultButtonLoop();
+  // --------------------------------------------------------------------------- triggers
+
+  /** True while this trajectory's command runs. */
+  public Trigger active() {
+    return routine.observe(() -> isActive);
+  }
+
+  /** True while this trajectory's command is not running. */
+  public Trigger inactive() {
+    return active().negate();
+  }
+
+  /** True for one cycle after the trajectory finishes (not when it is interrupted). */
+  public Trigger done() {
+    return doneDelayed(0);
+  }
+
+  /** Like {@link #done()}, but {@code cyclesToDelay} routine cycles later. */
+  public Trigger doneDelayed(int cyclesToDelay) {
+    return routine.observe(() -> donePulse.high(cyclesToDelay));
+  }
+
+  /** True for {@code seconds} after the trajectory finishes. */
+  public Trigger doneFor(double seconds) {
+    return routine.observe(() -> hasFinished && !isActive
+        && Timer.getFPGATimestamp() - finishedAt <= seconds);
+  }
+
+  /** True from when the trajectory finishes until another trajectory in the routine starts. */
+  public Trigger recentlyDone() {
+    return routine.observe(() -> hasFinished && routine.trajectoryStarts() == startsAtFinish);
+  }
+
+  /** True for one cycle when the trajectory clock passes {@code timeSinceStart} seconds. */
+  public Trigger atTime(double timeSinceStart) {
+    Pulse p = timePulses.computeIfAbsent(timeSinceStart, k -> new Pulse());
+    return routine.observe(() -> p.high(0));
   }
 
   /**
-   * True for one loop when an instant marker fires, and for the whole duration of a zone marker.
+   * True for one cycle when an instant marker named {@code eventName} fires, and for the whole
+   * duration of a zone marker. Markers skipped by bump recovery follow their recovery policy.
    */
-  public Trigger atMarker(String name) {
-    MarkerState m = markers.computeIfAbsent(name, k -> new MarkerState());
-    return new Trigger(loop(), () -> {
-      if (m.zoneActive) {
-        return true;
-      }
-      if (m.fireSeq != m.seenSeq) {
-        m.seenSeq = m.fireSeq;
-        return true;
-      }
-      return false;
-    });
+  public Trigger atTime(String eventName) {
+    Pulse p = markerPulses.computeIfAbsent(eventName, k -> new Pulse());
+    return routine.observe(() -> p.high(0) || zoneActive.getOrDefault(eventName, false));
   }
 
-  /** True while this trajectory's command is running. */
-  public Trigger active() {
-    return new Trigger(loop(), () -> active);
+  /** True while the robot is within tolerance of where marker {@code eventName} sits on the path. */
+  public Trigger atPose(String eventName, double toleranceMeters, double toleranceRadians) {
+    return routine.observe(() -> isActive && eventPoses(eventName).stream()
+        .anyMatch(near(toleranceMeters, toleranceRadians)));
   }
 
-  /** True while bump recovery is driving a bridge path. */
+  /** True while the robot is within tolerance of a blue-alliance pose (flipped for red). */
+  public Trigger atPose(Pose2d pose, double toleranceMeters, double toleranceRadians) {
+    return routine.observe(() -> isActive && near(toleranceMeters, toleranceRadians).test(flip(pose)));
+  }
+
+  /** True while the robot is within {@code toleranceMeters} of where marker {@code eventName} sits. */
+  public Trigger atTranslation(String eventName, double toleranceMeters) {
+    return atPose(eventName, toleranceMeters, Double.POSITIVE_INFINITY);
+  }
+
+  /** True while the robot is within {@code toleranceMeters} of a blue-alliance point (flipped for red). */
+  public Trigger atTranslation(Translation2d translation, double toleranceMeters) {
+    return atPose(new Pose2d(translation, Rotation2d.kZero), toleranceMeters, Double.POSITIVE_INFINITY);
+  }
+
+  /** MayhemLib extra: true while bump recovery is driving a bridge back onto the path. */
   public Trigger recovering() {
-    return new Trigger(loop(), () -> recovering);
+    return routine.observe(() -> recovering);
   }
 
-  /** Pulses true for one loop after the trajectory command ends. */
-  public Trigger done() {
-    return new Trigger(loop(), () -> {
-      if (doneSeq != doneSeen) {
-        doneSeen = doneSeq;
-        return true;
+  // --------------------------------------------------------------------------- internals
+
+  private Predicate<Pose2d> near(double tolM, double tolRad) {
+    return target -> {
+      Pose2d p = f.pose.get();
+      return p.getTranslation().getDistance(target.getTranslation()) <= tolM
+          && Math.abs(p.getRotation().minus(target.getRotation()).getRadians()) <= tolRad;
+    };
+  }
+
+  private List<Pose2d> eventPoses(String eventName) {
+    List<Pose2d> out = new ArrayList<>();
+    MayhemTrajectory t = running != null ? running : resolved();
+    for (TrajectoryEvent e : t.events()) {
+      if (e.name.equals(eventName)) {
+        out.add(t.sampleAt(e.t).getPose());
       }
-      return false;
-    });
+    }
+    return out;
+  }
+
+  private Pose2d flip(Pose2d blue) {
+    RecoveryData r = base.recovery();
+    if (!f.isRed() || r == null) {
+      return blue;
+    }
+    FieldSymmetry s = r.symmetry;
+    return new Pose2d(s.flipX(blue.getX(), r.fieldLength), s.flipY(blue.getY(), r.fieldWidth),
+        new Rotation2d(s.flipHeading(blue.getRotation().getRadians())));
+  }
+
+  boolean isActive() {
+    return isActive;
+  }
+
+  boolean hasFinished() {
+    return hasFinished;
+  }
+
+  /** Cancels a running command and forgets finished state; called when the routine stops. */
+  void reset() {
+    if (activeCmd != null) {
+      activeCmd.cancel();
+    }
+    hasFinished = false;
+    startsAtFinish = -1;
+    finishedAt = Double.NEGATIVE_INFINITY;
   }
 }

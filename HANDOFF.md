@@ -46,7 +46,7 @@ lib/src/main/java/mayhemlib/
   recovery/    BridgePlanner (quintic bridges, brake-first tier, roadmap fallback, conservative-advancement SAT check),
                CollisionDetector (tracking error + accel beyond planned), RecoveryConfig, SleipnirBridgeRefiner (optional)
   runner/      TrajectoryRunner: framework-free state machine (FOLLOWING / BRIDGING / SETTLING), time dilation, event policies
-  auto/        MayhemAutoFactory, AutoTrajectory (WPILib commands and Triggers)
+  auto/        AutoFactory, AutoRoutine, AutoTrajectory, AutoChooser (Choreo-style API)
   ctre/        CtreSwerve.autoFactory(drivetrain)
   telemetry/, sim/BumpInjector
 app/src/

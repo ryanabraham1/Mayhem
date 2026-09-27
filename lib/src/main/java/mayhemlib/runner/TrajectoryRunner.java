@@ -23,7 +23,7 @@ import mayhemlib.trajectory.TrajectorySample;
 /**
  * Runs one trajectory: feedforward + saturated feedback, time dilation, bump detection and bridge
  * recovery, and event markers. Framework-free (no WPILib command dependencies) so it is fully unit
- * testable; {@link mayhemlib.auto.MayhemAutoFactory} wraps it in commands.
+ * testable; {@link mayhemlib.auto.AutoFactory} wraps it in commands.
  *
  * <p>Call {@link #start} once, then {@link #update} every loop with the latest vision-fused pose.
  */

@@ -93,11 +93,14 @@ Selecting a constraint highlights the part of the path it covers. In its panel y
 See [lib/README.md](../lib/README.md). In short:
 
 ```java
-var auto = CtreSwerve.autoFactory(drivetrain).withTelemetry(true);
-auto.bind("intake", intake.intakeCommand());
-var cycle = auto.trajectory("Hub Cycle");
-cycle.atMarker("shoot").onTrue(shooter.shootCommand());
-return Commands.sequence(cycle.resetOdometry(), cycle.cmd());
+AutoFactory autoFactory = CtreSwerve.autoFactory(drivetrain).withTelemetry(true);
+autoFactory.bind("intake", intake.intakeCommand());
+
+AutoRoutine routine = autoFactory.newRoutine("Hub Cycle");
+AutoTrajectory cycle = routine.trajectory("Hub Cycle");
+routine.active().onTrue(Commands.sequence(cycle.resetOdometry(), cycle.cmd()));
+cycle.atTime("shoot").onTrue(shooter.shootCommand());
+return routine;
 ```
 
 ## Troubleshooting

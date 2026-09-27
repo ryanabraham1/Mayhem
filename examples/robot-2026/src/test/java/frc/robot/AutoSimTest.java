@@ -13,6 +13,7 @@ import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import edu.wpi.first.wpilibj2.command.Commands;
 import java.util.concurrent.atomic.AtomicInteger;
+import mayhemlib.auto.AutoRoutine;
 import mayhemlib.sim.BumpInjector;
 import mayhemlib.trajectory.MayhemTrajectory;
 import mayhemlib.trajectory.TrajectoryLoader;
@@ -68,6 +69,11 @@ class AutoSimTest {
     assertFalse(CommandScheduler.getInstance().isScheduled(cmd), cmd.getName() + " timed out");
   }
 
+  /** A routine runs until autonomous ends; in tests, stop it once no path has run for a second. */
+  private static Command untilIdle(AutoRoutine routine) {
+    return routine.cmd(routine.idle().debounce(1.0));
+  }
+
   private static double distanceToEnd(MayhemTrajectory traj) {
     Pose2d pose = rc.drivetrain.getState().Pose;
     return pose.getTranslation().getDistance(traj.finalPose().getTranslation());
@@ -80,14 +86,14 @@ class AutoSimTest {
     rc.autoFactory.bind("score", () -> Commands.runOnce(scores::incrementAndGet));
 
     // 1. Full path on blue.
-    run(rc.hubCycleFull(), 10);
+    run(untilIdle(rc.hubCycleFull()), 10);
     System.out.printf("HubCycle full: end error %.3f m%n", distanceToEnd(hub));
     assertEquals(1, scores.get(), "score marker fired once");
     assertTrue(distanceToEnd(hub) < 0.15, "ended near the final pose");
 
     // 2. Split segments with the branch.
     scores.set(0);
-    run(rc.hubCycleSplit(), 12);
+    run(untilIdle(rc.hubCycleSplit()), 12);
     System.out.printf("HubCycle split: end error %.3f m%n", distanceToEnd(hub));
     assertTrue(distanceToEnd(hub) < 0.15);
     assertEquals(1, scores.get(), "score marker fired once (at the start of segment 1)");
@@ -95,14 +101,14 @@ class AutoSimTest {
     // 3. Red alliance: the trajectory is flipped with the field's rotational symmetry.
     setAlliance(AllianceStationID.Red1);
     MayhemTrajectory straightRed = TrajectoryLoader.load("Straight").flipped();
-    run(rc.straight(), 8);
+    run(untilIdle(rc.straight()), 8);
     System.out.printf("Straight red: end error %.3f m%n", distanceToEnd(straightRed));
     assertTrue(distanceToEnd(straightRed) < 0.15);
     setAlliance(AllianceStationID.Blue1);
 
     // 4. Bump recovery: shove the robot 0.7 m sideways 0.8 s into the full path.
     Command bumped = Commands.deadline(
-        rc.hubCycleFull(),
+        untilIdle(rc.hubCycleFull()),
         Commands.waitSeconds(0.8).andThen(BumpInjector.bump(
             () -> rc.drivetrain.getState().Pose, rc.drivetrain::resetPose,
             new Translation2d(0, 0.7), new edu.wpi.first.math.geometry.Rotation2d(0.5))));

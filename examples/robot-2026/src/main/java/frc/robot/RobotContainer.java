@@ -17,7 +17,6 @@ import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.RobotBase;
-import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
@@ -29,8 +28,10 @@ import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.CommandSwerveDrivetrain;
 
+import mayhemlib.auto.AutoChooser;
+import mayhemlib.auto.AutoFactory;
+import mayhemlib.auto.AutoRoutine;
 import mayhemlib.auto.AutoTrajectory;
-import mayhemlib.auto.MayhemAutoFactory;
 import mayhemlib.ctre.CtreSwerve;
 import mayhemlib.sim.BumpInjector;
 
@@ -61,8 +62,8 @@ public class RobotContainer {
     private static final Matrix<N3, N1> kVisionStdDevsAfterHit = VecBuilder.fill(0.15, 0.15, 0.5);
 
     /* Path follower */
-    public final MayhemAutoFactory autoFactory;
-    private final SendableChooser<Command> autoChooser = new SendableChooser<>();
+    public final AutoFactory autoFactory;
+    private final AutoChooser autoChooser = new AutoChooser();
 
     public RobotContainer() {
         autoFactory = CtreSwerve.autoFactory(drivetrain)
@@ -105,45 +106,48 @@ public class RobotContainer {
     }
 
     private void configureAutos() {
-        autoChooser.setDefaultOption("Do nothing", Commands.none());
-        autoChooser.addOption("HubCycle (full path)", hubCycleFull());
-        autoChooser.addOption("HubCycle (split + branch)", hubCycleSplit());
-        autoChooser.addOption("Straight", straight());
+        // Only the selected routine is built, when it is picked while disabled.
+        autoChooser.addRoutine("HubCycle (full path)", this::hubCycleFull);
+        autoChooser.addRoutine("HubCycle (split + branch)", this::hubCycleSplit);
+        autoChooser.addRoutine("Straight", this::straight);
         SmartDashboard.putData("Auto Chooser", autoChooser);
         SmartDashboard.putBoolean("Auto/Run second leg", true);
+        // Runs the selected auto for as long as autonomous is enabled.
+        RobotModeTriggers.autonomous().whileTrue(autoChooser.selectedCommandScheduler());
     }
 
     /** Follows the whole trajectory; markers fire their bound commands along the way. */
-    Command hubCycleFull() {
-        AutoTrajectory traj = autoFactory.trajectory("HubCycle");
+    AutoRoutine hubCycleFull() {
+        AutoRoutine routine = autoFactory.newRoutine("HubCycle (full path)");
+        AutoTrajectory traj = routine.trajectory("HubCycle");
+        routine.active().onTrue(Commands.sequence(traj.resetOdometry(), traj.cmd()));
         // Triggers are an alternative to bind(): react to a marker (or zone) from robot code.
-        traj.atMarker("score").onTrue(Commands.print("[auto] reached the scoring pose"));
+        traj.atTime("score").onTrue(Commands.print("[auto] reached the scoring pose"));
         traj.recovering().onTrue(Commands.print("[auto] bumped, bridging back onto the path"));
-        return Commands.sequence(traj.resetOdometry(), traj.cmd()).withName("HubCycle (full path)");
+        return routine;
     }
 
     /**
-     * The HubCycle trajectory has a split point at the scoring stop. Each segment is followed as its
-     * own command, so the robot can shoot while stopped and then decide whether to continue.
+     * The HubCycle trajectory has a split point at the scoring stop. Each segment is its own
+     * trajectory, so the robot can shoot while stopped and then decide whether to continue.
      */
-    Command hubCycleSplit() {
-        AutoTrajectory traj = autoFactory.trajectory("HubCycle");
-        AutoTrajectory toHub = traj.segment(0);
-        AutoTrajectory toIntake = traj.segment(1);
-        return Commands.sequence(
-            toHub.resetOdometry(),
-            toHub.cmd(),
-            shootCommand(),
-            Commands.either(
-                toIntake.cmd(),
-                Commands.print("[auto] skipping second leg"),
-                () -> SmartDashboard.getBoolean("Auto/Run second leg", true)))
-            .withName("HubCycle (split + branch)");
+    AutoRoutine hubCycleSplit() {
+        AutoRoutine routine = autoFactory.newRoutine("HubCycle (split + branch)");
+        AutoTrajectory toHub = routine.trajectory("HubCycle", 0);
+        AutoTrajectory toIntake = routine.trajectory("HubCycle", 1);
+        routine.active().onTrue(Commands.sequence(toHub.resetOdometry(), toHub.cmd()));
+        toHub.done().onTrue(shootCommand().andThen(Commands.either(
+            toIntake.cmd(),
+            Commands.print("[auto] skipping second leg"),
+            () -> SmartDashboard.getBoolean("Auto/Run second leg", true))));
+        return routine;
     }
 
-    Command straight() {
-        AutoTrajectory traj = autoFactory.trajectory("Straight");
-        return Commands.sequence(traj.resetOdometry(), traj.cmd()).withName("Straight");
+    AutoRoutine straight() {
+        AutoRoutine routine = autoFactory.newRoutine("Straight");
+        AutoTrajectory traj = routine.trajectory("Straight");
+        routine.active().onTrue(Commands.sequence(traj.resetOdometry(), traj.cmd()));
+        return routine;
     }
 
     private void configureBindings() {
@@ -201,10 +205,5 @@ public class RobotContainer {
         SmartDashboard.putData("Sim/Bump left", BumpInjector.bump(
             () -> drivetrain.getState().Pose, drivetrain::resetPose,
             new Translation2d(0, 0.6), Rotation2d.fromDegrees(20)));
-    }
-
-    public Command getAutonomousCommand() {
-        /* Run the routine selected from the auto chooser */
-        return autoChooser.getSelected();
     }
 }

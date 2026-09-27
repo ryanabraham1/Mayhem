@@ -67,32 +67,46 @@ Run the tests with `./gradlew test`.
 
 ## Quick start (CTRE Tuner X swerve)
 
+The API follows ChoreoLib's (`AutoFactory`, `AutoRoutine`, `AutoTrajectory`, `AutoChooser`), so
+Choreo code ports with few changes. The one real difference is that you don't write a controller:
+MayhemLib runs the feedback, time dilation and bump recovery, and gives your drivetrain a finished
+`DriveCommand`.
+
 The Mayhem app deploys trajectories to `src/main/deploy/mayhem/<Name>.mtraj`.
 
 ```java
+import mayhemlib.auto.AutoChooser;
+import mayhemlib.auto.AutoFactory;
+import mayhemlib.auto.AutoRoutine;
 import mayhemlib.auto.AutoTrajectory;
-import mayhemlib.auto.MayhemAutoFactory;
 import mayhemlib.ctre.CtreSwerve;
 
 public class RobotContainer {
   public final CommandSwerveDrivetrain drivetrain = TunerConstants.createDrivetrain();
-  private final MayhemAutoFactory auto;
+  private final AutoFactory autoFactory;
+  private final AutoChooser autoChooser = new AutoChooser();
 
   public RobotContainer() {
-    auto = CtreSwerve.autoFactory(drivetrain)
+    autoFactory = CtreSwerve.autoFactory(drivetrain)
         .withTelemetry(true)                         // NetworkTables under /Mayhem
         .withVisionBoost(boost -> drivetrain.setVisionMeasurementStdDevs(
             boost ? VecBuilder.fill(0.15, 0.15, 0.5)   // right after a hit: trust vision more
                   : VecBuilder.fill(0.7, 0.7, 9999)));
 
     // Markers named "intake" / "shoot" in the app run these commands.
-    auto.bind("intake", () -> intake.runIntake());   // Supplier: fresh command each time
-    auto.bind("shoot", () -> shooter.shootOnce());
+    autoFactory.bind("intake", () -> intake.runIntake());   // Supplier: fresh command each time
+    autoFactory.bind("shoot", () -> shooter.shootOnce());
+
+    autoChooser.addRoutine("Two piece", this::twoPiece);
+    SmartDashboard.putData("Auto Chooser", autoChooser);
+    RobotModeTriggers.autonomous().whileTrue(autoChooser.selectedCommandScheduler());
   }
 
-  public Command twoPiece() {
-    AutoTrajectory traj = auto.trajectory("TwoPiece");
-    return Commands.sequence(traj.resetOdometry(), traj.cmd());
+  private AutoRoutine twoPiece() {
+    AutoRoutine routine = autoFactory.newRoutine("Two piece");
+    AutoTrajectory traj = routine.trajectory("TwoPiece");
+    routine.active().onTrue(Commands.sequence(traj.resetOdometry(), traj.cmd()));
+    return routine;
   }
 }
 ```
@@ -100,11 +114,12 @@ public class RobotContainer {
 `CtreSwerve.autoFactory(drivetrain)` connects the factory to the drivetrain as follows:
 
 - **pose**: `drivetrain.getState().Pose`, which is the vision-fused, blue-origin pose estimate.
+- **reset odometry**: `drivetrain.resetPose`.
 - **measured speeds**: the robot-relative `getState().Speeds`, rotated into the field frame.
-- **output**: `SwerveRequest.ApplyFieldSpeeds` with `DriveRequestType.Velocity`, forward
+- **controller output**: `SwerveRequest.ApplyFieldSpeeds` with `DriveRequestType.Velocity`, forward
   perspective `BlueAlliance` (so the operator perspective never affects autos), wheel-speed
   desaturation, and `withWheelForceFeedforwardsX/Y` from the trajectory.
-- **reset pose**: `drivetrain.resetPose`.
+- **alliance flipping**: on, from the Driver Station alliance.
 - **accelerometer**: the horizontal acceleration magnitude from the drivetrain's Pigeon 2, in g,
   used for hit detection.
 - **requirements**: the drivetrain subsystem.
@@ -114,57 +129,100 @@ If your drivetrain and subsystem are separate objects, use
 
 ### Other drivetrains
 
-Construct the factory directly:
+The constructor mirrors Choreo's, with a measured-speeds supplier added and a `DriveCommand`
+consumer in place of the sample controller:
 
 ```java
-var auto = new MayhemAutoFactory(
+var autoFactory = new AutoFactory(
         drive::getPose,                  // Supplier<Pose2d>, blue-origin field frame
+        drive::resetOdometry,            // Consumer<Pose2d>
         drive::getFieldRelativeSpeeds,   // Supplier<ChassisSpeeds>, field frame
         dc -> drive.driveFieldRelative(dc.fieldSpeeds, dc.wheelForceX, dc.wheelForceY),
-        drive)                           // requirements
-    .withResetPose(drive::resetPose)
+        true,                            // useAllianceFlipping
+        drive)                           // drive subsystem
     .withAccelerometer(() -> imu.horizontalAccelG());   // optional
 ```
+
+### Coming from Choreo
+
+| Choreo | MayhemLib |
+| --- | --- |
+| `new AutoFactory(pose, resetOdometry, controller, flip, drive)` | `new AutoFactory(pose, resetOdometry, fieldSpeeds, driveCommandConsumer, flip, drive)`, or `CtreSwerve.autoFactory(drivetrain)` |
+| `routine.trajectory("name")`, `routine.trajectory("name", split)` | Same. Loads `deploy/mayhem/<name>.mtraj`. |
+| `traj.atTime("event")` | Same. Also stays true for the whole duration of a zone marker. |
+| `SwerveSample` + your own PID in the controller | Built in. Tune with `withFollowerConfig(...)`. |
+| — | `traj.recovering()`, `withRecoveryConfig(...)`, `withVisionBoost(...)`, `withTelemetry(true)` |
 
 ---
 
 ## API overview
 
-### `MayhemAutoFactory`
+### `AutoFactory`
 
-Create one factory per drivetrain. All the `with*` methods return `this`.
+Create one factory per drivetrain. The `bind` and `with*` methods return `this`.
 
 | Method | Purpose |
 | --- | --- |
-| `trajectory(String name)` | Loads `deploy/mayhem/<name>.mtraj` (cached) and returns an `AutoTrajectory`. |
-| `trajectory(MayhemTrajectory t)` | Wraps an already loaded trajectory, for example one from `TrajectoryLoader.load(File)`. |
+| `newRoutine(String name)` | A new, empty `AutoRoutine`. |
+| `voidRoutine()` | A routine that does nothing. |
+| `trajectoryCmd(name)`, `trajectoryCmd(name, splitIndex)` | Follow command for a trajectory, without a routine. Markers still run bound commands. |
+| `resetOdometry(name)`, `resetOdometry(name, splitIndex)` | Resets the pose to the alliance-correct start of a trajectory. |
 | `bind(name, Supplier<Command>)` | Runs a fresh command each time a marker with this command name fires. Prefer this form. |
-| `bind(name, Command)` | Reuses one command instance. Don't also put that instance in another composition. |
+| `bind(name, Command)` | Reuses one command instance (Choreo's form). Don't also put that instance in another composition. |
 | `withFollowerConfig(FollowerConfig)` | Follower gains and limits (see [Tuning](#tuning-the-follower)). |
 | `withRecoveryConfig(RecoveryConfig)` | Hit detection and recovery knobs (see [Recovery](#bump-recovery)). |
 | `withAccelerometer(DoubleSupplier g)` | Horizontal acceleration in g, used for collision detection. `NaN` disables the spike check. |
 | `withVisionBoost(Consumer<Boolean>)` | Called with `true` for `visionBoostSeconds` after a detected hit and with `false` otherwise. |
-| `withResetPose(Consumer<Pose2d>)` | Used by `AutoTrajectory.resetOdometry()`. |
-| `withAllianceFlip(BooleanSupplier)` | Returns true to run the red-alliance version. The default is `DriverStation.getAlliance() == Red`. |
+| `withAllianceFlip(BooleanSupplier)` | Overrides alliance detection: return true to run the red-alliance version. |
 | `withRefiner(BridgeRefiner)` | Optional background bridge optimizer, for example `SleipnirBridgeRefiner`. |
 | `withTelemetry(boolean)` | Publishes follower state to NetworkTables under `/Mayhem`. |
+
+### `AutoRoutine`
+
+A routine owns an event loop that `cmd()` polls, so triggers made from it (and from its
+trajectories) only react while it runs. Bind the first step to `active()`.
+
+| Member | Purpose |
+| --- | --- |
+| `trajectory(name)`, `trajectory(name, splitIndex)`, `trajectory(MayhemTrajectory)` | An `AutoTrajectory` in this routine. Split segments start at time 0. |
+| `active()` | `Trigger`: true while the routine runs. |
+| `idle()` | `Trigger`: true while none of its trajectories is running. |
+| `observe(BooleanSupplier)` | A `Trigger` on the routine's loop. |
+| `anyDone(...)`, `allDone(...)`, `anyActive(...)`, `allInactive(...)` | Combined trajectory triggers. |
+| `cmd()`, `cmd(BooleanSupplier finish)` | Runs the routine until cancelled (normally when autonomous ends), killed, or `finish` is true. When it ends, its trajectory commands are cancelled. |
+| `kill()`, `reset()`, `poll()`, `loop()` | Lifecycle, as in Choreo. |
 
 ### `AutoTrajectory`
 
 | Member | Purpose |
 | --- | --- |
 | `cmd()` | Follows the trajectory with recovery, requires the drivetrain, and ends when finished. It resolves the alliance and flips when the command **starts**. |
+| `spawnCmd()` | Schedules `cmd()` without waiting for it. |
 | `resetOdometry()` | Resets the pose to the alliance-correct start pose. |
-| `segment(i)`, `segmentCount()` | Returns split segment `i` as its own `AutoTrajectory` (see below). |
-| `atMarker(name)` | `Trigger`: true for one loop when an instant marker fires, or for the whole duration of a zone marker. |
-| `active()` | `Trigger`: true while `cmd()` runs. |
-| `recovering()` | `Trigger`: true while the robot follows a recovery bridge. |
-| `done()` | `Trigger`: true for one loop after `cmd()` ends. |
-| `initialPose()`, `finalPose()` | Alliance-correct poses, resolved when called. |
-| `rawTrajectory()`, `resolved()` | The underlying `MayhemTrajectory`, as authored (blue) or alliance-correct. |
+| `chain(next)` | Starts `next.cmd()` when this one is done. |
+| `active()`, `inactive()` | `Trigger`: while `cmd()` runs / doesn't. |
+| `done()`, `doneDelayed(cycles)` | `Trigger`: true for one cycle after `cmd()` finishes (not when interrupted). |
+| `doneFor(seconds)`, `recentlyDone()` | `Trigger`: true for a time after finishing / until another trajectory in the routine starts. |
+| `atTime(double seconds)` | `Trigger`: true for one cycle when the trajectory clock passes that time. |
+| `atTime(String event)` | `Trigger`: true for one cycle when an instant marker fires, or for the whole duration of a zone marker. |
+| `atPose(event, tolM, tolRad)`, `atTranslation(event, tolM)` | `Trigger`: while the robot is near where that marker sits on the path. `Pose2d`/`Translation2d` overloads take blue-alliance coordinates. |
+| `recovering()` | `Trigger`: true while the robot follows a recovery bridge. MayhemLib only. |
+| `getInitialPose()`, `getFinalPose()` | Alliance-correct poses, resolved when called. |
+| `getRawTrajectory()` | The underlying `MayhemTrajectory`, as authored (blue). |
 
-You can build autos in the constructor, before the FMS or Driver Station reports an alliance.
-Flipping happens when the command initializes.
+You can build routines in the constructor, before the FMS or Driver Station reports an alliance.
+Flipping happens when each trajectory command starts.
+
+### `AutoChooser`
+
+A dashboard chooser that only builds the selected option, when it is picked while disabled.
+
+| Member | Purpose |
+| --- | --- |
+| `addRoutine(name, Supplier<AutoRoutine>)` | Adds a routine option. |
+| `addCmd(name, Supplier<Command>)` | Adds a plain command option. |
+| `selectedCommand()` | The selected option's command. |
+| `selectedCommandScheduler()` | Runs the selected command as a proxy. Use `RobotModeTriggers.autonomous().whileTrue(chooser.selectedCommandScheduler())`. |
 
 ### Event markers and zones
 
@@ -177,12 +235,12 @@ When a marker fires, the factory looks up the command bound to the marker's **co
 the app left the command field empty, the lookup uses the marker name. The factory then schedules
 that command. When a zone ends, its command is cancelled. The command is also cancelled if the
 trajectory command is interrupted. If no command is bound to a name, the marker is ignored, but
-`atMarker(name)` still works.
+`atTime(name)` still works.
 
 ```java
-auto.bind("intake", () -> intake.run());            // zone: runs while inside the zone
-AutoTrajectory t = auto.trajectory("HubCycle");
-t.atMarker("score").onTrue(shooter.shootOnce());    // trigger style, no bind needed
+autoFactory.bind("intake", () -> intake.run());      // zone: runs while inside the zone
+AutoTrajectory t = routine.trajectory("HubCycle");
+t.atTime("score").onTrue(shooter.shootOnce());       // trigger style, no bind needed
 t.recovering().onTrue(leds.flashRed());
 ```
 
@@ -194,26 +252,25 @@ t.recovering().onTrue(leds.flashRed());
 - A marker that sits exactly on a split point belongs to the following segment. It fires when that
   segment starts.
 
-### Segments and branching
+### Split segments and branching
 
 Split points in the app divide one solved path into chained segments. Usually the split sits at a
-stop waypoint. `segment(i)` returns segment `i` with its time rebased to start at 0. The rebasing
-also covers the segment's events, waypoint times, and must-hit times. The segment end is always a
-must-hit point, so recovery never skips past it.
+stop waypoint. `routine.trajectory(name, i)` returns segment `i` with its time rebased to start at
+0. The rebasing also covers the segment's events, waypoint times, and must-hit times. The segment
+end is always a must-hit point, so recovery never skips past it.
 
 ```java
-AutoTrajectory full = auto.trajectory("HubCycle");
-AutoTrajectory toHub = full.segment(0);
-AutoTrajectory toIntake = full.segment(1);
-return Commands.sequence(
-    toHub.resetOdometry(),
-    toHub.cmd(),
-    shooter.shootOnce(),
-    Commands.either(toIntake.cmd(), Commands.none(), intake::hasRoom));
+AutoRoutine routine = autoFactory.newRoutine("HubCycle");
+AutoTrajectory toHub = routine.trajectory("HubCycle", 0);
+AutoTrajectory toIntake = routine.trajectory("HubCycle", 1);
+routine.active().onTrue(Commands.sequence(toHub.resetOdometry(), toHub.cmd()));
+toHub.done().onTrue(shooter.shootOnce().andThen(
+    Commands.either(toIntake.cmd(), Commands.none(), intake::hasRoom)));
+return routine;
 ```
 
 Only call `resetOdometry()` on the first segment. Later segments start where the previous one
-ended. `segment(i)` on a trajectory without splits returns the whole trajectory.
+ended. On a trajectory without splits, split index 0 is the whole trajectory.
 
 ### Alliance flipping
 
@@ -409,7 +466,7 @@ Tune in this order:
 | `NoClassDefFoundError: com/ctre/phoenix6/...` | You use `CtreSwerve` without the Phoenix 6 vendordep. |
 | `NoClassDefFoundError: org/wpilib/math/...` | You use `SleipnirBridgeRefiner` without the SleipnirJava vendordep. |
 | Robot drives the wrong way or mirrored on red | The pose isn't blue-origin, you flipped the path yourself as well, or a `withAllianceFlip` override is wrong. Check `/Mayhem/reference` against the robot pose in AdvantageScope. |
-| Robot starts in the wrong place | `resetOdometry()` is missing from the first command, or it was called on a later segment. |
+| Robot starts in the wrong place | `resetOdometry()` is missing from the first step, or it was called on a later segment. |
 | `/Mayhem/state` flips to `BRIDGING` without a hit | Tracking error exceeds `bridgeTriggerError`, often because of vision jumps or pose latency, or the Pigeon spike check is false-triggering. Tune the drivetrain, smooth vision, or raise the thresholds. |
 | `clockRate` often drops below 1 | The robot can't keep up with the trajectory. Lower the app's velocity and acceleration limits, fix the drivetrain gains, or check that `maxVelocity` isn't clamping. |
 | Auto takes about 1 s longer at the end | The robot never gets within `endTolerance`, so the command waits for `endTimeout`. Raise `translationKp` or loosen the tolerance. |
