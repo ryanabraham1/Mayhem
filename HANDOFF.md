@@ -2,6 +2,19 @@
 
 Instructions for whoever picks this up next. Read [PLAN.md](PLAN.md) first (the original plan), then this file.
 
+## Current status (2026-09-26)
+
+- **Released:** v0.2.0 and v0.3.0 on GitHub Releases. Pushing a `v*` tag makes `.github/workflows/release.yml` build macOS arm64/x64 DMGs, a Linux AppImage/.deb and the MayhemLib Maven zip + vendordep, verify the assets, then publish automatically.
+- **All background-agent work is integrated.** Packaging/CI, the robot example, and the solver benchmark/robustness work are merged, along with pose variables, straight line, fast infeasibility, and the current-limit and zero-margin fixes. The "Agent" briefs further down are history.
+- **Latest user-requested UI (v0.2.0):**
+  - Choreo-style Pose / Translation / Guide tools; new waypoints always append at the end.
+  - Drag-and-drop waypoint reorder.
+  - One Constraint menu: pick a type, then click the first and last waypoint.
+  - Straight-line constraint; pose variables; path folders; no auto-generate.
+- **MayhemLib 2026.1.0 (v0.3.0):** Choreo-style `AutoFactory` / `AutoRoutine` / `AutoChooser` (breaking change from `MayhemAutoFactory`).
+- **Tests:** solver 39, lib 23, app 7, plus the example robot sim test. Run them all before tagging.
+- **Other Claude sessions work in this repo.** Coordinate via SendMessage before editing shared files. Only the main session commits and pushes.
+
 ## What Mayhem is
 
 An FRC swerve trajectory generator (a Choreo alternative) for the user's team. It has three parts:
