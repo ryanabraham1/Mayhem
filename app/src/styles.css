@@ -256,7 +256,16 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--border-
 .menu-item svg { color: var(--accent); flex: none; margin-top: 2px; }
 .menu-title { display: block; font-size: 13.5px; font-weight: 500; }
 .menu-hint { display: block; font-size: 12px; color: var(--muted); }
-.toolstrip { overflow: visible; }
+.toolstrip { overflow: visible; position: relative; z-index: 10; }
+.pose-popover-anchor { position: relative; flex: none; }
+.pose-popover { position: absolute; top: calc(100% + 7px); right: 0; width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 130px); overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--float-shadow); z-index: 30; }
+.pose-popover-content { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.pose-popover-content > .btn { align-self: flex-start; }
+.pose-popover-layout { display: grid; grid-template-columns: minmax(145px, 180px) minmax(0, 1fr); gap: 10px; align-items: start; }
+.pose-popover-list { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
+.pose-popover-item { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); cursor: pointer; text-align: left; }
+.pose-popover-item.on { border-color: var(--accent); background: var(--accent-soft); }
+.pose-popover-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .item .grip { color: var(--faint); cursor: grab; display: grid; place-items: center; width: 12px; margin-left: -4px; flex: none; opacity: 0; }
 .item:hover .grip, .item.on .grip { opacity: 1; }
 .item.dragging { opacity: 0.45; }

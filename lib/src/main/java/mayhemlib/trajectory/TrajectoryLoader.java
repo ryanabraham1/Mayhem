@@ -79,10 +79,16 @@ public final class TrajectoryLoader {
           TrajectoryEvent.RecoveryPolicy.fromString(e.path("recoveryPolicy").asText("fireAtJoin")),
           e.path("mustHit").asBoolean(false)));
     }
+    List<TerrainSpan> terrain = new ArrayList<>();
+    for (JsonNode s : out.path("terrain")) {
+      terrain.add(new TerrainSpan(s.path("t").asDouble(), s.path("endT").asDouble(),
+          s.path("expectedSpeed").asDouble(0.7), s.path("feedbackScale").asDouble(0.3)));
+    }
+    terrain.sort((a, b) -> Double.compare(a.t, b.t));
     int[] splits = ints(out.path("splits"));
     double[] wtimes = doubles(out.path("waypointTimes"));
     RecoveryData rec = parseRecovery(out.path("recovery"));
-    return new MayhemTrajectory(name, samples, events, splits, wtimes, rec,
+    return new MayhemTrajectory(name, samples, events, terrain, splits, wtimes, rec,
         out.path("inputHash").asText(""), false);
   }
 

@@ -44,6 +44,7 @@ public final class AutoTrajectory {
   private Command activeCmd;
   private boolean isActive;
   private boolean recovering;
+  private boolean onTerrain;
   private boolean hasFinished;
   private double finishedAt = Double.NEGATIVE_INFINITY;
   private int startsAtFinish = -1;
@@ -134,6 +135,7 @@ public final class AutoTrajectory {
           }
         }
         recovering = runner.isRecovering();
+        onTerrain = runner.onRoughTerrain();
         f.visionBoost.accept(runner.visionBoostActive());
         if (f.telemetry != null) {
           f.telemetry.update(runner);
@@ -161,6 +163,7 @@ public final class AutoTrajectory {
         zoneActive.clear();
         isActive = false;
         recovering = false;
+        onTerrain = false;
         activeCmd = null;
         f.visionBoost.accept(false);
         if (!interrupted) {
@@ -286,6 +289,11 @@ public final class AutoTrajectory {
   /** MayhemLib extra: true while bump recovery is driving a bridge back onto the path. */
   public Trigger recovering() {
     return routine.observe(() -> recovering);
+  }
+
+  /** MayhemLib extra: true while the reference is on a rough-terrain zone (e.g. the bump). */
+  public Trigger onRoughTerrain() {
+    return routine.observe(() -> onTerrain);
   }
 
   // --------------------------------------------------------------------------- internals

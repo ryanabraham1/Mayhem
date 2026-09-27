@@ -1,6 +1,7 @@
 package mayhemlib.telemetry;
 
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.networktables.BooleanPublisher;
 import edu.wpi.first.networktables.DoublePublisher;
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableInstance;
@@ -24,6 +25,7 @@ public final class MayhemTelemetry {
   private final DoublePublisher error;
   private final DoublePublisher planMs;
   private final DoublePublisher bridges;
+  private final BooleanPublisher terrain;
 
   public MayhemTelemetry(String root) {
     NetworkTable t = NetworkTableInstance.getDefault().getTable(root);
@@ -37,6 +39,7 @@ public final class MayhemTelemetry {
     error = t.getDoubleTopic("positionError").publish();
     planMs = t.getDoubleTopic("lastPlanMs").publish();
     bridges = t.getDoubleTopic("bridgesPlanned").publish();
+    terrain = t.getBooleanTopic("onRoughTerrain").publish();
   }
 
   public void startTrajectory(MayhemTrajectory traj) {
@@ -58,11 +61,13 @@ public final class MayhemTelemetry {
     error.set(r.positionError());
     planMs.set(r.lastPlanSeconds() * 1000);
     bridges.set(r.bridgesPlanned());
+    terrain.set(r.onRoughTerrain());
     bridge.set(r.bridge().map(b -> b.poses(30)).orElse(new Pose2d[0]));
   }
 
   public void stop() {
     state.set("IDLE");
+    terrain.set(false);
     bridge.set(new Pose2d[0]);
   }
 }

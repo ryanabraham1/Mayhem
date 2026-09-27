@@ -2,7 +2,7 @@ package mayhemlib.recovery;
 
 /** Tuning for bump detection and recovery. Distances in meters, angles in radians. */
 public final class RecoveryConfig {
-  /** Master switch. When false, the follower only uses saturated feedback. */
+  /** Enables hit recovery and ordinary error-based time dilation. Rough-terrain behavior remains active. */
   public boolean enabled = true;
 
   /** Position error where the trajectory clock starts slowing down. */
@@ -42,6 +42,14 @@ public final class RecoveryConfig {
   public double collisionCheckStep = 0.04;
   /** How long after a detected hit to report "trust vision more" [s]. */
   public double visionBoostSeconds = 1.0;
+  /**
+   * On rough terrain the clock tracks the robot's progress along the path: how fast it closes the
+   * along-track lag [1/s]. Higher keeps the reference closer to the robot.
+   */
+  public double terrainClockGain = 10.0;
+  /** Hit detection stays off for this long after leaving rough terrain [s] (landing, settling). */
+  public double terrainGraceSeconds = 0.3;
+
   /** Give up waiting for the robot to settle at the end of the trajectory after this long [s]. */
   public double endTimeout = 1.0;
   /** Position tolerance for considering the trajectory finished. */

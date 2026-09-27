@@ -26,7 +26,8 @@ from shapely.geometry import Point, Polygon
 from .drivetrain import G, Drivetrain
 from .geometry import World, bumper_polygons
 from .guess import Solution
-from .models import KeepIn, MaxAcceleration, MaxAngularVelocity, MaxVelocity, PointAt, StraightLine, Trajectory
+from .models import (KeepIn, MaxAcceleration, MaxAngularVelocity, MaxVelocity, PointAt, RoughTerrain, StraightLine,
+                     Trajectory)
 
 SOFT_MODES = {
     "hard": set(),
@@ -413,7 +414,7 @@ class OCP:
         # user constraints
         self.zone_used: dict[str, set[int]] = {}
         for con in traj.constraints:
-            if not con.enabled:
+            if not con.enabled or isinstance(con.data, RoughTerrain):
                 continue
             ks = scope_samples(con.scope, Ns, g)
             if con.scope.kind == "zone":

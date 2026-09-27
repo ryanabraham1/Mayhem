@@ -56,6 +56,7 @@
               "maxAngularVelocity": "#/$defs/MaxAngularVelocity",
               "maxVelocity": "#/$defs/MaxVelocity",
               "pointAt": "#/$defs/PointAt",
+              "roughTerrain": "#/$defs/RoughTerrain",
               "straightLine": "#/$defs/StraightLine"
             },
             "propertyName": "type"
@@ -81,6 +82,9 @@
             },
             {
               "$ref": "#/$defs/StraightLine"
+            },
+            {
+              "$ref": "#/$defs/RoughTerrain"
             }
           ],
           "title": "Data"
@@ -1039,6 +1043,35 @@
       "title": "RobotConfig",
       "type": "object"
     },
+    "RoughTerrain": {
+      "description": "Terrain (e.g. the field bump) where the robot is expected to lose speed.\n\nDoes not slow the plan down: the solver keeps full speed.\nThe covered time spans are exported so MayhemLib can expect the robot to fall behind there\n(no hit detection, clock follows the robot, softer correction) instead of fighting it.",
+      "properties": {
+        "type": {
+          "const": "roughTerrain",
+          "default": "roughTerrain",
+          "title": "Type",
+          "type": "string"
+        },
+        "expectedSpeed": {
+          "default": 0.7,
+          "description": "Fraction of the planned speed the robot is expected to keep",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Expectedspeed",
+          "type": "number"
+        },
+        "feedbackScale": {
+          "default": 0.3,
+          "description": "On-robot feedback strength while on the terrain (1 = normal)",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Feedbackscale",
+          "type": "number"
+        }
+      },
+      "title": "RoughTerrain",
+      "type": "object"
+    },
     "Sample": {
       "properties": {
         "t": {
@@ -1253,6 +1286,41 @@
       "title": "StraightLine",
       "type": "object"
     },
+    "TerrainSpan": {
+      "description": "A stretch of the trajectory over rough terrain (from a roughTerrain constraint).",
+      "properties": {
+        "t": {
+          "title": "T",
+          "type": "number"
+        },
+        "endT": {
+          "title": "Endt",
+          "type": "number"
+        },
+        "expectedSpeed": {
+          "title": "Expectedspeed",
+          "type": "number"
+        },
+        "feedbackScale": {
+          "title": "Feedbackscale",
+          "type": "number"
+        },
+        "expectedDelay": {
+          "description": "Estimated time lost on this span [s]",
+          "title": "Expecteddelay",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t",
+        "endT",
+        "expectedSpeed",
+        "feedbackScale",
+        "expectedDelay"
+      ],
+      "title": "TerrainSpan",
+      "type": "object"
+    },
     "Tolerance": {
       "properties": {
         "kind": {
@@ -1390,6 +1458,13 @@
             "$ref": "#/$defs/EventOut"
           },
           "title": "Events",
+          "type": "array"
+        },
+        "terrain": {
+          "items": {
+            "$ref": "#/$defs/TerrainSpan"
+          },
+          "title": "Terrain",
           "type": "array"
         },
         "recovery": {

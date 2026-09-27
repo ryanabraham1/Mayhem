@@ -153,6 +153,7 @@ export function constraintValue(c: Constraint) {
   if (d.type === "maxAngularVelocity") return `${d.value} rad/s`;
   if (d.type === "pointAt") return `(${d.x.toFixed(2)}, ${d.y.toFixed(2)})`;
   if (d.type === "straightLine") return `±${(d.tolerance * 100).toFixed(0)} cm`;
+  if (d.type === "roughTerrain") return "bump zone";
   return `${d.points.length} pts`;
 }
 
@@ -161,7 +162,7 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
   const n = traj.waypoints.length;
   const wpOpts = traj.waypoints.map((_, i) => ({ value: i, label: `Waypoint ${i + 1}` }));
   const d = c.data;
-  const regionOnly = d.type === "keepOut" || d.type === "keepIn";
+  const regionOnly = d.type === "keepOut" || d.type === "keepIn" || d.type === "roughTerrain";
   const rangeOnly = d.type === "straightLine";
   return (
     <Card title={CONSTRAINT_LABELS[d.type]}
@@ -173,7 +174,20 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
       }>
       <div className="form">
         <SelectField label="Type" value={d.type}
-          onChange={(v) => set((x) => { x.data = defaultConstraintData(v, d.type === "pointAt" ? [d.x, d.y] : undefined); })}
+          onChange={(v) => set((x) => {
+            x.data = defaultConstraintData(v, d.type === "pointAt" ? [d.x, d.y] : undefined);
+            if (v === "roughTerrain" && x.scope.kind !== "zone") {
+              const w = traj.waypoints[Math.min(x.scope.from, n - 1)] ?? { x: 8, y: 4 };
+              x.scope.kind = "zone";
+              x.scope.region = d.type === "keepIn" || d.type === "keepOut" ? d.points.map(([a, b]) => [a, b])
+                : [[w.x - 1, w.y - 1], [w.x + 1, w.y - 1], [w.x + 1, w.y + 1], [w.x - 1, w.y + 1]];
+            } else if ((v === "keepIn" || v === "keepOut") && x.scope.kind === "zone") {
+              if (x.data.type === "keepIn" || x.data.type === "keepOut") {
+                x.data.points = x.scope.region.map(([a, b]) => [a, b]);
+              }
+              x.scope.kind = "range";
+            }
+          })}
           options={(Object.keys(CONSTRAINT_LABELS) as ConstraintType[]).map((k) => ({ value: k, label: CONSTRAINT_LABELS[k] }))} />
         {(d.type === "maxVelocity" || d.type === "maxAcceleration" || d.type === "maxAngularVelocity") && (
           <NumberField label="Limit" value={d.value} min={0.01}
@@ -193,6 +207,18 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
         {d.type === "straightLine" && (
           <NumberField label="Allowed distance from the line" unit="m" value={d.tolerance} min={0.001} step={0.005}
             onChange={(v) => set((x) => { if (x.data.type === "straightLine") x.data.tolerance = v; })} />
+        )}
+        {d.type === "roughTerrain" && (
+          <>
+            <div className="note">The solver keeps its planned speed. On the robot, collision recovery pauses, the path clock follows progress, and correction softens. Vision trust rises just after the zone.</div>
+            <NumberField label="Expected speed fraction" value={d.expectedSpeed} min={0.01} max={1} step={0.05}
+              hint="For estimated delay only; does not cap planned speed."
+              onChange={(v) => set((x) => { if (x.data.type === "roughTerrain") x.data.expectedSpeed = v; })} />
+            <NumberField label="Correction strength" value={d.feedbackScale} min={0} max={1} step={0.05}
+              hint="0 = no correction in the zone; 1 = normal correction."
+              onChange={(v) => set((x) => { if (x.data.type === "roughTerrain") x.data.feedbackScale = v; })} />
+            <div className="note">Drag the amber region or its corners on the field.</div>
+          </>
         )}
         {d.type === "keepOut" && (
           <NumberField label="Margin" unit="m" value={d.margin} min={0} onChange={(v) => set((x) => { if (x.data.type === "keepOut") x.data.margin = v; })} />

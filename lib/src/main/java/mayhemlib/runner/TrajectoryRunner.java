@@ -17,12 +17,13 @@ import mayhemlib.recovery.BridgeRefiner;
 import mayhemlib.recovery.CollisionDetector;
 import mayhemlib.recovery.RecoveryConfig;
 import mayhemlib.trajectory.MayhemTrajectory;
+import mayhemlib.trajectory.TerrainSpan;
 import mayhemlib.trajectory.TrajectoryEvent;
 import mayhemlib.trajectory.TrajectorySample;
 
 /**
  * Runs one trajectory: feedforward + saturated feedback, time dilation, bump detection and bridge
- * recovery, and event markers. Framework-free (no WPILib command dependencies) so it is fully unit
+ * recovery, rough-terrain handling, and event markers. Framework-free (no WPILib command dependencies) so it is fully unit
  * testable; {@link mayhemlib.auto.AutoFactory} wraps it in commands.
  *
  * <p>Call {@link #start} once, then {@link #update} every loop with the latest vision-fused pose.
@@ -76,6 +77,8 @@ public final class TrajectoryRunner {
   private int bridgesRefined;
   private double lastPlanSeconds;
   private double lastNowForBoost = Double.NEGATIVE_INFINITY;
+  private TerrainSpan terrain;
+  private double terrainExitTime = Double.NEGATIVE_INFINITY;
 
   public TrajectoryRunner(MayhemTrajectory traj, FollowerConfig fc, RecoveryConfig rc,
       EventListener listener, BridgeRefiner refiner) {
@@ -104,6 +107,8 @@ public final class TrajectoryRunner {
     lastNow = now;
     rate = 1;
     bridge = null;
+    terrain = null;
+    terrainExitTime = Double.NEGATIVE_INFINITY;
     detector.reset();
     java.util.Arrays.fill(fired, false);
     java.util.Arrays.fill(zoneEnded, false);
@@ -152,7 +157,19 @@ public final class TrajectoryRunner {
   private DriveCommand updateFollowing(double now, double dt, Pose2d pose, ChassisSpeeds v, double accelG) {
     TrajectorySample ref = traj.sampleAt(t);
     measure(ref, pose);
-    if (rc.enabled && detector.update(now, posError, headingError, accelG, accelG(ref)) && tryPlan(now, pose, v)) {
+    TerrainSpan span = traj.terrainAt(t);
+    if (span == null && terrain != null) {
+      terrainExitTime = now;
+    }
+    terrain = span;
+    if (span != null) {
+      return updateTerrain(dt, span, ref, pose, v);
+    }
+    boolean grace = now - terrainExitTime <= rc.terrainGraceSeconds;
+    if (grace) {
+      detector.reset();
+    } else if (rc.enabled && detector.update(now, posError, headingError, accelG, accelG(ref))
+        && tryPlan(now, pose, v)) {
       return updateBridging(now, 0, pose, v, accelG);
     }
     rate = rc.enabled
@@ -168,6 +185,33 @@ public final class TrajectoryRunner {
       settleStart = now;
     }
     return follower.calculate(reference, pose, v, rate);
+  }
+
+  /**
+   * Rough terrain: the robot is expected to lose speed, so keep commanding the planned (full)
+   * velocity, let the clock follow the robot's progress along the path instead of pulling it
+   * forward, soften the feedback, and skip hit detection. Time lost here is not made up.
+   */
+  private DriveCommand updateTerrain(double dt, TerrainSpan span, TrajectorySample ref, Pose2d pose,
+      ChassisSpeeds v) {
+    detector.reset();
+    double speed = ref.speed();
+    double lag = 0;
+    if (speed > 1e-3) {
+      // along-track offset in seconds of path; negative when the robot is behind the reference
+      double along = ((pose.getX() - ref.x) * ref.vx + (pose.getY() - ref.y) * ref.vy) / speed;
+      lag = along / Math.max(speed, 0.3);
+    }
+    rate = Math.max(0, Math.min(1, 1 + rc.terrainClockGain * lag));
+    double tNew = Math.min(t + rate * dt, traj.totalTime());
+    fireCrossing(t, tNew);
+    t = tNew;
+    reference = traj.sampleAt(t);
+    if (t >= traj.totalTime()) {
+      state = State.SETTLING;
+      settleStart = lastNow;
+    }
+    return follower.calculate(reference, pose, v, 1.0, span.feedbackScale);
   }
 
   private DriveCommand updateSettling(double now, Pose2d pose, ChassisSpeeds v, double accelG) {
@@ -441,8 +485,17 @@ public final class TrajectoryRunner {
     return lastPlanSeconds;
   }
 
-  /** True shortly after a detected hit: raise vision trust in the pose estimator. */
+  /** True while the reference is on a rough-terrain span. */
+  public boolean onRoughTerrain() {
+    return terrain != null && state == State.FOLLOWING;
+  }
+
+  /**
+   * True shortly after a detected hit or after leaving rough terrain (odometry drifts on the
+   * terrain): raise vision trust in the pose estimator.
+   */
   public boolean visionBoostActive() {
-    return detector.visionBoostActive(lastNowForBoost);
+    return detector.visionBoostActive(lastNowForBoost)
+        || lastNowForBoost - terrainExitTime <= rc.visionBoostSeconds;
   }
 }

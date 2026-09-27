@@ -62,6 +62,27 @@ describe("folderList", () => {
 });
 
 describe("reorderWaypoint", () => {
+  it("moves the automatic stop when the end waypoint changes", async () => {
+    const { reorderWaypoint, newTrajectory, newWaypoint } = await import("./model");
+    const t = newTrajectory("x");
+    t.waypoints = [newWaypoint(0, 0), newWaypoint(1, 0, 0, { stop: true }), newWaypoint(2, 0), newWaypoint(3, 0, 0, { stop: true })];
+
+    reorderWaypoint(t, 3, 1);
+    expect(t.waypoints.map((w) => w.stop)).toEqual([false, false, true, true]);
+
+    reorderWaypoint(t, 1, 3);
+    expect(t.waypoints.map((w) => w.stop)).toEqual([false, true, false, true]);
+  });
+
+  it("keeps stops unchanged when the end waypoint stays in place", async () => {
+    const { reorderWaypoint, newTrajectory, newWaypoint } = await import("./model");
+    const t = newTrajectory("x");
+    t.waypoints = [newWaypoint(0, 0), newWaypoint(1, 0, 0, { stop: true }), newWaypoint(2, 0), newWaypoint(3, 0, 0, { stop: true })];
+
+    reorderWaypoint(t, 1, 2);
+    expect(t.waypoints.map((w) => w.stop)).toEqual([false, false, true, true]);
+  });
+
   it("moves a waypoint and keeps constraint/marker references attached", async () => {
     const { reorderWaypoint, newTrajectory, newConstraint, newMarker, newWaypoint } = await import("./model");
     const t = newTrajectory("x");

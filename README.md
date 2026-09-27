@@ -55,7 +55,7 @@ your drivetrain field speeds plus per-module force feedforward.
 cd lib && ./gradlew installVendordep -ProbotProject=/path/to/robot
 ```
 
-**2. Deploy paths from the app.** They land in `src/main/deploy/mayhem/<Name>.mtraj`.
+**2. Generate paths in the app.** Save the project in `src/main/deploy/mayhem/`, or set that as its deploy folder in Project settings. Generated paths are saved and copied there automatically as `<Name>.mtraj`.
 
 **3. Create the factory** once, in `RobotContainer`. For a CTRE Tuner X swerve it's one line:
 

@@ -44,10 +44,11 @@ export const CONSTRAINT_LABELS: Record<ConstraintType, string> = {
   pointAt: "Point at",
   keepIn: "Keep in region",
   keepOut: "Keep out region",
+  roughTerrain: "Rough terrain",
 };
 
 /** Constraint types placed by drawing a region instead of picking waypoints. */
-export const REGION_CONSTRAINTS: ConstraintType[] = ["keepIn", "keepOut"];
+export const REGION_CONSTRAINTS: ConstraintType[] = ["keepIn", "keepOut", "roughTerrain"];
 
 export type WaypointKind = "pose" | "translation" | "guide";
 
@@ -78,6 +79,7 @@ export function defaultConstraintData(type: ConstraintType, at?: Vec2): Constrai
     case "pointAt": return { type, x, y, tolerance: 0.05, flip: false };
     case "keepIn": return { type, points: sq.map(([a, b]) => [a + (a - x) * 2, b + (b - y) * 2] as Vec2) };
     case "keepOut": return { type, points: sq, margin: 0.03 };
+    case "roughTerrain": return { type, expectedSpeed: 0.7, feedbackScale: 0.3 };
     case "straightLine": return { type, tolerance: 0.02 };
   }
 }
@@ -234,12 +236,18 @@ export type { Project };
 export function reorderWaypoint(t: Trajectory, from: number, to: number) {
   const n = t.waypoints.length;
   if (from === to || from < 0 || to < 0 || from >= n || to >= n) return;
+  const oldEnd = t.waypoints[n - 1];
   const order = t.waypoints.map((_, i) => i);
   const [moved] = order.splice(from, 1);
   order.splice(to, 0, moved);
   const newIndex = new Array<number>(n);
   order.forEach((oldIdx, newIdx) => { newIndex[oldIdx] = newIdx; });
   t.waypoints = order.map((i) => t.waypoints[i]);
+  const newEnd = t.waypoints[n - 1];
+  if (newEnd !== oldEnd) {
+    oldEnd.stop = false;
+    newEnd.stop = true;
+  }
   for (const c of t.constraints) {
     if (c.scope.kind === "zone") continue;
     const a = newIndex[c.scope.from] ?? c.scope.from;

@@ -35,7 +35,7 @@ Run it again after you update MayhemLib. Every machine that builds robot code ne
 its `~/wpilib/2026/maven`, so run the command on each machine or use option B.
 
 To publish without touching a robot project, leave off `-ProbotProject`. To change the version,
-add `-PmayhemVersion=2026.1.0`.
+add `-PmayhemVersion=2026.2.0`.
 
 ### Option B: share a maven repository
 
@@ -72,7 +72,7 @@ Choreo code ports with few changes. The one real difference is that you don't wr
 MayhemLib runs the feedback, time dilation and bump recovery, and gives your drivetrain a finished
 `DriveCommand`.
 
-The Mayhem app deploys trajectories to `src/main/deploy/mayhem/<Name>.mtraj`.
+The Mayhem app saves generated trajectories to `src/main/deploy/mayhem/<Name>.mtraj` automatically when that folder is the project or configured deploy folder.
 
 ```java
 import mayhemlib.auto.AutoChooser;
@@ -172,7 +172,7 @@ Create one factory per drivetrain. The `bind` and `with*` methods return `this`.
 | `withFollowerConfig(FollowerConfig)` | Follower gains and limits (see [Tuning](#tuning-the-follower)). |
 | `withRecoveryConfig(RecoveryConfig)` | Hit detection and recovery knobs (see [Recovery](#bump-recovery)). |
 | `withAccelerometer(DoubleSupplier g)` | Horizontal acceleration in g, used for collision detection. `NaN` disables the spike check. |
-| `withVisionBoost(Consumer<Boolean>)` | Called with `true` for `visionBoostSeconds` after a detected hit and with `false` otherwise. |
+| `withVisionBoost(Consumer<Boolean>)` | Called with `true` for `visionBoostSeconds` after a detected hit or after leaving rough terrain, and with `false` otherwise. |
 | `withAllianceFlip(BooleanSupplier)` | Overrides alliance detection: return true to run the red-alliance version. |
 | `withRefiner(BridgeRefiner)` | Optional background bridge optimizer, for example `SleipnirBridgeRefiner`. |
 | `withTelemetry(boolean)` | Publishes follower state to NetworkTables under `/Mayhem`. |
@@ -301,11 +301,19 @@ The follower responds to tracking error in three layers:
    every direct bridge is blocked, it routes through the exported roadmap. When the robot rejoins,
    normal following resumes. This is pure Java and typically takes well under 1 ms.
 
+**Rough-terrain zones.** Draw a rough-terrain polygon in the app over each bump. The solver marks
+the covered trajectory time without reducing planned speed. In the zone, the runner keeps the
+planned feedforward command, softens feedback, and advances trajectory time according to the
+robot's along-track progress. It skips hit detection and replanning there and for a short grace
+period after exit. `withVisionBoost` rises after the zone so the pose estimator can correct drift.
+Markers remain attached to trajectory time. `AutoTrajectory.onRoughTerrain()` exposes the active
+zone as a trigger, and `/Mayhem/onRoughTerrain` reports it through telemetry.
+
 `RecoveryConfig` fields (public, SI units, angles in radians):
 
 | Field | Default | What it does |
 | --- | --- | --- |
-| `enabled` | `true` | Master switch. `new RecoveryConfig().disabled()` leaves only saturated feedback. It also turns off time dilation. |
+| `enabled` | `true` | Enables hit recovery and ordinary error-based time dilation. Rough-terrain handling still applies when disabled. |
 | `dilationStartError` / `dilationStopError` | 0.08 / 0.40 m | Position error where the clock starts slowing and where it stops completely. |
 | `dilationStartHeading` / `dilationStopHeading` | 0.15 / 0.70 rad | The same for heading. The slower of the two rates applies. |
 | `bridgeTriggerError` / `bridgeTriggerHeading` | 0.45 m / 0.8 rad | Error that counts as knocked off the path once it persists. |
@@ -317,7 +325,9 @@ The follower responds to tracking error in three layers:
 | `minReplanInterval` | 0.25 s | Minimum time between plans. |
 | `limitScale` | 1.0 | Scales the conservative velocity and acceleration limits the app exports for bridges. |
 | `collisionCheckStep` | 0.04 s | Time step of the swept-bumper collision check. |
-| `visionBoostSeconds` | 1.0 s | How long `withVisionBoost` reports `true` after a hit. |
+| `visionBoostSeconds` | 1.0 s | How long `withVisionBoost` reports `true` after a hit or after leaving rough terrain. |
+| `terrainClockGain` | 10.0 1/s | How quickly the reference clock follows along-track lag on rough terrain. |
+| `terrainGraceSeconds` | 0.3 s | How long hit detection stays off after leaving rough terrain. |
 | `endTolerance` / `endHeadingTolerance` | 0.05 m / 0.05 rad | When the trajectory ends at rest, the command ends once the robot is within these tolerances. |
 | `endTimeout` | 1.0 s | Stop waiting to settle after this long. |
 
@@ -349,6 +359,7 @@ bound the join window, so they are never jumped over.
 | `/Mayhem/positionError` | double | Distance from the reference [m]. |
 | `/Mayhem/lastPlanMs` | double | Duration of the last bridge plan [ms]. |
 | `/Mayhem/bridgesPlanned` | double | Bridges planned during the current run. |
+| `/Mayhem/onRoughTerrain` | boolean | Reference is inside a rough-terrain zone. |
 
 In AdvantageScope, drag `trajectory`, `reference`, and `bridge` onto a 2D field next to your robot pose.
 
@@ -459,7 +470,7 @@ Tune in this order:
 | Symptom | Likely cause and fix |
 | --- | --- |
 | `Could not read trajectory .../deploy/mayhem/X.mtraj` | The file isn't in `src/main/deploy/mayhem/`, or the name's case differs (the roboRIO file system is case sensitive). In simulation and tests the deploy directory is `<project>/src/main/deploy`. |
-| `Trajectory 'X' has not been generated yet` | The file has inputs but no solved output. Solve and deploy it in the app. |
+| `Trajectory 'X' has not been generated yet` | The file has inputs but no solved output. Generate it in the app; saving and deploy-folder copying happen automatically. |
 | `uses format N but this MayhemLib supports up to M` | The app is newer than the library. Update MayhemLib and re-run `installVendordep`. |
 | `Trajectory has no field data to flip with` | The file has no recovery payload. Re-export it from a current app version. |
 | Gradle: `Could not resolve mayhemlib:MayhemLib-java` | This machine hasn't run `installVendordep`, or `MayhemLib.json` has no `mavenUrls` for your hosted repository. |

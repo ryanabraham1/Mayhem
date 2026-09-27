@@ -4,7 +4,7 @@ import {
   FolderOpen, FolderPlus, Gauge, Link2, Loader2, Minus, Pentagon, Play, Plus, Route, Trash2,
 } from "lucide-react";
 import { useStore } from "../store";
-import { CONSTRAINT_LABELS, folderList, newMarker, newPoseVariable, reorderWaypoint, totalTime } from "../model";
+import { CONSTRAINT_LABELS, folderList, newMarker, reorderWaypoint, totalTime } from "../model";
 import type { ConstraintType, Trajectory } from "../types";
 import { constraintValue, scopeText, wpLabel } from "./Inspector";
 
@@ -31,7 +31,6 @@ function PathsSections() {
   return (
     <>
       <PathList />
-      <PoseSection />
       {traj && <WaypointSection traj={traj} />}
       {traj && <ConstraintSection traj={traj} />}
       {traj && <MarkerSection traj={traj} />}
@@ -48,6 +47,7 @@ function PathList() {
   const project = useStore((s) => s.project);
   const status = useStore((s) => s.backendStatus);
   const solves = useStore((s) => s.solves);
+  const generatingAll = useStore((s) => s.generatingAll);
   const a = useStore.getState();
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -119,7 +119,7 @@ function PathList() {
                   setCollapsed({ ...collapsed, [f]: false });
                 }}><Plus size={13} /></button>
                 <button className="btn ghost icon sm" title="Generate every path in this folder"
-                  disabled={status !== "ready" || !solvable.length || solvable.some((n) => solves[n]?.status === "solving")}
+                  disabled={status !== "ready" || !solvable.length || generatingAll || Object.values(solves).some((s) => s.status === "solving")}
                   onClick={(e) => { e.stopPropagation(); void a.solveAll(solvable); }}><Play size={13} /></button>
                 <button className="btn ghost icon sm danger" title="Delete folder (keeps its paths)" onClick={(e) => {
                   e.stopPropagation();
@@ -345,40 +345,6 @@ function MarkerSection({ traj }: { traj: Trajectory }) {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function PoseSection() {
-  const poses = useStore((s) => s.project?.poses ?? []);
-  const selection = useStore((s) => s.selection);
-  const a = useStore.getState();
-  const add = () => {
-    const st = useStore.getState();
-    const sel = st.selection;
-    const t = st.selectedTraj ? st.trajectories[st.selectedTraj] : undefined;
-    const w = sel?.kind === "waypoint" && t ? t.waypoints[sel.index] : undefined;
-    const f = st.project!.field;
-    const v = newPoseVariable(`Pose ${poses.length + 1}`, w?.x ?? f.length / 4, w?.y ?? f.width / 2, w?.heading ?? 0);
-    a.updateProject((p) => { p.poses = [...(p.poses ?? []), v]; });
-    if (w && t && sel?.kind === "waypoint" && !w.poseRef) a.updateTraj(t.name, (d) => { d.waypoints[sel.index].poseRef = v.id; });
-    a.select({ kind: "pose", id: v.id });
-  };
-  return (
-    <div className="section">
-      <div className="section-head">
-        <span>Pose variables<span className="count">{poses.length}</span></span>
-        <button className="btn ghost icon sm" title="New pose variable (from the selected waypoint, if any)" onClick={add}><Plus size={15} /></button>
-      </div>
-      {!poses.length && <div className="sidebar-empty">Named poses shared by every path. Select a waypoint and click +.</div>}
-      {poses.map((p) => (
-        <div key={p.id} className={`item ${selection?.kind === "pose" && selection.id === p.id ? "on" : ""}`}
-          onClick={() => a.select({ kind: "pose", id: p.id })}>
-          <span className="icon"><Link2 size={15} /></span>
-          <span className="name">{p.name}</span>
-          <span className="meta">{p.x.toFixed(1)}, {p.y.toFixed(1)}</span>
-        </div>
-      ))}
     </div>
   );
 }

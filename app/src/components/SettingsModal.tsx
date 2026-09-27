@@ -147,25 +147,30 @@ function ProjectSettings() {
   const [cmd, setCmd] = useState("");
   const addCmd = () => {
     const c = cmd.trim();
-    if (c) a.updateProject((p) => { if (!p.commands.includes(c)) p.commands.push(c); });
+    if (c) a.updateProject((p) => { if (!p.commands.includes(c)) p.commands.push(c); }, { affectsSolve: false });
     setCmd("");
   };
   return (
     <div className="form" style={{ maxWidth: 480 }}>
       <h3>Project</h3>
-      <TextField label="Name" value={project.name} onChange={(v) => a.updateProject((p) => { p.name = v; })} />
+      <TextField label="Name" value={project.name} onChange={(v) => a.updateProject((p) => { p.name = v; }, { affectsSolve: false })} />
       <div className="note mono">{dir}</div>
       <label className="lbl"><span>Deploy folder (the robot project's src/main/deploy/mayhem)</span>
         <div style={{ display: "flex", gap: 6 }}>
           <input className="input mono" value={project.deployDir} placeholder="same as the project folder"
-            onChange={(e) => a.updateProject((p) => { p.deployDir = e.target.value; }, { history: false })} onKeyDown={(e) => e.stopPropagation()} />
+            onChange={(e) => a.updateProject((p) => { p.deployDir = e.target.value; }, { history: false, affectsSolve: false })}
+            onFocus={(e) => { e.currentTarget.dataset.start = e.currentTarget.value; }}
+            onBlur={(e) => { if (e.currentTarget.value !== e.currentTarget.dataset.start) void a.syncDeployFolder(); }} onKeyDown={(e) => e.stopPropagation()} />
           <button className="btn icon" title="Browse" onClick={async () => {
             const d = await pickFolder("Choose the robot project's deploy/mayhem folder");
-            if (d) a.updateProject((p) => { p.deployDir = d; });
+            if (d) {
+              a.updateProject((p) => { p.deployDir = d; }, { affectsSolve: false });
+              void a.syncDeployFolder();
+            }
           }}><FolderOpen size={15} /></button>
         </div>
       </label>
-      <div className="note">If the project already lives in the robot's deploy folder, leave this blank: saving is deploying.</div>
+      <div className="note">Generated paths are copied here automatically every time they're saved. If the project already lives in the robot's deploy folder, leave this blank.</div>
       <h3>Named commands</h3>
       <div className="note">Names bound in robot code with <span className="mono">auto.bind("name", command)</span>; they autocomplete in event markers.</div>
       <div style={{ display: "flex", gap: 6 }}>
@@ -176,7 +181,7 @@ function ProjectSettings() {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         {project.commands.map((c) => (
           <span key={c} className="chip accent">{c}
-            <button className="link-btn" style={{ color: "inherit" }} onClick={() => a.updateProject((p) => { p.commands = p.commands.filter((x) => x !== c); })}><Trash2 size={11} /></button>
+            <button className="link-btn" style={{ color: "inherit" }} onClick={() => a.updateProject((p) => { p.commands = p.commands.filter((x) => x !== c); }, { affectsSolve: false })}><Trash2 size={11} /></button>
           </span>
         ))}
       </div>

@@ -6,6 +6,7 @@ import {
 import { useStore, type Tool } from "../store";
 import { CONSTRAINT_LABELS } from "../model";
 import type { ConstraintType } from "../types";
+import { PoseVariablesPopover } from "./PoseVariablesPopover";
 
 // Pose waypoint icon: a small robot square with a heading tick.
 function PoseIcon({ size = 16 }: { size?: number }) {
@@ -39,6 +40,7 @@ const CONSTRAINT_MENU: { type: ConstraintType; icon: typeof Gauge; hint: string 
   { type: "pointAt", icon: Crosshair, hint: "Face a target (e.g. the hub) between two waypoints" },
   { type: "keepIn", icon: SquareDashed, hint: "Draw a region the robot must stay inside" },
   { type: "keepOut", icon: Ban, hint: "Draw a region only this path avoids" },
+  { type: "roughTerrain", icon: SquareDashed, hint: "Draw a bump zone; the robot adjusts its clock and correction there" },
 ];
 
 const FIELD_TOOLS: typeof PATH_TOOLS = [
@@ -93,7 +95,7 @@ export function Toolstrip() {
           <Icon size={16} /> {label}
         </button>
       ))}
-      {view === "paths" && <><span className="divider-v" style={{ margin: "0 4px" }} /><ConstraintMenu disabled={locked} /></>}
+      {view === "paths" && <><span className="divider-v" style={{ margin: "0 4px" }} /><ConstraintMenu disabled={locked} /><PoseVariablesPopover /></>}
       <div style={{ flex: 1 }} />
       {view === "paths" && (
         <div className="seg" title="Preview the path for each alliance">

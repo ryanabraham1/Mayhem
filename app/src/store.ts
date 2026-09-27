@@ -27,6 +27,7 @@ export interface PendingConstraint {
 
 export interface SolveState {
   status: "idle" | "solving" | "ok" | "failed";
+  requestId?: number;
   jobId?: string;
   stage?: string;
   iteration?: number;
@@ -65,6 +66,7 @@ interface State {
   drawing: Vec2[];
   pending: PendingConstraint | null;
   solves: Record<string, SolveState>;
+  generatingAll: boolean;
   playback: { t: number; playing: boolean; speed: number };
   showRed: boolean;
   showGraphs: boolean;
@@ -88,7 +90,7 @@ interface Actions {
   select(s: Selection): void;
   selectTraj(name: string | null): void;
   checkpoint(): void;
-  updateProject(fn: (p: Project) => void, opts?: { history?: boolean }): void;
+  updateProject(fn: (p: Project) => void, opts?: { history?: boolean; affectsSolve?: boolean }): void;
   updateTraj(name: string, fn: (t: Trajectory) => void, opts?: { history?: boolean }): void;
   addTrajectory(name?: string, folder?: string | null): string;
   duplicateTrajectory(name: string): void;
@@ -105,7 +107,8 @@ interface Actions {
   solve(name: string): Promise<void>;
   solveAll(names?: string[]): Promise<void>;
   cancelSolve(name: string): void;
-  deploy(): Promise<void>;
+  cancelGeneration(): void;
+  syncDeployFolder(): Promise<void>;
   setPlayback(p: Partial<State["playback"]>): void;
   setShowRed(v: boolean): void;
   startConstraint(type: ConstraintType): void;
@@ -139,6 +142,9 @@ let toastId = 1;
 
 export const useStore = create<State & Actions>()(
   immer((set, get) => {
+    let nextSolveRequest = 0;
+    let activeBatch: { cancelled: boolean } | null = null;
+    const earlyDone = new Map<number, any[]>();
     const snapshot = (): Snapshot | null => {
       const s = get();
       return s.project ? { project: s.project, trajectories: s.trajectories, order: s.order } : null;
@@ -151,19 +157,45 @@ export const useStore = create<State & Actions>()(
       }, 400));
     };
 
+    // The robot project's deploy folder, when it is somewhere other than the project folder.
+    // Generated paths are copied there on every save, so there is no separate deploy step.
+    const deployDir = () => {
+      const { dir, project } = get();
+      const d = project?.deployDir.trim().replace(/\/+$/, "");
+      return d && d !== dir?.replace(/\/+$/, "") ? d : null;
+    };
+
     const saveTraj = (name: string) => {
-      const { dir } = get();
-      if (!dir) return;
-      scheduleSave("t:" + name, () => {
-        const t = get().trajectories[name];
-        return t ? backend.call("saveTrajectory", { dir, trajectory: t }) : Promise.resolve();
+      const { dir, project, trajectories, stale } = get();
+      const t = trajectories[name];
+      if (!dir || !project || !t) return;
+      const target = project.deployDir.trim().replace(/\/+$/, "");
+      const mirror = !!t.output && !stale[name] && !!target && target !== dir.replace(/\/+$/, "");
+      scheduleSave(`t:${dir}:${name}`, async () => {
+        await backend.call("saveTrajectory", { dir, trajectory: t });
+        if (mirror) {
+          try {
+            await backend.call("deploy", { dir, project, trajectories: [t] });
+          } catch (e: any) {
+            get().toast("error", `Saved ${name}, but could not copy to deploy folder: ${e.message}`);
+            return;
+          }
+        }
+        get().toast("success", mirror ? `Saved ${name} · copied to deploy folder`
+          : stale[name] && target ? `Saved ${name} · regenerate to update deploy folder` : `Saved ${name}`);
       });
     };
 
+    const removeDeployed = (name: string) => {
+      const d = deployDir();
+      if (d) backend.call("deleteTrajectory", { dir: d, name })
+        .catch((e) => get().toast("error", `Could not remove ${name} from deploy folder: ${e.message}`));
+    };
+
     const saveProject = () => {
-      const { dir } = get();
-      if (!dir) return;
-      scheduleSave("project", () => backend.call("saveProject", { dir, project: get().project }));
+      const { dir, project } = get();
+      if (!dir || !project) return;
+      scheduleSave(`project:${dir}`, () => backend.call("saveProject", { dir, project }));
     };
 
     const markStale = (name: string) => {
@@ -188,6 +220,35 @@ export const useStore = create<State & Actions>()(
       }
     };
 
+    const finishSolve = (p: any) => {
+      const name = p.name as string;
+      const st = get().solves[name];
+      if (!st || st.status !== "solving") return;
+      // A fast solve can finish before the RPC response supplies its job ID.
+      if (!st.jobId) {
+        if (st.requestId !== undefined) {
+          earlyDone.set(st.requestId, [...(earlyDone.get(st.requestId) ?? []), p]);
+        }
+        return;
+      }
+      if (st.jobId !== p.jobId) return;
+      set((s) => {
+        const cur = s.solves[name];
+        cur.status = p.success ? "ok" : "failed";
+        cur.issues = p.issues ?? [];
+        cur.lastSeconds = cur.startedAt ? (Date.now() - cur.startedAt) / 1000 : undefined;
+        cur.preview = p.success ? undefined : p.preview ?? cur.preview;
+        cur.candidates = undefined;
+        cur.previews = undefined;
+        if (p.success && s.trajectories[name]) {
+          s.trajectories[name].output = p.output;
+          s.stale[name] = false;
+        }
+      });
+      if (p.success) saveTraj(name);
+      else if (!p.cancelled) get().toast("error", `${name}: generation failed — see Issues`);
+    };
+
     return {
       backendStatus: "connecting",
       fields: [],
@@ -202,6 +263,7 @@ export const useStore = create<State & Actions>()(
       tool: "select",
       drawing: [],
       solves: {},
+      generatingAll: false,
       playback: { t: 0, playing: false, speed: 1 },
       showRed: false,
       pending: null,
@@ -226,7 +288,7 @@ export const useStore = create<State & Actions>()(
           const name = p.name as string;
           set((s) => {
             const st = s.solves[name];
-            if (!st || st.jobId !== p.jobId) return;
+            if (!st || st.status !== "solving" || st.jobId !== p.jobId) return;
             if (p.type === "stage") st.stage = p.stage;
             if (p.type === "iteration") {
               st.iteration = p.iteration;
@@ -237,24 +299,7 @@ export const useStore = create<State & Actions>()(
           });
         });
         backend.on("solveDone", (p: any) => {
-          const name = p.name as string;
-          const st = get().solves[name];
-          if (!st || st.jobId !== p.jobId) return;
-          set((s) => {
-            const cur = s.solves[name];
-            cur.status = p.success ? "ok" : "failed";
-            cur.issues = p.issues ?? [];
-            cur.lastSeconds = cur.startedAt ? (Date.now() - cur.startedAt) / 1000 : undefined;
-            cur.preview = p.success ? undefined : p.preview ?? cur.preview;
-            cur.candidates = undefined;
-            cur.previews = undefined;
-            if (p.success && s.trajectories[name]) {
-              s.trajectories[name].output = p.output;
-              s.stale[name] = false;
-            }
-          });
-          if (p.success) saveTraj(name);
-          else if (!p.cancelled) get().toast("error", `${name}: generation failed — see Issues`);
+          finishSolve(p);
         });
         void backend.connect();
       },
@@ -275,6 +320,8 @@ export const useStore = create<State & Actions>()(
 
       async openProject(dir) {
         const res = await backend.call<{ dir: string; project: Project; trajectories: any[] }>("openProject", { dir });
+        get().cancelGeneration();
+        earlyDone.clear();
         const trajectories: Record<string, Trajectory> = {};
         const order: string[] = [];
         for (const t of res.trajectories) {
@@ -317,12 +364,15 @@ export const useStore = create<State & Actions>()(
       },
 
       closeProject() {
+        get().cancelGeneration();
+        earlyDone.clear();
         set((s) => {
           s.dir = null;
           s.project = null;
           s.trajectories = {};
           s.order = [];
           s.selectedTraj = null;
+          s.solves = {};
         });
       },
 
@@ -382,8 +432,10 @@ export const useStore = create<State & Actions>()(
           if (s.project) fn(s.project);
         });
         saveProject();
-        get().order.forEach((n) => markStale(n));
-        get().refreshDrivetrain();
+        if (opts?.affectsSolve !== false) {
+          get().order.forEach((n) => markStale(n));
+          get().refreshDrivetrain();
+        }
       },
 
       updateTraj(name, fn, opts) {
@@ -422,19 +474,25 @@ export const useStore = create<State & Actions>()(
           s.trajectories[n] = produce(t, (d) => {
             d.name = n;
           });
+          s.stale[n] = !!s.stale[name];
         });
         saveTraj(n);
       },
 
       deleteTrajectory(name) {
         const { dir } = get();
+        const saveKey = `t:${dir}:${name}`;
+        clearTimeout(saveTimers.get(saveKey));
+        saveTimers.delete(saveKey);
         get().checkpoint();
         set((s) => {
           delete s.trajectories[name];
+          delete s.stale[name];
           s.order = s.order.filter((n) => n !== name);
           if (s.selectedTraj === name) s.selectedTraj = s.order[0] ?? null;
         });
         if (dir) backend.call("deleteTrajectory", { dir, name }).catch(() => {});
+        removeDeployed(name);
       },
 
       async renameTrajectory(oldName, newName) {
@@ -445,12 +503,18 @@ export const useStore = create<State & Actions>()(
           return;
         }
         const { dir } = get();
+        const saveKey = `t:${dir}:${oldName}`;
+        clearTimeout(saveTimers.get(saveKey));
+        saveTimers.delete(saveKey);
         if (dir) await backend.call("renameTrajectory", { dir, old: oldName, new: newName });
+        removeDeployed(oldName);
         set((s) => {
           const t = s.trajectories[oldName];
           delete s.trajectories[oldName];
           t.name = newName;
           s.trajectories[newName] = t;
+          s.stale[newName] = !!s.stale[oldName];
+          delete s.stale[oldName];
           s.order = s.order.map((n) => (n === oldName ? newName : n));
           if (s.selectedTraj === oldName) s.selectedTraj = newName;
           if (s.solves[oldName]) {
@@ -564,8 +628,7 @@ export const useStore = create<State & Actions>()(
         const { project, trajectories } = get();
         const t = trajectories[name];
         if (!project || !t) return;
-        const prev = get().solves[name];
-        if (prev?.status === "solving" && prev.jobId) backend.call("cancel", { jobId: prev.jobId }).catch(() => {});
+        if (get().solves[name]?.status === "solving") return;
         if (t.waypoints.length < 2) {
           set((s) => {
             s.solves[name] = { status: "failed", issues: [{ severity: "error", message: "Add at least 2 waypoints." }] };
@@ -574,63 +637,98 @@ export const useStore = create<State & Actions>()(
         }
         const { output: _o, ...inputs } = t;
         void _o;
+        const requestId = ++nextSolveRequest;
         set((s) => {
-          s.solves[name] = { status: "solving", issues: [], startedAt: Date.now(), stage: "starting" };
+          s.solves[name] = { status: "solving", requestId, issues: [], startedAt: Date.now(), stage: "starting" };
         });
         try {
           const { jobId } = await backend.call<{ jobId: string }>("solve", { project, trajectory: inputs });
+          if (get().solves[name]?.requestId !== requestId || get().solves[name]?.status !== "solving") {
+            earlyDone.delete(requestId);
+            void backend.call("cancel", { jobId }).catch(() => {});
+            return;
+          }
           set((s) => {
-            if (s.solves[name]) s.solves[name].jobId = jobId;
+            s.solves[name].jobId = jobId;
           });
+          const done = earlyDone.get(requestId)?.find((p) => p.jobId === jobId);
+          earlyDone.delete(requestId);
+          if (done) finishSolve(done);
         } catch (e: any) {
+          earlyDone.delete(requestId);
           set((s) => {
-            s.solves[name] = { status: "failed", issues: [{ severity: "error", message: e.message }] };
+            if (s.solves[name]?.requestId === requestId && s.solves[name].status === "solving") {
+              s.solves[name] = { status: "failed", issues: [{ severity: "error", message: e.message }] };
+            }
           });
         }
       },
 
       async solveAll(names) {
+        if (activeBatch || Object.values(get().solves).some((s) => s.status === "solving")) return;
         // Each solve already runs its route candidates in parallel processes, so only run two
         // paths at a time to avoid oversubscribing the CPU.
         const queue = (names ?? get().order).filter((n) => get().trajectories[n]?.waypoints.length >= 2);
+        if (!queue.length) return;
+        const batch = { cancelled: false };
+        activeBatch = batch;
+        set((s) => { s.generatingAll = true; });
         const waitDone = (n: string) => new Promise<void>((resolve) => {
           const check = () => (get().solves[n]?.status === "solving" ? setTimeout(check, 250) : resolve());
           check();
         });
         const worker = async () => {
-          while (queue.length) {
+          while (!batch.cancelled && queue.length) {
             const n = queue.shift()!;
             await get().solve(n);
             await waitDone(n);
           }
         };
-        await Promise.all([worker(), worker()]);
+        try {
+          await Promise.all([worker(), worker()]);
+        } finally {
+          if (activeBatch === batch) {
+            activeBatch = null;
+            set((s) => { s.generatingAll = false; });
+          }
+        }
       },
 
       cancelSolve(name) {
         const st = get().solves[name];
+        if (st?.status !== "solving") return;
+        if (st.requestId !== undefined) earlyDone.delete(st.requestId);
         if (st?.jobId) backend.call("cancel", { jobId: st.jobId }).catch(() => {});
         set((s) => {
-          if (s.solves[name]) s.solves[name].status = "idle";
+          s.solves[name] = { status: "idle", issues: [] };
         });
       },
 
-      async deploy() {
+      cancelGeneration() {
+        if (activeBatch) activeBatch.cancelled = true;
+        Object.entries(get().solves).forEach(([name, st]) => {
+          if (st.status === "solving") get().cancelSolve(name);
+        });
+        if (activeBatch) {
+          activeBatch = null;
+          set((s) => { s.generatingAll = false; });
+        }
+      },
+
+      async syncDeployFolder() {
         const { dir, project, order, trajectories, stale } = get();
-        if (!dir || !project) return;
-        const list = order.map((n) => trajectories[n]).filter((t) => t.output);
-        const staleNames = order.filter((n) => stale[n]);
+        const target = deployDir();
+        if (!dir || !project || !target) return;
+        const list = order.filter((n) => !stale[n]).map((n) => trajectories[n]).filter((t) => t.output);
+        if (!list.length) {
+          if (order.some((n) => trajectories[n].output && stale[n])) get().toast("info", "Regenerate out-of-date paths to copy them to the deploy folder.");
+          return;
+        }
         try {
-          const res = await backend.call<{ dir: string; written: string[]; skipped: string[] }>("deploy", {
-            dir, project, trajectories: list,
-          });
-          const missing = order.filter((n) => !trajectories[n].output);
-          let msg = `Deployed ${res.written.length} path${res.written.length === 1 ? "" : "s"} to ${res.dir}`;
-          if (missing.length) msg += ` · not generated: ${missing.join(", ")}`;
-          if (staleNames.length) msg += ` · out of date: ${staleNames.join(", ")}`;
-          get().toast(missing.length || staleNames.length ? "info" : "success", msg);
+          const res = await backend.call<{ dir: string; written: string[] }>("deploy", { dir, project, trajectories: list });
+          get().toast("success", `Copied ${res.written.length} path${res.written.length === 1 ? "" : "s"} to ${res.dir}`);
         } catch (e: any) {
-          get().toast("error", `Deploy failed: ${e.message}`);
+          get().toast("error", `Could not copy to the deploy folder: ${e.message}`);
         }
       },
 
@@ -647,7 +745,7 @@ export const useStore = create<State & Actions>()(
       },
 
       startConstraint(type) {
-        const region = type === "keepIn" || type === "keepOut";
+        const region = type === "keepIn" || type === "keepOut" || type === "roughTerrain";
         set((s) => {
           s.tool = region ? "region" : "constraint";
           s.pending = { type, from: null };

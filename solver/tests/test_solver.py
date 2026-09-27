@@ -6,7 +6,7 @@ import pytest
 from mayhem_solver import geometry as geo
 from mayhem_solver.drivetrain import build_drivetrain
 from mayhem_solver.guess import Trap
-from mayhem_solver.models import (Constraint, KeepOut, Marker, MaxVelocity, Obstacle, PointAt, Scope,
+from mayhem_solver.models import (Constraint, KeepOut, Marker, MaxVelocity, Obstacle, PointAt, RoughTerrain, Scope,
                                   Tolerance, Trajectory)
 from mayhem_solver.pipeline import Solver, make_world, solve
 
@@ -145,3 +145,25 @@ def test_swept_refinement_resolves_a_reported_interval(project, monkeypatch):
     assert r.success
     assert calls > 1
     assert any("densifying" in attempt for attempt in r.output.stats.attempts)
+
+
+def test_rough_terrain_keeps_speed_and_exports_spans(project):
+    """Rough terrain without caps must not change the plan, only export the covered time."""
+    wps = [wp(0, 2, 4, stop=True), wp(1, 10, 4, stop=True)]
+    plain = solve(project, Trajectory(name="p", waypoints=wps), parallel=False)
+    region = [(5.5, 3), (6.5, 3), (6.5, 5), (5.5, 5)]
+    t = Trajectory(name="b", waypoints=wps, constraints=[
+        Constraint(id="bump", scope=Scope(kind="zone", region=region),
+                   data=RoughTerrain(expected_speed=0.6, feedback_scale=0.25))])
+    r = solve(project, t, parallel=False)
+    assert plain.success and r.success
+    assert r.output.stats.total_time == pytest.approx(plain.output.stats.total_time, rel=0.02)
+    assert len(r.output.terrain) == 1
+    span = r.output.terrain[0]
+    a, _ = arrays(r.output)
+    x_at = lambda tt: np.interp(tt, a["t"], a["x"])
+    # the span covers the robot center crossing the zone (0.05 m buffer, half-sample widening)
+    assert x_at(span.t) <= 5.5 and x_at(span.end_t) >= 6.5
+    assert x_at(span.t) > 5.0 and x_at(span.end_t) < 7.0
+    assert span.feedback_scale == 0.25 and span.expected_speed == 0.6
+    assert span.expected_delay == pytest.approx((span.end_t - span.t) * (1 / 0.6 - 1))

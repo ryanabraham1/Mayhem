@@ -28,6 +28,15 @@ public final class HolonomicFollower {
    *     acceleration/force by rate^2 (a consistent time reparameterization)
    */
   public DriveCommand calculate(TrajectorySample ref, Pose2d pose, ChassisSpeeds measured, double rate) {
+    return calculate(ref, pose, measured, rate, 1.0);
+  }
+
+  /**
+   * Like {@link #calculate(TrajectorySample, Pose2d, ChassisSpeeds, double)} with the feedback
+   * (and its saturation limits) scaled by {@code feedbackScale} in [0, 1], e.g. on rough terrain.
+   */
+  public DriveCommand calculate(
+      TrajectorySample ref, Pose2d pose, ChassisSpeeds measured, double rate, double feedbackScale) {
     double ex = ref.x - pose.getX();
     double ey = ref.y - pose.getY();
     double eth = MathUtil.angleModulus(ref.heading - pose.getRotation().getRadians());
@@ -44,6 +53,9 @@ public final class HolonomicFollower {
       fby *= cfg.maxFeedbackVelocity / fbn;
     }
     double fbw = MathUtil.clamp(cfg.rotationKp * eth, -cfg.maxFeedbackOmega, cfg.maxFeedbackOmega);
+    fbx *= feedbackScale;
+    fby *= feedbackScale;
+    fbw *= feedbackScale;
 
     double vx = ref.vx * rate + fbx;
     double vy = ref.vy * rate + fby;

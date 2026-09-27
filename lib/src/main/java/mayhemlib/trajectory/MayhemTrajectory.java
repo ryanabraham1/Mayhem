@@ -15,6 +15,7 @@ public final class MayhemTrajectory {
   private final String name;
   private final List<TrajectorySample> samples;
   private final List<TrajectoryEvent> events;
+  private final List<TerrainSpan> terrain;
   private final int[] splits;
   private final double[] waypointTimes;
   private final RecoveryData recovery;
@@ -24,12 +25,20 @@ public final class MayhemTrajectory {
   public MayhemTrajectory(
       String name, List<TrajectorySample> samples, List<TrajectoryEvent> events, int[] splits,
       double[] waypointTimes, RecoveryData recovery, String inputHash, boolean flipped) {
+    this(name, samples, events, List.of(), splits, waypointTimes, recovery, inputHash, flipped);
+  }
+
+  public MayhemTrajectory(
+      String name, List<TrajectorySample> samples, List<TrajectoryEvent> events,
+      List<TerrainSpan> terrain, int[] splits, double[] waypointTimes, RecoveryData recovery,
+      String inputHash, boolean flipped) {
     if (samples.isEmpty()) {
       throw new IllegalArgumentException("Trajectory '" + name + "' has no samples");
     }
     this.name = name;
     this.samples = Collections.unmodifiableList(new ArrayList<>(samples));
     this.events = Collections.unmodifiableList(new ArrayList<>(events));
+    this.terrain = Collections.unmodifiableList(new ArrayList<>(terrain));
     this.splits = splits.clone();
     this.waypointTimes = waypointTimes.clone();
     this.recovery = recovery;
@@ -47,6 +56,28 @@ public final class MayhemTrajectory {
 
   public List<TrajectoryEvent> events() {
     return events;
+  }
+
+  /** Rough-terrain spans, sorted by start time (possibly overlapping). */
+  public List<TerrainSpan> terrain() {
+    return terrain;
+  }
+
+  /**
+   * The rough-terrain span covering time t, or null. Where spans overlap, the one with the
+   * weakest feedback wins.
+   */
+  public TerrainSpan terrainAt(double t) {
+    TerrainSpan best = null;
+    for (TerrainSpan s : terrain) {
+      if (s.t > t) {
+        break;
+      }
+      if (s.contains(t) && (best == null || s.feedbackScale < best.feedbackScale)) {
+        best = s;
+      }
+    }
+    return best;
   }
 
   public RecoveryData recovery() {
@@ -145,6 +176,14 @@ public final class MayhemTrajectory {
         ev.add(s);
       }
     }
+    List<TerrainSpan> ter = new ArrayList<>();
+    for (TerrainSpan s : terrain) {
+      double a = Math.max(s.t, t0);
+      double b = Math.min(s.endT, t1);
+      if (b > a) {
+        ter.add(new TerrainSpan(a - t0, b - t0, s.expectedSpeed, s.feedbackScale));
+      }
+    }
     List<Double> wt = new ArrayList<>();
     for (double w : waypointTimes) {
       if (w >= t0 - 1e-9 && w <= t1 + 1e-9) {
@@ -164,7 +203,7 @@ public final class MayhemTrajectory {
       mh.add(t1 - t0);
       rec = rec.withMustHitTimes(mh.stream().mapToDouble(Double::doubleValue).distinct().sorted().toArray());
     }
-    return new MayhemTrajectory(name + "[" + i + "]", sub, ev, new int[0],
+    return new MayhemTrajectory(name + "[" + i + "]", sub, ev, ter, new int[0],
         wt.stream().mapToDouble(Double::doubleValue).toArray(), rec, inputHash, flipped);
   }
 
@@ -178,7 +217,7 @@ public final class MayhemTrajectory {
     for (TrajectorySample s : samples) {
       fs.add(s.flipped(sym, recovery.fieldLength, recovery.fieldWidth));
     }
-    return new MayhemTrajectory(name, fs, events, splits, waypointTimes, recovery.flipped(),
+    return new MayhemTrajectory(name, fs, events, terrain, splits, waypointTimes, recovery.flipped(),
         inputHash, !flipped);
   }
 }

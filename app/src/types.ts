@@ -43,6 +43,7 @@ export type ConstraintData =
   | { type: "pointAt"; x: number; y: number; tolerance: number; flip: boolean }
   | { type: "keepIn"; points: Vec2[] }
   | { type: "keepOut"; points: Vec2[]; margin: number }
+  | { type: "roughTerrain"; expectedSpeed: number; feedbackScale: number }
   | { type: "straightLine"; tolerance: number };
 export type ConstraintType = ConstraintData["type"];
 export interface Constraint { id: string; enabled: boolean; scope: Scope; data: ConstraintData }
@@ -68,6 +69,7 @@ export interface SolveStats {
 }
 export interface TrajectoryOutput {
   inputHash: string; samples: Sample[]; waypointTimes: number[]; splits: number[]; events: EventOut[];
+  terrain?: { t: number; endT: number; expectedSpeed: number; feedbackScale: number; expectedDelay: number }[];
   recovery: { obstacles: Vec2[][]; roadmapNodes: Vec2[]; roadmapEdges: [number, number][]; mustHitTimes: number[] } & Record<string, unknown>;
   stats: SolveStats;
 }

@@ -1,4 +1,4 @@
-import { FolderOpen, Loader2, Play, Redo2, Rocket, Settings2, Undo2 } from "lucide-react";
+import { FolderOpen, Loader2, Play, Redo2, Settings2, Square, Undo2 } from "lucide-react";
 import { useStore } from "../store";
 import { Seg } from "./ui";
 
@@ -9,6 +9,7 @@ export function TopBar() {
   const traj = useStore((s) => (s.selectedTraj ? s.trajectories[s.selectedTraj] : undefined));
   const solving = useStore((s) => (s.selectedTraj ? s.solves[s.selectedTraj]?.status === "solving" : false));
   const anySolving = useStore((s) => Object.values(s.solves).some((x) => x.status === "solving"));
+  const generatingAll = useStore((s) => s.generatingAll);
   const canUndo = useStore((s) => s.past.length > 0);
   const canRedo = useStore((s) => s.future.length > 0);
   const status = useStore((s) => s.backendStatus);
@@ -39,12 +40,16 @@ export function TopBar() {
           <button className="btn ghost icon" onClick={a.undo} disabled={!canUndo} title="Undo (⌘Z)"><Undo2 size={16} /></button>
           <button className="btn ghost icon" onClick={a.redo} disabled={!canRedo} title="Redo (⇧⌘Z)"><Redo2 size={16} /></button>
           <span className="divider-v" />
-          <button className="btn" onClick={() => void a.solveAll()} disabled={status !== "ready" || anySolving} title="Generate every path">Generate all</button>
-          <button className="btn primary" disabled={status !== "ready" || !selected || (traj?.waypoints.length ?? 0) < 2 || solving}
+          <button className="btn" onClick={() => void a.solveAll()} disabled={status !== "ready" || anySolving || generatingAll} title="Generate every path">Generate all</button>
+          <button className="btn primary" disabled={status !== "ready" || !selected || (traj?.waypoints.length ?? 0) < 2 || solving || generatingAll}
             onClick={() => selected && void a.solve(selected)} title="Generate the selected path (⌘↵)">
             {solving ? <Loader2 size={15} className="spin" /> : <Play size={15} />} Generate
           </button>
-          <button className="btn" onClick={() => void a.deploy()} title="Copy generated paths into the robot project"><Rocket size={15} /> Deploy</button>
+          {(anySolving || generatingAll) && (
+            <button className="btn danger" onClick={a.cancelGeneration} title="Stop running generation and clear queued paths">
+              <Square size={14} /> Cancel generation
+            </button>
+          )}
           <button className="btn ghost icon" onClick={() => a.openSettings("robot")} title="Settings"><Settings2 size={17} /></button>
         </>
       )}

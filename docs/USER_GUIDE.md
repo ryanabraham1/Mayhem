@@ -6,7 +6,7 @@ Mayhem plans time-optimal swerve autos for the 2026 game (REBUILT). You place wa
 
 A project is a folder with `project.mayhem` (robot, field, named commands) and one `<path name>.mtraj` file per path.
 
-The easiest setup is to create the project **inside your robot code** at `src/main/deploy/mayhem/`. Every save is then already "deployed": WPILib copies the folder to the roboRIO on the next code deploy. If you keep the project somewhere else, set **Settings → Project → Deploy folder** and use **Deploy** in the top bar.
+The easiest setup is to create the project **inside your robot code** at `src/main/deploy/mayhem/`. Every save is then already "deployed": WPILib copies the folder to the roboRIO on the next code deploy. If you keep the project somewhere else, set **Settings → Project → Deploy folder**. Generated paths are copied there automatically whenever they are saved. A brief success banner confirms each path save.
 
 New projects start with the 2026 REBUILT field.
 
@@ -58,6 +58,8 @@ Press **Generate** (⌘↵). The solver tries several routes around obstacles in
 
 If generation fails, a panel lists what's wrong (e.g. "Waypoint 3 heading conflicts with point-at constraint") and a red pin marks the spot. Click an issue to jump there.
 
+While paths are generating, click **Cancel generation** in the top bar to stop running solves and clear any paths waiting in a **Generate all** batch. Previously generated paths remain available.
+
 ## 5. Constraints, markers and pose variables
 
 **Constraints.** Open the **Constraint** menu in the toolbar and pick a type, then **click the first waypoint and the last waypoint** it applies to. Click one waypoint and press ↵ to apply it to just that waypoint.
@@ -68,15 +70,18 @@ If generation fails, a panel lists what's wrong (e.g. "Waypoint 3 heading confli
 | Straight line | The robot drives on the straight line between the two waypoints (±tolerance) |
 | Point at | The robot faces a target (drag the crosshair; it starts at the hub) |
 | Keep in / Keep out region | Draw a polygon instead of picking waypoints |
+| Rough terrain | Draw a polygon over a bump. The solver keeps its planned speed; the exported path marks the covered samples for the robot library. |
 
 Selecting a constraint highlights the part of the path it covers. In its panel you can change the limit, move it to other waypoints, or make a velocity limit apply **in a zone** (a drawn region) instead.
+
+On rough terrain, MayhemLib pauses collision detection and replanning, slows the path clock to follow the robot's progress, and softens feedback. After leaving the zone, it temporarily raises the vision-trust signal. Event markers continue to fire as trajectory time advances. The expected speed fraction is used for the estimated delay; it does not reduce the solver's planned speed.
 
 **Event markers** (sidebar **+**): a name plus a command bound in robot code, placed at a waypoint with a time offset. A zone marker stays active until its end point.
 - *If bump recovery skips it*: fire when rejoining (default), fire immediately, or skip.
 - *Must hit*: recovery can never jump past this marker's time.
 
 **Pose variables** are named poses shared by every path in the project, for example a shooting spot or an intake station.
-- **Create one:** select a waypoint and click **+** under *Pose variables*, or click **Save as** in the waypoint panel.
+- **Create one:** open **Pose variables** beside the Constraint toolbar button, then click **New pose variable**. If a waypoint is selected, the new variable starts at its pose and links to it. You can also click **Save as** in the waypoint panel.
 - **Link a waypoint:** use the waypoint panel's *Pose variable* menu. Linked waypoints show a ring.
 - **Move one:** moving a linked waypoint, or editing the variable, moves it in **every** path that uses it. Those paths are marked out of date.
 

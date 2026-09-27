@@ -210,8 +210,24 @@ class StraightLine(Model):
     tolerance: float = Field(0.02, description="Allowed distance from the line [m]")
 
 
+class RoughTerrain(Model):
+    """Terrain (e.g. the field bump) where the robot is expected to lose speed.
+
+    Does not slow the plan down: the solver keeps full speed.
+    The covered time spans are exported so MayhemLib can expect the robot to fall behind there
+    (no hit detection, clock follows the robot, softer correction) instead of fighting it.
+    """
+
+    type: Literal["roughTerrain"] = "roughTerrain"
+    expected_speed: float = Field(
+        0.7, gt=0, le=1, description="Fraction of the planned speed the robot is expected to keep"
+    )
+    feedback_scale: float = Field(
+        0.3, ge=0, le=1, description="On-robot feedback strength while on the terrain (1 = normal)"
+    )
 ConstraintData = Annotated[
-    Union[MaxVelocity, MaxAcceleration, MaxAngularVelocity, PointAt, KeepIn, KeepOut, StraightLine],
+    Union[MaxVelocity, MaxAcceleration, MaxAngularVelocity, PointAt, KeepIn, KeepOut, StraightLine,
+          RoughTerrain],
     Field(discriminator="type"),
 ]
 
@@ -287,6 +303,16 @@ class EventOut(Model):
     must_hit: bool = False
 
 
+class TerrainSpan(Model):
+    """A stretch of the trajectory over rough terrain (from a roughTerrain constraint)."""
+
+    t: float
+    end_t: float
+    expected_speed: float
+    feedback_scale: float
+    expected_delay: float = Field(description="Estimated time lost on this span [s]")
+
+
 class Limits(Model):
     """Conservative limits for the on-robot bridge planner."""
 
@@ -325,6 +351,7 @@ class TrajectoryOutput(Model):
     waypoint_times: list[float]
     splits: list[int] = Field(description="Sample indices where a new segment starts")
     events: list[EventOut]
+    terrain: list[TerrainSpan] = Field(default_factory=list)
     recovery: RecoveryPayload
     stats: SolveStats
 

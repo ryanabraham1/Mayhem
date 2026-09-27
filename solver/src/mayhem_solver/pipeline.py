@@ -38,9 +38,11 @@ from .models import (
     PointAt,
     Project,
     RecoveryPayload,
+    RoughTerrain,
     Sample,
     SolveStats,
     StraightLine,
+    TerrainSpan,
     Trajectory,
     TrajectoryOutput,
 )
@@ -263,6 +265,10 @@ def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.Worl
         n = len(wps)
         if s.kind in ("waypoint", "range") and not (0 <= s.from_ < n and (s.kind == "waypoint" or 0 <= s.to < n)):
             issues.append(Issue(severity="warning", message=f"Constraint {con.id} refers to a missing waypoint; ignored."))
+        if con.enabled and isinstance(con.data, RoughTerrain) and s.kind == "waypoint":
+            issues.append(Issue(severity="warning",
+                                message=f"Rough terrain {con.id} is at a single waypoint and covers almost no time; "
+                                        "use a zone or a waypoint range."))
         if not con.enabled or not isinstance(con.data, PointAt):
             continue
         for j, wp in enumerate(wps):
@@ -429,7 +435,7 @@ class Solver:
         """Zone-scoped constraints whose region the solution enters at unconstrained samples."""
         out = {}
         for c in self.traj.constraints:
-            if c.enabled and c.scope.kind == "zone":
+            if c.enabled and c.scope.kind == "zone" and not isinstance(c.data, RoughTerrain):
                 now = set(scope_samples(c.scope, sol.Ns, sol))
                 used = self._last_zone_used.get(c.id, set())
                 if not now <= used:
@@ -819,7 +825,42 @@ def build_output(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.
 
     recovery = build_recovery(project, traj, dt, world, wtimes, events, T)
     return TrajectoryOutput(input_hash=input_hash(project, traj), samples=samples, waypoint_times=wtimes,
-                            splits=splits, events=events, recovery=recovery, stats=stats)
+                            splits=splits, events=events, terrain=terrain_spans(traj, sol),
+                            recovery=recovery, stats=stats)
+
+
+def terrain_spans(traj: Trajectory, sol: Solution) -> list[TerrainSpan]:
+    """Time spans of the solved trajectory covered by rough-terrain constraints.
+
+    Each run of consecutive covered samples becomes one span; a span is widened by half a sample
+    on each side so a zone the robot only clips still covers the time it is on the terrain.
+    """
+    t = sol.times()
+    T = float(t[-1])
+    spans: list[TerrainSpan] = []
+    for con in traj.constraints:
+        if not con.enabled or not isinstance(con.data, RoughTerrain):
+            continue
+        d = con.data
+        ks = sorted(set(scope_samples(con.scope, sol.Ns, sol)))
+        runs: list[list[int]] = []
+        for k in ks:
+            if runs and k == runs[-1][-1] + 1:
+                runs[-1].append(k)
+            else:
+                runs.append([k])
+        for run in runs:
+            a, b = run[0], run[-1]
+            t0 = float(t[a]) - (0.5 * float(t[a] - t[a - 1]) if a > 0 else 0.0)
+            t1 = float(t[b]) + (0.5 * float(t[b + 1] - t[b]) if b + 1 < len(t) else 0.0)
+            t0, t1 = max(t0, 0.0), min(t1, T)
+            if t1 <= t0:
+                continue
+            spans.append(TerrainSpan(t=t0, end_t=t1, expected_speed=d.expected_speed,
+                                     feedback_scale=d.feedback_scale,
+                                     expected_delay=(t1 - t0) * (1 / d.expected_speed - 1)))
+    spans.sort(key=lambda s: s.t)
+    return spans
 
 
 def build_recovery(project, traj, dt: Drivetrain, world: geo.World, wtimes, events, T) -> RecoveryPayload:

@@ -206,7 +206,9 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
       const pend = st().pending;
       if (tool === "region" && pend) {
         const c = newConstraint(pend.type, traj.waypoints.length);
-        c.data = pend.type === "keepOut" ? { type: "keepOut", points: poly, margin: 0.03 } : { type: "keepIn", points: poly };
+        if (pend.type === "keepOut") c.data = { type: "keepOut", points: poly, margin: 0.03 };
+        else if (pend.type === "keepIn") c.data = { type: "keepIn", points: poly };
+        else if (pend.type === "roughTerrain") c.scope = { kind: "zone", from: 0, to: Math.max(0, traj.waypoints.length - 1), region: poly };
         updTraj((t) => { t.constraints.push(c); }, true);
         st().select({ kind: "constraint", id: c.id });
       }
