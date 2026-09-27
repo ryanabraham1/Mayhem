@@ -85,8 +85,25 @@ class Backend {
     this.pending.clear();
   }
 
+  // True from the start of a connection attempt until that connection closes. React StrictMode
+  // mounts effects twice in dev, so this keeps us to a single solver process / socket.
+  private live = false;
+
   async connect() {
+    if (this.live) return;
+    this.live = true;
     this.setStatus("connecting");
+    try {
+      await this.doConnect();
+    } catch (e) {
+      console.error("[solver] failed to start", e);
+      this.live = false;
+      this.setStatus("down");
+      setTimeout(() => this.connect(), 2000);
+    }
+  }
+
+  private async doConnect() {
     if (isTauri()) await this.connectSidecar();
     else this.connectWs();
   }
@@ -97,6 +114,7 @@ class Backend {
     cmd.stdout.on("data", (d: string) => this.feed(d.endsWith("\n") ? d : d + "\n"));
     cmd.stderr.on("data", (d: string) => console.debug("[solver]", d));
     cmd.on("close", () => {
+      this.live = false;
       this.sendLine = null;
       this.setStatus("down");
       this.failAll("Solver exited");
@@ -115,6 +133,7 @@ class Backend {
     };
     ws.onmessage = (e) => this.feed(String(e.data) + "\n");
     ws.onclose = () => {
+      this.live = false;
       this.sendLine = null;
       this.setStatus("down");
       this.failAll("Solver disconnected");

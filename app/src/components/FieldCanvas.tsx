@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import {
-  centroid, circlePoints, distToSegment, footprint, insertionIndex, newConstraint, newObstacle, newWaypoint,
+  applyWaypointKind, centroid, circlePoints, distToSegment, footprint, newConstraint, newObstacle, newWaypoint, resolveWaypoint,
   obstaclePoints, pointInPolygon, sampleAt, totalTime,
 } from "../model";
 import type { Decoration, Field, Obstacle, RobotConfig, Trajectory, Vec2 } from "../types";
@@ -23,13 +23,9 @@ type Drag =
   | { kind: "regionVertex"; id: string; vi: number };
 
 const speedColor = (u: number) => {
-  // light lavender -> accent purple -> deep violet
-  const stops = [[205, 189, 255], [143, 99, 255], [74, 31, 194]];
-  const t = Math.max(0, Math.min(1, u)) * 2;
-  const i = Math.min(1, Math.floor(t));
-  const f = t - i;
-  const a = stops[i], b = stops[i + 1];
-  return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * f)).join(",")})`;
+  // Choreo-style: red (slow) -> yellow -> green (fast), interpolated by hue
+  const t = Math.max(0, Math.min(1, u));
+  return `hsl(${Math.round(t * 120)}, 85%, 45%)`;
 };
 
 const pts = (p: Vec2[]) => p.map(([x, y]) => `${x},${y}`).join(" ");
@@ -91,9 +87,11 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
   const selection = useStore((s) => s.selection);
   const tool = useStore((s) => s.tool);
   const drawing = useStore((s) => s.drawing);
+  const pending = useStore((s) => s.pending);
   const solveState = useStore((s) => (s.selectedTraj ? s.solves[s.selectedTraj] : undefined));
   const stale = useStore((s) => (s.selectedTraj ? s.stale[s.selectedTraj] : false));
   const playbackT = useStore((s) => s.playback.t);
+  const playing = useStore((s) => s.playback.playing);
   const showRed = useStore((s) => s.showRed);
   const info = useStore((s) => s.drivetrainInfo);
   const st = useStore.getState;
@@ -205,20 +203,28 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
       updField((f) => { f.obstacles.push(o); }, true);
       st().select({ kind: "obstacle", id: o.id });
     } else if (traj) {
-      if (tool === "zone") {
-        const c = newConstraint("maxVelocity", traj.waypoints.length);
-        c.scope = { kind: "zone", from: 0, to: 0, region: poly };
-        updTraj((t) => { t.constraints.push(c); }, true);
-        st().select({ kind: "constraint", id: c.id });
-      } else if (tool === "keepOut") {
-        const c = newConstraint("keepOut", traj.waypoints.length);
-        c.data = { type: "keepOut", points: poly, margin: 0.03 };
+      const pend = st().pending;
+      if (tool === "region" && pend) {
+        const c = newConstraint(pend.type, traj.waypoints.length);
+        c.data = pend.type === "keepOut" ? { type: "keepOut", points: poly, margin: 0.03 } : { type: "keepIn", points: poly };
         updTraj((t) => { t.constraints.push(c); }, true);
         st().select({ kind: "constraint", id: c.id });
       }
     }
     st().setDrawing([]);
     st().setTool("select");
+  };
+
+  /** Second waypoint click of the constraint tool: create it over [a, b] and select it. */
+  const placeConstraint = (a: number, b: number) => {
+    const pend = st().pending;
+    if (!pend || !traj) return;
+    const [from, to] = a <= b ? [a, b] : [b, a];
+    const hub: Vec2 = [4.63, field.width / 2];
+    const c = newConstraint(pend.type, traj.waypoints.length, pend.type === "pointAt" ? hub : undefined, from, to);
+    updTraj((t) => { t.constraints.push(c); }, true);
+    st().setTool("select");
+    st().select({ kind: "constraint", id: c.id });
   };
 
   // ------------------------------------------------------------ pointer events
@@ -238,9 +244,18 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
       const [kind, a, b] = h.split(":");
       if (kind === "wp") {
         const i = +a;
+        const pend = st().pending;
+        if (tool === "constraint" && pend && traj) {
+          if (pend.from === null) {
+            useStore.setState((s) => { if (s.pending) s.pending.from = i; });
+          } else {
+            placeConstraint(pend.from, i);
+          }
+          return;
+        }
         st().select({ kind: "waypoint", index: i });
         st().checkpoint();
-        const w = traj!.waypoints[i];
+        const w = resolveWaypoint(project.poses, traj!.waypoints[i]);
         drag.current = { kind: "waypoint", index: i, dx: w.x - p[0], dy: w.y - p[1] };
         return;
       }
@@ -306,39 +321,27 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
     }
 
     // tools
-    if (mode === "path" && (tool === "waypoint" || tool === "guide") && traj) {
+    if (mode === "path" && (tool === "pose" || tool === "translation" || tool === "guide") && traj) {
+      // Like Choreo: new waypoints always go at the end. Reorder from the sidebar.
       const wps = traj.waypoints;
-      const idx = insertionIndex(wps, p);
-      const ref = wps[Math.min(idx, wps.length - 1)] ?? wps[idx - 1];
-      const w = newWaypoint(p[0], p[1], ref?.heading ?? 0,
-        tool === "guide" ? { translationMode: "guide", headingMode: "free" } : {});
+      const prev = wps[wps.length - 1];
+      const w = newWaypoint(p[0], p[1], prev?.heading ?? 0);
+      applyWaypointKind(w, tool);
+      const idx = wps.length;
       updTraj((t) => {
         const n = t.waypoints.length;
-        const appending = idx >= n;
-        if (appending) {
-          // the new point becomes the end: it stops, the old end (unless it's the start) passes through
-          w.stop = true;
-          if (n > 1) t.waypoints[n - 1].stop = false;
-        } else if (n === 0) {
-          w.stop = true;
-        }
-        t.waypoints.splice(idx, 0, w);
-        // keep constraint/marker waypoint references pointing at the same waypoints
+        w.stop = true; // the end of the path stops; the old end (unless it's the start) passes through
+        if (n > 1) t.waypoints[n - 1].stop = false;
+        // constraints and markers that ran to the old end keep running to the new end
         for (const c of t.constraints) {
-          if (c.scope.kind === "zone") continue;
-          const spannedToEnd = c.scope.kind === "range" && c.scope.to === n - 1;
-          if (c.scope.from >= idx) c.scope.from += 1;
-          if (c.scope.to >= idx || (appending && spannedToEnd)) c.scope.to += 1;
+          if (c.scope.kind === "range" && c.scope.to === n - 1 && n > 1 && c.scope.from !== c.scope.to) c.scope.to = n;
         }
-        for (const m of t.markers) {
-          if (m.waypoint >= idx) m.waypoint += 1;
-          if (m.endWaypoint !== null && m.endWaypoint >= idx) m.endWaypoint += 1;
-        }
+        t.waypoints.push(w);
       }, true);
       st().select({ kind: "waypoint", index: idx });
       return;
     }
-    if (tool === "polygon" || tool === "zone" || tool === "keepOut") {
+    if (tool === "polygon" || tool === "region") {
       const first = drawing[0];
       if (first && drawing.length >= 3 && Math.hypot(p[0] - first[0], p[1] - first[1]) < hr * 2) {
         finishPolygon(drawing);
@@ -351,13 +354,7 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
       drag.current = { kind: "circle-new", center: p };
       return;
     }
-    if (tool === "pointAt" && traj) {
-      const c = newConstraint("pointAt", traj.waypoints.length, p);
-      updTraj((t) => { t.constraints.push(c); }, true);
-      st().select({ kind: "constraint", id: c.id });
-      st().setTool("select");
-      return;
-    }
+    if (tool === "constraint") return; // waiting for a waypoint click
     if (mode === "field" && tool === "select") {
       const o = hitObstacle(p);
       if (o) {
@@ -384,22 +381,29 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
         setView({ ...d.view, x: d.view.x - dx, y: d.view.y - dy });
         break;
       }
-      case "waypoint":
-        updTraj((t) => {
-          const w = t.waypoints[d.index];
-          w.x = snap(p[0] + d.dx);
-          w.y = snap(p[1] + d.dy);
-        });
+      case "waypoint": {
+        const x = snap(p[0] + d.dx), y = snap(p[1] + d.dy);
+        const ref = traj?.waypoints[d.index]?.poseRef;
+        if (ref && project.poses?.some((v) => v.id === ref)) {
+          st().updateProject((pr) => { const v = pr.poses.find((q) => q.id === ref); if (v) { v.x = x; v.y = y; } }, { history: false });
+        } else {
+          updTraj((t) => { const w = t.waypoints[d.index]; w.x = x; w.y = y; });
+        }
         break;
-      case "heading":
-        updTraj((t) => {
-          const w = t.waypoints[d.index];
-          let a = Math.atan2(p[1] - w.y, p[0] - w.x);
-          if (e.shiftKey) a = Math.round(a / (Math.PI / 12)) * (Math.PI / 12);
-          w.heading = a;
-          w.headingMode = "fixed";
-        });
+      }
+      case "heading": {
+        const w0 = traj ? resolveWaypoint(project.poses, traj.waypoints[d.index]) : null;
+        if (!w0) break;
+        let ang = Math.atan2(p[1] - w0.y, p[0] - w0.x);
+        if (e.shiftKey) ang = Math.round(ang / (Math.PI / 12)) * (Math.PI / 12);
+        const ref = traj?.waypoints[d.index]?.poseRef;
+        if (ref && project.poses?.some((v) => v.id === ref)) {
+          st().updateProject((pr) => { const v = pr.poses.find((q) => q.id === ref); if (v) v.heading = ang; }, { history: false });
+        } else {
+          updTraj((t) => { t.waypoints[d.index].heading = ang; });
+        }
         break;
+      }
       case "obstacle": {
         const dx = p[0] - d.last[0], dy = p[1] - d.last[1];
         d.last = p;
@@ -474,7 +478,7 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
 
   const onDoubleClick = (e: React.MouseEvent) => {
     if (readOnly) return;
-    if ((tool === "polygon" || tool === "zone" || tool === "keepOut") && drawing.length >= 3) {
+    if ((tool === "polygon" || tool === "region") && drawing.length >= 3) {
       finishPolygon(drawing);
       return;
     }
@@ -517,6 +521,7 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
         else s.select(null);
       }
       if (e.key === "Enter" && s.drawing.length >= 3) finishPolygon(s.drawing);
+      if (e.key === "Enter" && s.tool === "constraint" && s.pending?.from != null) placeConstraint(s.pending.from, s.pending.from);
       if (readOnly) return;
       const sel = s.selection;
       if ((e.key === "Delete" || e.key === "Backspace") && sel) {
@@ -562,7 +567,8 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
   // ------------------------------------------------------------ render
   const selWp = selection?.kind === "waypoint" ? selection.index : -1;
   const selId = selection && "id" in selection ? selection.id : null;
-  const wps = traj?.waypoints ?? [];
+  const wps = (traj?.waypoints ?? []).map((w) => resolveWaypoint(project.poses, w));
+  const selCon = selection?.kind === "constraint" ? traj?.constraints.find((c) => c.id === selection.id) : undefined;
   const issues = solveState?.issues ?? [];
 
   const cursorClass = readOnly ? "grab" : tool === "select" ? "default" : "crosshair";
@@ -647,6 +653,38 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
                 </g>
               ))}
 
+              {/* straight-line constraints */}
+              {traj.constraints.map((c) => {
+                if (c.data.type !== "straightLine" || c.scope.kind !== "range") return null;
+                const a = wps[c.scope.from], b = wps[c.scope.to];
+                if (!a || !b) return null;
+                const sel = selId === c.id;
+                return <line key={c.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="var(--accent-ink)" strokeOpacity={c.enabled ? 0.8 : 0.3}
+                  strokeWidth={sel ? 3 : 1.6} strokeDasharray="1 5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />;
+              })}
+
+              {/* span of the selected constraint */}
+              {selCon && selCon.scope.kind !== "zone" && (() => {
+                const from = selCon.scope.from, to = selCon.scope.kind === "range" ? selCon.scope.to : selCon.scope.from;
+                let span: Vec2[] = [];
+                if (out && !stale && out.waypointTimes[from] !== undefined && out.waypointTimes[to] !== undefined) {
+                  for (let t = out.waypointTimes[from]; t <= out.waypointTimes[to] + 1e-9; t += 0.03) {
+                    const q = sampleAt(out, t);
+                    span.push([q.x, q.y]);
+                  }
+                } else {
+                  span = wps.slice(from, to + 1).map((w) => [w.x, w.y] as Vec2);
+                }
+                return (
+                  <g pointerEvents="none">
+                    {span.length > 1 && <polyline points={pts(span)} fill="none" stroke="var(--amber)" strokeWidth={12} strokeOpacity={0.3} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
+                    {[from, to].map((k, i) => wps[k] && (
+                      <circle key={i} cx={wps[k].x} cy={wps[k].y} r={hr * 2.2} fill="none" stroke="var(--amber)" strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
+                    ))}
+                  </g>
+                );
+              })()}
+
               {/* waypoint guide line */}
               {(!out || stale) && wps.length > 1 && (
                 <polyline points={pts(wps.map((w) => [w.x, w.y]))} fill="none" stroke="var(--faint)" strokeWidth={1.2} strokeDasharray="2 5" vectorEffect="non-scaling-stroke" />
@@ -689,37 +727,42 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
                 );
               })}
 
-              {/* waypoints */}
+              {/* waypoints: pose = bumper box + heading knob, translation = dot, guide = hollow dot */}
               {wps.map((w, i) => {
                 const sel = i === selWp;
                 const guide = w.translationMode === "guide";
+                const pose = !guide && w.headingMode === "fixed";
+                const linked = !!traj.waypoints[i]?.poseRef;
+                const picking = tool === "constraint" && pending?.from === i;
                 const color = sel ? "var(--accent)" : i === 0 ? "var(--green)" : "var(--accent-ink)";
                 const c = Math.cos(w.heading), s = Math.sin(w.heading);
                 const knobD = robot.bumper.front + 0.22;
                 const knob: Vec2 = [w.x + c * knobD, w.y + s * knobD];
                 return (
                   <g key={w.id}>
-                    {!guide && (
+                    {pose && (
                       <RobotShape robot={robot} x={w.x} y={w.y} h={w.heading} stroke={color}
-                        fill={sel ? "var(--accent)" : "transparent"} opacity={sel ? 1 : 0.85}
-                        dash={w.headingMode === "free" ? "5 4" : undefined} width={sel ? 2.2 : 1.4} />
+                        fill={sel ? "var(--accent)" : "transparent"} opacity={sel ? 1 : 0.85} width={sel ? 2.2 : 1.4} />
                     )}
-                    {sel && !guide && <polygon points={pts(footprint(robot, w.x, w.y, w.heading))} fill="var(--accent)" fillOpacity={0.08} />}
+                    {sel && pose && <polygon points={pts(footprint(robot, w.x, w.y, w.heading))} fill="var(--accent)" fillOpacity={0.08} />}
                     {w.tolerance.kind === "circle" && !guide && (
                       <circle cx={w.x} cy={w.y} r={w.tolerance.radius} fill="var(--accent)" fillOpacity={0.06} stroke="var(--accent)" strokeDasharray="3 3" strokeWidth={1} vectorEffect="non-scaling-stroke" />
                     )}
                     {w.tolerance.kind === "box" && !guide && (
                       <rect x={w.x - w.tolerance.dx} y={w.y - w.tolerance.dy} width={2 * w.tolerance.dx} height={2 * w.tolerance.dy} fill="var(--accent)" fillOpacity={0.06} stroke="var(--accent)" strokeDasharray="3 3" strokeWidth={1} vectorEffect="non-scaling-stroke" />
                     )}
-                    {!guide && !readOnly && (
+                    {pose && !readOnly && (
                       <>
                         <line x1={w.x + c * robot.bumper.front} y1={w.y + s * robot.bumper.front} x2={knob[0]} y2={knob[1]} stroke={color} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
                         <circle data-h={`hd:${i}`} cx={knob[0]} cy={knob[1]} r={hr * 0.8} fill="var(--panel)" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ cursor: "grab" }} />
                       </>
                     )}
-                    <circle data-h={`wp:${i}`} cx={w.x} cy={w.y} r={guide ? hr * 0.9 : hr * 1.25}
+                    {linked && <circle cx={w.x} cy={w.y} r={hr * 1.9} fill="none" stroke="var(--accent-2)" strokeWidth={1.6} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+                    {picking && <circle cx={w.x} cy={w.y} r={hr * 2.4} fill="var(--amber)" fillOpacity={0.15} stroke="var(--amber)" strokeWidth={2.5} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+                    <circle data-h={`wp:${i}`} cx={w.x} cy={w.y} r={guide ? hr * 0.9 : hr * (sel ? 1.45 : 1.25)}
                       fill={guide ? "var(--panel)" : color} stroke={guide ? color : "var(--panel)"} strokeWidth={2}
-                      strokeDasharray={guide ? "2 2" : undefined} vectorEffect="non-scaling-stroke" style={{ cursor: readOnly ? undefined : "move" }} />
+                      strokeDasharray={guide ? "2 2" : undefined} vectorEffect="non-scaling-stroke"
+                      style={{ cursor: readOnly ? undefined : tool === "constraint" ? "pointer" : "move" }} />
                     {w.stop && !guide && <rect x={w.x - hr * 0.45} y={w.y - hr * 0.45} width={hr * 0.9} height={hr * 0.9} fill="var(--panel)" pointerEvents="none" />}
                     {w.split && <circle cx={w.x} cy={w.y} r={hr * 2} fill="none" stroke="var(--amber)" strokeWidth={2} strokeDasharray="3 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
                   </g>
@@ -740,11 +783,11 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
                 );
               })}
 
-              {/* playback robot with module forces */}
+              {/* playback robot; module forces only while paused/scrubbing */}
               {ghost && !stale && (
                 <g pointerEvents="none">
                   <RobotShape robot={robot} x={ghost.x} y={ghost.y} h={ghost.heading} stroke="var(--accent)" fill="var(--accent)" width={2.2} opacity={0.9} />
-                  {robot.modules.map(([mx, my], i) => {
+                  {!playing && robot.modules.map(([mx, my], i) => {
                     const c = Math.cos(ghost.heading), s = Math.sin(ghost.heading);
                     const px = ghost.x + c * mx - s * my, py = ghost.y + s * mx + c * my;
                     const k = 0.004;

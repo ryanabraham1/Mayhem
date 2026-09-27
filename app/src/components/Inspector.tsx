@@ -1,6 +1,6 @@
 import { Flag, Trash2, Waypoints as WaypointsIcon } from "lucide-react";
 import { useStore } from "../store";
-import { CONSTRAINT_LABELS, defaultConstraintData } from "../model";
+import { CONSTRAINT_LABELS, applyWaypointKind, defaultConstraintData, newPoseVariable, resolveWaypoint, waypointKind } from "../model";
 import type { Constraint, ConstraintType, Marker, Trajectory, Waypoint } from "../types";
 import { AngleField, Card, Check, NumberField, Seg, SelectField, TextField } from "./ui";
 
@@ -9,20 +9,32 @@ export type Upd = (fn: (t: Trajectory) => void, history?: boolean) => void;
 // ---------------------------------------------------------------- waypoints
 
 export function wpLabel(w: Waypoint, i: number, n: number) {
-  if (w.translationMode === "guide") return "Guide point";
-  if (i === 0) return "Start";
-  if (i === n - 1) return "End";
-  return w.stop ? "Stop" : "Pass-through";
+  const kind = waypointKind(w);
+  if (kind === "guide") return "Guide";
+  const k = kind === "pose" ? "Pose" : "Translation";
+  if (i === 0) return `${k} · start`;
+  if (i === n - 1) return `${k} · end`;
+  return w.stop ? `${k} · stop` : k;
 }
 
 export function WaypointEditor({ traj, index, upd }: { traj: Trajectory; index: number; upd: Upd }) {
-  const w = traj.waypoints[index];
+  const poses = useStore((s) => s.project?.poses ?? []);
+  const raw = traj.waypoints[index];
+  const w = resolveWaypoint(poses, raw);
+  const linked = raw.poseRef ? poses.find((p) => p.id === raw.poseRef) : undefined;
   const n = traj.waypoints.length;
+  const kind = waypointKind(raw);
+  const a = useStore.getState();
   const set = (fn: (w: Waypoint) => void) => upd((t) => fn(t.waypoints[index]));
+  // Position/heading edits go to the linked pose variable (shared by every path using it).
+  const setPose = (fn: (p: { x: number; y: number; heading: number }) => void) => {
+    if (linked) a.updateProject((pr) => { const v = pr.poses.find((q) => q.id === linked.id); if (v) fn(v); });
+    else set((x) => fn(x));
+  };
   return (
     <Card title={<span style={{ display: "flex", gap: 8, alignItems: "center" }}><WaypointsIcon size={16} /> Waypoint {index + 1}</span>}
       actions={
-        <button className="btn sm icon danger" title="Delete waypoint" onClick={() => {
+        <button className="btn ghost sm icon danger" title="Delete waypoint (⌫)" onClick={() => {
           upd((t) => {
             t.waypoints.splice(index, 1);
             t.markers = t.markers.filter((m) => m.waypoint !== index);
@@ -32,23 +44,41 @@ export function WaypointEditor({ traj, index, upd }: { traj: Trajectory; index: 
               if (c.scope.to >= index) c.scope.to = Math.max(0, c.scope.to - 1);
             }
           });
-          useStore.getState().select(null);
+          a.select(null);
         }}><Trash2 size={14} /></button>
       }>
       <div className="form">
+        <Seg value={kind} onChange={(k) => set((x) => applyWaypointKind(x, k))}
+          options={[{ value: "pose", label: "Pose" }, { value: "translation", label: "Translation" }, { value: "guide", label: "Guide" }]} />
         <div className="field-row">
-          <NumberField label="X" unit="m" value={w.x} onChange={(v) => set((x) => { x.x = v; })} />
-          <NumberField label="Y" unit="m" value={w.y} onChange={(v) => set((x) => { x.y = v; })} />
+          <NumberField label="X" unit="m" value={w.x} onChange={(v) => setPose((p) => { p.x = v; })} />
+          <NumberField label="Y" unit="m" value={w.y} onChange={(v) => setPose((p) => { p.y = v; })} />
         </div>
-        <label className="lbl"><span>Position</span>
-          <Seg value={w.translationMode} onChange={(v) => set((x) => { x.translationMode = v; })}
-            options={[{ value: "fixed", label: "Exact" }, { value: "guide", label: "Guide only" }]} />
-        </label>
-        {w.translationMode === "fixed" && (
+        {kind === "pose" && (
+          <div className="field-row">
+            <AngleField label="Heading" value={w.heading} onChange={(v) => setPose((p) => { p.heading = v; })} />
+            <AngleField label="Heading tolerance" value={w.headingTolerance} onChange={(v) => set((x) => { x.headingTolerance = Math.max(0, v); })} />
+          </div>
+        )}
+        {kind !== "guide" && (
           <>
+            <div className="lbl"><span>Pose variable</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <SelectField value={raw.poseRef ?? ""} onChange={(v) => set((x) => { x.poseRef = v || null; })}
+                  options={[{ value: "", label: "Not linked" }, ...poses.map((p) => ({ value: p.id, label: p.name }))]} />
+                {!linked && (
+                  <button className="btn" title="Save this position as a variable other paths can use" onClick={() => {
+                    const v = newPoseVariable(`Pose ${poses.length + 1}`, w.x, w.y, w.heading);
+                    a.updateProject((pr) => { pr.poses = [...(pr.poses ?? []), v]; });
+                    set((x) => { x.poseRef = v.id; });
+                  }}>Save as</button>
+                )}
+              </div>
+            </div>
+            {linked && <div className="note">Moving this waypoint moves <b>{linked.name}</b> in every path that uses it.</div>}
             <label className="lbl"><span>Position tolerance</span>
               <Seg value={w.tolerance.kind} onChange={(v) => set((x) => { x.tolerance.kind = v; })}
-                options={[{ value: "none", label: "None" }, { value: "circle", label: "Circle" }, { value: "box", label: "Box" }]} />
+                options={[{ value: "none", label: "Exact" }, { value: "circle", label: "Circle" }, { value: "box", label: "Box" }]} />
             </label>
             {w.tolerance.kind === "circle" && (
               <NumberField label="Radius" unit="m" value={w.tolerance.radius} min={0} onChange={(v) => set((x) => { x.tolerance.radius = v; })} />
@@ -59,16 +89,6 @@ export function WaypointEditor({ traj, index, upd }: { traj: Trajectory; index: 
                 <NumberField label="± Y" unit="m" value={w.tolerance.dy} min={0} onChange={(v) => set((x) => { x.tolerance.dy = v; })} />
               </div>
             )}
-            <label className="lbl"><span>Heading</span>
-              <Seg value={w.headingMode} onChange={(v) => set((x) => { x.headingMode = v; })}
-                options={[{ value: "fixed", label: "Fixed" }, { value: "free", label: "Free" }]} />
-            </label>
-            {w.headingMode === "fixed" && (
-              <div className="field-row">
-                <AngleField label="Heading" value={w.heading} onChange={(v) => set((x) => { x.heading = v; })} />
-                <AngleField label="Tolerance" value={w.headingTolerance} onChange={(v) => set((x) => { x.headingTolerance = Math.max(0, v); })} />
-              </div>
-            )}
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
               <Check label="Stop here" checked={w.stop || index === 0} disabled={index === 0}
                 onChange={(v) => set((x) => { x.stop = v; })} />
@@ -77,11 +97,42 @@ export function WaypointEditor({ traj, index, upd }: { traj: Trajectory; index: 
             </div>
           </>
         )}
-        {index < n - 1 && (
-          <NumberField label="Samples to next waypoint" hint={<span className="mono">blank = auto</span>}
-            value={w.intervals ?? NaN} step={1} digits={0} min={2}
-            onChange={(v) => set((x) => { x.intervals = Number.isFinite(v) ? Math.round(v) : null; })} />
-        )}
+        {kind === "guide" && <div className="note">A guide point only shapes the route (e.g. which side of the hub to pass). The path doesn't have to hit it exactly.</div>}
+      </div>
+    </Card>
+  );
+}
+
+export function PoseVariableEditor({ id }: { id: string }) {
+  const project = useStore((s) => s.project)!;
+  const trajectories = useStore((s) => s.trajectories);
+  const v = project.poses?.find((p) => p.id === id);
+  const a = useStore.getState();
+  if (!v) return null;
+  const set = (fn: (p: { name: string; x: number; y: number; heading: number }) => void) =>
+    a.updateProject((pr) => { const q = pr.poses.find((x) => x.id === id); if (q) fn(q); });
+  const users = Object.values(trajectories).filter((t) => t.waypoints.some((w) => w.poseRef === id)).map((t) => t.name);
+  return (
+    <Card title="Pose variable" actions={
+      <button className="btn ghost sm icon danger" title="Delete variable" onClick={() => {
+        a.updateProject((pr) => { pr.poses = pr.poses.filter((x) => x.id !== id); });
+        // waypoints that used it keep their last position
+        for (const t of Object.values(trajectories)) {
+          if (t.waypoints.some((w) => w.poseRef === id)) {
+            a.updateTraj(t.name, (d) => { for (const w of d.waypoints) if (w.poseRef === id) { w.x = v.x; w.y = v.y; w.heading = v.heading; w.poseRef = null; } });
+          }
+        }
+        a.select(null);
+      }}><Trash2 size={14} /></button>
+    }>
+      <div className="form">
+        <TextField label="Name" value={v.name} onChange={(val) => set((p) => { p.name = val || p.name; })} />
+        <div className="field-row">
+          <NumberField label="X" unit="m" value={v.x} onChange={(val) => set((p) => { p.x = val; })} />
+          <NumberField label="Y" unit="m" value={v.y} onChange={(val) => set((p) => { p.y = val; })} />
+        </div>
+        <AngleField label="Heading" value={v.heading} onChange={(val) => set((p) => { p.heading = val; })} />
+        <div className="note">{users.length ? <>Used by: {users.join(", ")}</> : "Not used yet. Link it from a waypoint's panel."}</div>
       </div>
     </Card>
   );
@@ -101,6 +152,7 @@ export function constraintValue(c: Constraint) {
   if (d.type === "maxAcceleration") return `${d.value} m/s²`;
   if (d.type === "maxAngularVelocity") return `${d.value} rad/s`;
   if (d.type === "pointAt") return `(${d.x.toFixed(2)}, ${d.y.toFixed(2)})`;
+  if (d.type === "straightLine") return `±${(d.tolerance * 100).toFixed(0)} cm`;
   return `${d.points.length} pts`;
 }
 
@@ -109,7 +161,8 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
   const n = traj.waypoints.length;
   const wpOpts = traj.waypoints.map((_, i) => ({ value: i, label: `Waypoint ${i + 1}` }));
   const d = c.data;
-  const regionOnly = d.type === "keepOut";
+  const regionOnly = d.type === "keepOut" || d.type === "keepIn";
+  const rangeOnly = d.type === "straightLine";
   return (
     <Card title={CONSTRAINT_LABELS[d.type]}
       actions={
@@ -137,13 +190,17 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
             <Check label="Face away (shoot backward)" checked={d.flip} onChange={(v) => set((x) => { if (x.data.type === "pointAt") x.data.flip = v; })} />
           </>
         )}
+        {d.type === "straightLine" && (
+          <NumberField label="Allowed distance from the line" unit="m" value={d.tolerance} min={0.001} step={0.005}
+            onChange={(v) => set((x) => { if (x.data.type === "straightLine") x.data.tolerance = v; })} />
+        )}
         {d.type === "keepOut" && (
           <NumberField label="Margin" unit="m" value={d.margin} min={0} onChange={(v) => set((x) => { if (x.data.type === "keepOut") x.data.margin = v; })} />
         )}
         {(d.type === "keepOut" || d.type === "keepIn") && <div className="muted" style={{ fontSize: 12 }}>Drag the region or its corners on the field.</div>}
         {!regionOnly && (
           <>
-            <label className="lbl"><span>Applies</span>
+            {!rangeOnly && <label className="lbl"><span>Applies</span>
               <Seg value={c.scope.kind} onChange={(v) => set((x) => {
                 x.scope.kind = v;
                 if (v === "zone" && x.scope.region.length < 3) {
@@ -152,7 +209,7 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
                 }
               })}
                 options={[{ value: "waypoint", label: "At waypoint" }, { value: "range", label: "Between" }, { value: "zone", label: "In zone" }]} />
-            </label>
+            </label>}
             {c.scope.kind !== "zone" && n > 0 && (
               <div className={c.scope.kind === "range" ? "field-row" : ""}>
                 <SelectField label={c.scope.kind === "range" ? "From" : "Waypoint"} value={Math.min(c.scope.from, n - 1)} options={wpOpts}

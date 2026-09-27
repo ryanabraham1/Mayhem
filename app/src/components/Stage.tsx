@@ -1,16 +1,16 @@
 import { AlertTriangle, Info, OctagonAlert, X } from "lucide-react";
 import { useStore } from "../store";
 import { FieldCanvas } from "./FieldCanvas";
-import { ConstraintEditor, MarkerEditor, WaypointEditor } from "./Inspector";
+import { ConstraintEditor, MarkerEditor, PoseVariableEditor, WaypointEditor } from "./Inspector";
 import { FieldSettingsPanel, ObstacleEditor } from "./FieldPanels";
 import type { Trajectory } from "../types";
+import { CONSTRAINT_LABELS } from "../model";
 
 const HINTS: Record<string, string> = {
-  waypoint: "Click to add a waypoint · drag the round knob to rotate · hold ⇧ to snap",
-  guide: "Click to add a guide point (shapes the route only)",
-  pointAt: "Click the target the robot should face",
-  zone: "Click corners · click the first corner, double-click or press Enter to finish · Esc cancels",
-  keepOut: "Click corners · click the first corner, double-click or press Enter to finish · Esc cancels",
+  pose: "Click to add a pose waypoint at the end of the path · drag the knob to rotate · hold ⇧ to snap",
+  translation: "Click to add a translation waypoint at the end of the path",
+  guide: "Click to add a guide point at the end of the path",
+  region: "Click corners · click the first corner, double-click or press Enter to finish · Esc cancels",
   polygon: "Click corners · click the first corner, double-click or press Enter to finish · Esc cancels",
   circle: "Drag from the center to set the radius",
 };
@@ -22,7 +22,14 @@ export function Stage() {
   const traj = useStore((s) => (s.selectedTraj ? s.trajectories[s.selectedTraj] : undefined));
   const field = useStore((s) => s.project!.field);
   const solve = useStore((s) => (s.selectedTraj ? s.solves[s.selectedTraj] : undefined));
+  const pending = useStore((s) => s.pending);
   const a = useStore.getState();
+  let hint = HINTS[tool];
+  if (tool === "constraint" && pending) {
+    hint = pending.from === null
+      ? `${CONSTRAINT_LABELS[pending.type]}: click the first waypoint`
+      : `${CONSTRAINT_LABELS[pending.type]}: click the last waypoint (Enter = just this one) · Esc cancels`;
+  }
 
   let panel: React.ReactNode = null;
   if (view === "field") {
@@ -30,7 +37,8 @@ export function Stage() {
     panel = o ? <ObstacleEditor o={o} field={field} /> : <FieldSettingsPanel />;
   } else if (traj) {
     const upd = (fn: (t: Trajectory) => void, history = true) => a.updateTraj(traj.name, fn, { history });
-    if (selection?.kind === "waypoint" && traj.waypoints[selection.index]) panel = <WaypointEditor traj={traj} index={selection.index} upd={upd} />;
+    if (selection?.kind === "pose") panel = <PoseVariableEditor id={selection.id} />;
+    else if (selection?.kind === "waypoint" && traj.waypoints[selection.index]) panel = <WaypointEditor traj={traj} index={selection.index} upd={upd} />;
     else if (selection?.kind === "constraint") {
       const c = traj.constraints.find((x) => x.id === selection.id);
       if (c) panel = <ConstraintEditor traj={traj} c={c} upd={upd} />;
@@ -53,7 +61,7 @@ export function Stage() {
       ) : (
         <FieldCanvas mode={view === "field" ? "field" : "path"} />
       )}
-      {HINTS[tool] && <div className="hint-chip"><span className="chip accent">{HINTS[tool]}</span></div>}
+      {hint && <div className="hint-chip"><span className="chip accent">{hint}</span></div>}
       {panel && <div className="float props">{panel}</div>}
       {issues.length > 0 && (
         <div className="float issues">

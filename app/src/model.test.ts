@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { flipHeading, flipPoint, footprint, insertionIndex, newWaypoint, pointInPolygon, sampleAt, wrap } from "./model";
-import type { Field, RobotConfig, TrajectoryOutput } from "./types";
+import { flipHeading, flipPoint, folderList, footprint, pointInPolygon, sampleAt, wrap } from "./model";
+import type { Field, Project, RobotConfig, Trajectory, TrajectoryOutput } from "./types";
 
 const field = { length: 16.541, width: 8.0692, symmetry: "rotational" } as Field;
 
@@ -27,12 +27,6 @@ describe("geometry helpers", () => {
     expect(pointInPolygon([1, 1], fp)).toBe(false);
   });
 
-  it("inserts new waypoints on the nearest leg, otherwise appends", () => {
-    const wps = [newWaypoint(0, 0), newWaypoint(4, 0), newWaypoint(4, 4)];
-    expect(insertionIndex(wps, [2, 0.2])).toBe(1);
-    expect(insertionIndex(wps, [4.2, 2])).toBe(2);
-    expect(insertionIndex(wps, [9, 9])).toBe(3);
-  });
 });
 
 describe("sampleAt", () => {
@@ -53,5 +47,31 @@ describe("sampleAt", () => {
   it("clamps outside the time range", () => {
     expect(sampleAt(out, -1).x).toBe(0);
     expect(sampleAt(out, 5).x).toBe(1);
+  });
+});
+
+describe("folderList", () => {
+  it("keeps the project's order and adds folders only named by path files", () => {
+    const project = { folders: ["Left", "Empty"] } as Project;
+    const trajs = {
+      a: { folder: "Left" }, b: { folder: "Right" }, c: { folder: null }, d: {},
+    } as unknown as Record<string, Trajectory>;
+    expect(folderList(project, trajs)).toEqual(["Left", "Empty", "Right"]);
+    expect(folderList(null, {})).toEqual([]);
+  });
+});
+
+describe("reorderWaypoint", () => {
+  it("moves a waypoint and keeps constraint/marker references attached", async () => {
+    const { reorderWaypoint, newTrajectory, newConstraint, newMarker, newWaypoint } = await import("./model");
+    const t = newTrajectory("x");
+    t.waypoints = [newWaypoint(0, 0), newWaypoint(1, 0), newWaypoint(2, 0), newWaypoint(3, 0)];
+    const ids = t.waypoints.map((w) => w.id);
+    t.constraints = [newConstraint("maxVelocity", 4, undefined, 1, 2)];
+    t.markers = [{ ...newMarker(3), endWaypoint: null }];
+    reorderWaypoint(t, 3, 0);
+    expect(t.waypoints.map((w) => w.id)).toEqual([ids[3], ids[0], ids[1], ids[2]]);
+    expect([t.constraints[0].scope.from, t.constraints[0].scope.to]).toEqual([2, 3]);
+    expect(t.markers[0].waypoint).toBe(0);
   });
 });

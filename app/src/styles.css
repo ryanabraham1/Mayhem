@@ -109,6 +109,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .num { width: 20px; height: 20px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font-family: var(--mono); font-size: 11px; font-weight: 500; display: grid; place-items: center; flex: none; }
 .num.start { background: var(--green-soft); color: var(--green); }
 .sidebar-empty { padding: 4px 14px 12px; color: var(--faint); font-size: 13px; }
+.sidebar-empty.indent { padding: 2px 14px 8px 44px; font-size: 12.5px; }
+.item.folder { font-weight: 500; gap: 5px; }
+.item.folder .icon { width: 16px; }
+.item.folder.drop-into { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-soft-2); }
+.item.indent { padding-left: 32px; }
+.item.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.item[draggable="true"] { cursor: pointer; }
+.drop-zone { margin: 6px 10px 4px; padding: 8px; border: 1px dashed var(--border-strong); border-radius: 8px; text-align: center; font-size: 12px; color: var(--muted); }
+.drop-zone.on { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); }
+.menu.folder-menu { left: auto; right: 0; min-width: 180px; max-width: 240px; }
+.menu.folder-menu .menu-item { align-items: center; }
+.menu.folder-menu .menu-item svg { margin-top: 0; }
+.menu.folder-menu .menu-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-foot { border-top: 1px solid var(--border); padding: 8px 14px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 
 /* ------------------------------------------------------------------ buttons */
@@ -235,3 +248,16 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--border-
   .issues { width: calc(100% - 24px); }
   .project-name { display: none; }
 }
+
+/* ------------------------------------------------------------------ dropdown menu */
+.menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; min-width: 290px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--float-shadow); padding: 5px; display: flex; flex-direction: column; }
+.menu-item { display: flex; align-items: flex-start; gap: 10px; border: 0; background: none; padding: 8px 10px; border-radius: 7px; cursor: pointer; text-align: left; }
+.menu-item:hover { background: var(--hover); }
+.menu-item svg { color: var(--accent); flex: none; margin-top: 2px; }
+.menu-title { display: block; font-size: 13.5px; font-weight: 500; }
+.menu-hint { display: block; font-size: 12px; color: var(--muted); }
+.toolstrip { overflow: visible; }
+.item .grip { color: var(--faint); cursor: grab; display: grid; place-items: center; width: 12px; margin-left: -4px; flex: none; opacity: 0; }
+.item:hover .grip, .item.on .grip { opacity: 1; }
+.item.dragging { opacity: 0.45; }
+.item.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }

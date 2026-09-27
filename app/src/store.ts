@@ -2,21 +2,28 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { enableMapSet, produce } from "immer";
 import { backend, type BackendStatus } from "./backend";
-import { newTrajectory } from "./model";
-import type { DrivetrainInfo, Field, Issue, Project, Trajectory, Vec2 } from "./types";
+import { folderList, newTrajectory } from "./model";
+import type { ConstraintType, DrivetrainInfo, Field, Issue, Project, Trajectory, Vec2 } from "./types";
 
 enableMapSet();
 
 export type View = "paths" | "field";
 export type SettingsTab = "robot" | "path" | "project" | "appearance" | "shortcuts";
-export type Tool = "select" | "waypoint" | "guide" | "polygon" | "circle" | "zone" | "pointAt" | "keepOut" | "measure";
+export type Tool = "select" | "pose" | "translation" | "guide" | "constraint" | "region" | "polygon" | "circle";
 export type Selection =
   | { kind: "waypoint"; index: number }
   | { kind: "constraint"; id: string }
   | { kind: "marker"; id: string }
   | { kind: "obstacle"; id: string }
   | { kind: "issue"; index: number }
+  | { kind: "pose"; id: string }
   | null;
+
+/** Constraint being placed: pick the first waypoint, then the last (or draw a region). */
+export interface PendingConstraint {
+  type: ConstraintType;
+  from: number | null;
+}
 
 export interface SolveState {
   status: "idle" | "solving" | "ok" | "failed";
@@ -56,10 +63,10 @@ interface State {
   selection: Selection;
   tool: Tool;
   drawing: Vec2[];
+  pending: PendingConstraint | null;
   solves: Record<string, SolveState>;
   playback: { t: number; playing: boolean; speed: number };
   showRed: boolean;
-  autoSolve: boolean;
   showGraphs: boolean;
   settings: SettingsTab | null;
   drivetrainInfo: DrivetrainInfo | null;
@@ -83,26 +90,31 @@ interface Actions {
   checkpoint(): void;
   updateProject(fn: (p: Project) => void, opts?: { history?: boolean }): void;
   updateTraj(name: string, fn: (t: Trajectory) => void, opts?: { history?: boolean }): void;
-  addTrajectory(name?: string): string;
+  addTrajectory(name?: string, folder?: string | null): string;
   duplicateTrajectory(name: string): void;
   deleteTrajectory(name: string): void;
   renameTrajectory(oldName: string, newName: string): Promise<void>;
+  /** Put a path in a folder (null = top level), optionally placing it before another path. */
+  moveTrajectory(name: string, folder: string | null, before?: string | null): void;
+  addFolder(name?: string): string;
+  renameFolder(oldName: string, newName: string): void;
+  /** Removes the folder; its paths move to the top level. */
+  deleteFolder(name: string): void;
   undo(): void;
   redo(): void;
   solve(name: string): Promise<void>;
-  solveAll(): Promise<void>;
+  solveAll(names?: string[]): Promise<void>;
   cancelSolve(name: string): void;
   deploy(): Promise<void>;
   setPlayback(p: Partial<State["playback"]>): void;
   setShowRed(v: boolean): void;
-  setAutoSolve(v: boolean): void;
+  startConstraint(type: ConstraintType): void;
   setShowGraphs(v: boolean): void;
   openSettings(tab: SettingsTab | null): void;
   refreshDrivetrain(): void;
 }
 
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const autoSolveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export const RECENTS_KEY = "mayhem.recentProjects";
 
@@ -158,10 +170,6 @@ export const useStore = create<State & Actions>()(
       set((s) => {
         if (s.trajectories[name]?.output) s.stale[name] = true;
       });
-      if (get().autoSolve) {
-        clearTimeout(autoSolveTimers.get(name));
-        autoSolveTimers.set(name, setTimeout(() => void get().solve(name), 700));
-      }
     };
 
     const recomputeStale = async () => {
@@ -196,7 +204,7 @@ export const useStore = create<State & Actions>()(
       solves: {},
       playback: { t: 0, playing: false, speed: 1 },
       showRed: false,
-      autoSolve: false,
+      pending: null,
       showGraphs: false,
       settings: null,
       drivetrainInfo: null,
@@ -277,6 +285,7 @@ export const useStore = create<State & Actions>()(
           trajectories[t.name] = t;
           order.push(t.name);
         }
+        res.project.folders ??= [];
         set((s) => {
           s.dir = res.dir;
           s.project = res.project;
@@ -321,6 +330,7 @@ export const useStore = create<State & Actions>()(
         set((s) => {
           s.view = v;
           s.tool = "select";
+          s.pending = null;
           s.drawing = [];
           s.selection = null;
         });
@@ -330,6 +340,7 @@ export const useStore = create<State & Actions>()(
         set((s) => {
           s.tool = t;
           s.drawing = [];
+          s.pending = null;
         });
       },
 
@@ -386,7 +397,7 @@ export const useStore = create<State & Actions>()(
         markStale(name);
       },
 
-      addTrajectory(name) {
+      addTrajectory(name, folder) {
         const existing = new Set(get().order);
         let n = name ?? "New Path";
         let i = 2;
@@ -394,6 +405,7 @@ export const useStore = create<State & Actions>()(
         get().checkpoint();
         set((s) => {
           s.trajectories[n] = newTrajectory(n);
+          if (folder) s.trajectories[n].folder = folder;
           s.order.push(n);
           s.selectedTraj = n;
           s.selection = null;
@@ -447,6 +459,70 @@ export const useStore = create<State & Actions>()(
           }
         });
         saveTraj(newName);
+      },
+
+      moveTrajectory(name, folder, before) {
+        const t = get().trajectories[name];
+        if (!t || name === before) return;
+        get().checkpoint();
+        set((s) => {
+          s.trajectories[name].folder = folder;
+          if (folder && s.project && !s.project.folders.includes(folder)) s.project.folders.push(folder);
+          if (before !== undefined) {
+            const rest = s.order.filter((n) => n !== name);
+            const at = before ? rest.indexOf(before) : -1;
+            rest.splice(at < 0 ? rest.length : at, 0, name);
+            s.order = rest;
+          }
+        });
+        saveTraj(name);
+        saveProject();
+      },
+
+      addFolder(name) {
+        const existing = new Set(folderList(get().project, get().trajectories));
+        let n = name?.trim() || "New Folder";
+        const base = n;
+        let i = 2;
+        while (existing.has(n)) n = `${base} ${i++}`;
+        get().checkpoint();
+        set((s) => {
+          s.project?.folders.push(n);
+        });
+        saveProject();
+        return n;
+      },
+
+      renameFolder(oldName, newName) {
+        newName = newName.trim();
+        if (!newName || newName === oldName) return;
+        if (folderList(get().project, get().trajectories).includes(newName)) {
+          get().toast("error", `A folder named "${newName}" already exists`);
+          return;
+        }
+        const moved = get().order.filter((n) => get().trajectories[n].folder === oldName);
+        get().checkpoint();
+        set((s) => {
+          if (s.project) {
+            const i = s.project.folders.indexOf(oldName);
+            if (i >= 0) s.project.folders[i] = newName;
+            else s.project.folders.push(newName);
+          }
+          moved.forEach((n) => { s.trajectories[n].folder = newName; });
+        });
+        moved.forEach(saveTraj);
+        saveProject();
+      },
+
+      deleteFolder(name) {
+        const moved = get().order.filter((n) => get().trajectories[n].folder === name);
+        get().checkpoint();
+        set((s) => {
+          if (s.project) s.project.folders = s.project.folders.filter((f) => f !== name);
+          moved.forEach((n) => { s.trajectories[n].folder = null; });
+        });
+        moved.forEach(saveTraj);
+        saveProject();
       },
 
       undo() {
@@ -513,10 +589,10 @@ export const useStore = create<State & Actions>()(
         }
       },
 
-      async solveAll() {
+      async solveAll(names) {
         // Each solve already runs its route candidates in parallel processes, so only run two
         // paths at a time to avoid oversubscribing the CPU.
-        const queue = get().order.filter((n) => get().trajectories[n]?.waypoints.length >= 2);
+        const queue = (names ?? get().order).filter((n) => get().trajectories[n]?.waypoints.length >= 2);
         const waitDone = (n: string) => new Promise<void>((resolve) => {
           const check = () => (get().solves[n]?.status === "solving" ? setTimeout(check, 250) : resolve());
           check();
@@ -570,9 +646,13 @@ export const useStore = create<State & Actions>()(
         });
       },
 
-      setAutoSolve(v) {
+      startConstraint(type) {
+        const region = type === "keepIn" || type === "keepOut";
         set((s) => {
-          s.autoSolve = v;
+          s.tool = region ? "region" : "constraint";
+          s.pending = { type, from: null };
+          s.drawing = [];
+          s.selection = null;
         });
       },
 

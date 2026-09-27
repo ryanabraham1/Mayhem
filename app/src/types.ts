@@ -31,7 +31,10 @@ export interface Waypoint {
   id: string; x: number; y: number; heading: number;
   translationMode: "fixed" | "guide"; headingMode: "fixed" | "free"; headingTolerance: number;
   tolerance: Tolerance; stop: boolean; split: boolean; intervals: number | null;
+  /** id of a project pose variable; when set, x/y/heading come from it */
+  poseRef?: string | null;
 }
+export interface PoseVariable { id: string; name: string; x: number; y: number; heading: number }
 export interface Scope { kind: "waypoint" | "range" | "zone"; from: number; to: number; region: Vec2[] }
 export type ConstraintData =
   | { type: "maxVelocity"; value: number }
@@ -39,7 +42,8 @@ export type ConstraintData =
   | { type: "maxAngularVelocity"; value: number }
   | { type: "pointAt"; x: number; y: number; tolerance: number; flip: boolean }
   | { type: "keepIn"; points: Vec2[] }
-  | { type: "keepOut"; points: Vec2[]; margin: number };
+  | { type: "keepOut"; points: Vec2[]; margin: number }
+  | { type: "straightLine"; tolerance: number };
 export type ConstraintType = ConstraintData["type"];
 export interface Constraint { id: string; enabled: boolean; scope: Scope; data: ConstraintData }
 
@@ -70,9 +74,14 @@ export interface TrajectoryOutput {
 export interface Trajectory {
   formatVersion: number; name: string; waypoints: Waypoint[]; constraints: Constraint[]; markers: Marker[];
   settings: SolverSettings; output: TrajectoryOutput | null;
+  /** sidebar folder; organisational only */
+  folder?: string | null;
 }
 export interface Project {
   formatVersion: number; name: string; robot: RobotConfig; field: Field; commands: string[]; deployDir: string;
+  poses: PoseVariable[];
+  /** path folders shown in the sidebar, in order */
+  folders: string[];
 }
 export interface Issue {
   severity: "error" | "warning" | "info"; message: string; waypoint?: number | null; t?: number | null;

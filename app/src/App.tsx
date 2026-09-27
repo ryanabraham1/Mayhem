@@ -36,7 +36,7 @@ export default function App() {
       if (mod || e.altKey || !s.project || s.settings) return;
       const keys: Record<string, Parameters<typeof s.setTool>[0]> = s.view === "field"
         ? { v: "select", p: "polygon", c: "circle" }
-        : { v: "select", w: "waypoint", g: "guide", p: "pointAt", z: "zone", k: "keepOut" };
+        : { v: "select", w: "pose", t: "translation", g: "guide" };
       const t = keys[e.key.toLowerCase()];
       if (t) s.setTool(t);
     };

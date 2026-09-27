@@ -1,5 +1,5 @@
 import type {
-  Constraint, ConstraintData, ConstraintType, Field, Marker, Obstacle, Project, RobotConfig, Sample,
+  Constraint, ConstraintData, ConstraintType, Field, Marker, Obstacle, PoseVariable, Project, RobotConfig, Sample,
   Trajectory, TrajectoryOutput, Vec2, Waypoint,
 } from "./types";
 
@@ -17,7 +17,7 @@ export function newWaypoint(x: number, y: number, heading = 0, extra: Partial<Wa
   return {
     id: uid("w"), x, y, heading, translationMode: "fixed", headingMode: "fixed", headingTolerance: 0,
     tolerance: { kind: "none", radius: 0.1, dx: 0.1, dy: 0.1 }, stop: false, split: false, intervals: null,
-    ...extra,
+    poseRef: null, ...extra,
   };
 }
 
@@ -29,14 +29,44 @@ export function newTrajectory(name: string): Trajectory {
   };
 }
 
+/** Folders to show in the sidebar: the project's list, plus any a path file names that it lacks. */
+export function folderList(project: Project | null, trajectories: Record<string, Trajectory>): string[] {
+  const out = [...(project?.folders ?? [])];
+  for (const t of Object.values(trajectories)) if (t.folder && !out.includes(t.folder)) out.push(t.folder);
+  return out;
+}
+
 export const CONSTRAINT_LABELS: Record<ConstraintType, string> = {
   maxVelocity: "Max velocity",
   maxAcceleration: "Max acceleration",
   maxAngularVelocity: "Max angular velocity",
+  straightLine: "Straight line",
   pointAt: "Point at",
   keepIn: "Keep in region",
   keepOut: "Keep out region",
 };
+
+/** Constraint types placed by drawing a region instead of picking waypoints. */
+export const REGION_CONSTRAINTS: ConstraintType[] = ["keepIn", "keepOut"];
+
+export type WaypointKind = "pose" | "translation" | "guide";
+
+export function waypointKind(w: Waypoint): WaypointKind {
+  if (w.translationMode === "guide") return "guide";
+  return w.headingMode === "free" ? "translation" : "pose";
+}
+
+export function applyWaypointKind(w: Waypoint, kind: WaypointKind) {
+  w.translationMode = kind === "guide" ? "guide" : "fixed";
+  w.headingMode = kind === "pose" ? "fixed" : "free";
+}
+
+/** A waypoint with its linked pose variable applied (what the solver sees). */
+export function resolveWaypoint(poses: PoseVariable[] | undefined, w: Waypoint): Waypoint {
+  if (!w.poseRef) return w;
+  const v = poses?.find((p) => p.id === w.poseRef);
+  return v ? { ...w, x: v.x, y: v.y, heading: v.heading } : w;
+}
 
 export function defaultConstraintData(type: ConstraintType, at?: Vec2): ConstraintData {
   const [x, y] = at ?? [8.27, 4.03];
@@ -48,15 +78,22 @@ export function defaultConstraintData(type: ConstraintType, at?: Vec2): Constrai
     case "pointAt": return { type, x, y, tolerance: 0.05, flip: false };
     case "keepIn": return { type, points: sq.map(([a, b]) => [a + (a - x) * 2, b + (b - y) * 2] as Vec2) };
     case "keepOut": return { type, points: sq, margin: 0.03 };
+    case "straightLine": return { type, tolerance: 0.02 };
   }
 }
 
-export function newConstraint(type: ConstraintType, waypointCount: number, at?: Vec2): Constraint {
+export function newConstraint(type: ConstraintType, waypointCount: number, at?: Vec2, from = 0, to?: number): Constraint {
+  const last = Math.max(0, waypointCount - 1);
+  const b = to ?? last;
   return {
     id: uid("c"), enabled: true,
-    scope: { kind: "range", from: 0, to: Math.max(0, waypointCount - 1), region: [] },
+    scope: { kind: from === b && type !== "straightLine" ? "waypoint" : "range", from, to: b, region: [] },
     data: defaultConstraintData(type, at),
   };
+}
+
+export function newPoseVariable(name: string, x: number, y: number, heading = 0): PoseVariable {
+  return { id: uid("p"), name, x, y, heading };
 }
 
 export function newMarker(waypoint: number): Marker {
@@ -109,18 +146,6 @@ export function distToSegment(p: Vec2, a: Vec2, b: Vec2): number {
   const l2 = dx * dx + dy * dy;
   const u = l2 > 1e-12 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)) : 0;
   return Math.hypot(a[0] + u * dx - p[0], a[1] + u * dy - p[1]);
-}
-
-/** Index to insert a new waypoint so it lands on the nearest leg of the path. */
-export function insertionIndex(wps: Waypoint[], p: Vec2): number {
-  if (wps.length < 2) return wps.length;
-  let best = wps.length, bestD = Infinity;
-  for (let i = 0; i + 1 < wps.length; i++) {
-    const d = distToSegment(p, [wps[i].x, wps[i].y], [wps[i + 1].x, wps[i + 1].y]);
-    if (d < bestD) { bestD = d; best = i + 1; }
-  }
-  const dEnd = Math.hypot(p[0] - wps[wps.length - 1].x, p[1] - wps[wps.length - 1].y);
-  return bestD < 0.6 && bestD < dEnd ? best : wps.length;
 }
 
 // ------------------------------------------------------------------ sampling
@@ -201,3 +226,29 @@ export function defaultProjectName(dir: string) {
 }
 
 export type { Project };
+
+/**
+ * Move waypoint `from` to position `to` (in place on a draft trajectory). Constraint scopes and
+ * markers keep pointing at the same waypoints they referenced before the move.
+ */
+export function reorderWaypoint(t: Trajectory, from: number, to: number) {
+  const n = t.waypoints.length;
+  if (from === to || from < 0 || to < 0 || from >= n || to >= n) return;
+  const order = t.waypoints.map((_, i) => i);
+  const [moved] = order.splice(from, 1);
+  order.splice(to, 0, moved);
+  const newIndex = new Array<number>(n);
+  order.forEach((oldIdx, newIdx) => { newIndex[oldIdx] = newIdx; });
+  t.waypoints = order.map((i) => t.waypoints[i]);
+  for (const c of t.constraints) {
+    if (c.scope.kind === "zone") continue;
+    const a = newIndex[c.scope.from] ?? c.scope.from;
+    const b = newIndex[c.scope.to] ?? c.scope.to;
+    c.scope.from = Math.min(a, b);
+    c.scope.to = Math.max(a, b);
+  }
+  for (const m of t.markers) {
+    m.waypoint = newIndex[m.waypoint] ?? m.waypoint;
+    if (m.endWaypoint !== null) m.endWaypoint = newIndex[m.endWaypoint] ?? m.endWaypoint;
+  }
+}

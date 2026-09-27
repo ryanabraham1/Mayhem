@@ -6,6 +6,13 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "app", "dev"],
       "port": 5173
+    },
+    {
+      "name": "app-alt",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "app", "exec", "vite", "--port", "5183"],
+      "port": 5183,
+      "autoPort": false
     }
   ]
 }

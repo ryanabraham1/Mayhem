@@ -203,9 +203,10 @@ function AppearanceSettings() {
 function Shortcuts() {
   const rows = [
     ["Generate selected path", "⌘ ↵"], ["Undo / redo", "⌘Z / ⇧⌘Z"], ["Play / pause", "Space"],
-    ["Select · waypoint · guide", "V · W · G"], ["Point at · zone · keep out", "P · Z · K"],
-    ["Field mode: polygon · circle", "P · C"], ["Delete selection", "⌫"], ["Nudge waypoint", "Arrows (⇧ 10 cm)"],
-    ["Snap while dragging", "hold ⇧"], ["Finish / cancel drawing", "↵ / Esc"], ["Pan · zoom", "drag empty space · scroll"],
+    ["Select · pose · translation · guide", "V · W · T · G"], ["Constraint (from the toolbar menu)", "click first, then last waypoint"],
+    ["Single-waypoint constraint", "click it, then ↵"], ["Field mode: polygon · circle", "P · C"], ["Delete selection", "⌫"],
+    ["Nudge waypoint", "Arrows (⇧ 10 cm)"], ["Snap while dragging", "hold ⇧"], ["Finish / cancel drawing", "↵ / Esc"],
+    ["Pan · zoom", "drag empty space · scroll"],
   ];
   return <div>{rows.map(([k, v]) => <div key={k} className="kv"><span>{k}</span><kbd>{v}</kbd></div>)}</div>;
 }
