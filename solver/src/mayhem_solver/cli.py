@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     so.add_argument("--sequential", action="store_true", help="Do not solve candidates in parallel")
     so.add_argument("--check", action="store_true", help="Exit non-zero if any trajectory fails")
 
+    sub.add_parser("solve-job")  # internal: one solve over stdin/stdout (used on Windows)
+
     sc = sub.add_parser("schema", help="Export JSON Schema")
     sc.add_argument("out_dir")
 
@@ -38,6 +40,11 @@ def main(argv: list[str] | None = None) -> int:
             serve_ws(args.ws)
         else:
             serve_stdio()
+        return 0
+    if args.cmd == "solve-job":
+        from .rpc import solve_job_stdio
+
+        solve_job_stdio()
         return 0
     if args.cmd == "version":
         from . import __version__

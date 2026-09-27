@@ -34,27 +34,112 @@ TRAJ_EXT = ".mtraj"
 # ---------------------------------------------------------------------------
 
 
-def _job_entry(project_json: dict, traj_json: dict, q) -> None:
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
+def _run_solve(project_json: dict, traj_json: dict, emit: Callable[[str, dict], None], parallel: bool = True) -> None:
+    """Run one solve, reporting ("progress", msg) events and a final ("done", result)."""
     from .pipeline import solve
 
     project = Project.model_validate(project_json)
     traj = Trajectory.model_validate(traj_json)
     try:
-        res = solve(project, traj, progress=lambda m: q.put(("progress", m)))
-        q.put(("done", {
+        res = solve(project, traj, progress=lambda m: emit("progress", m), parallel=parallel)
+        emit("done", {
             "success": res.success,
             "output": res.output.dump() if res.output else None,
             "issues": [i.dump() for i in res.issues],
             "preview": res.preview,
-        }))
+        })
     except Exception as e:
-        q.put(("done", {"success": False, "output": None,
-                        "issues": [{"severity": "error", "message": f"Solver crashed: {e!r}"}],
-                        "preview": None, "trace": traceback.format_exc()}))
+        emit("done", {"success": False, "output": None,
+                      "issues": [{"severity": "error", "message": f"Solver crashed: {e!r}"}],
+                      "preview": None, "trace": traceback.format_exc()})
+
+
+def _job_entry(project_json: dict, traj_json: dict, q) -> None:
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
+    _run_solve(project_json, traj_json, lambda kind, payload: q.put((kind, payload)))
+
+
+def solve_job_stdio() -> None:
+    """`mayhem-solver solve-job`: one solve driven over stdin/stdout.
+
+    Used instead of multiprocessing where spawning workers from a frozen binary is unreliable
+    (Windows). Reads one JSON line {"project", "trajectory"}; writes JSON lines
+    {"kind": "progress"|"done", "payload": ...}. Candidates are solved sequentially.
+    """
+    out = sys.stdout
+    sys.stdout = sys.stderr
+    lock = threading.Lock()
+    req = json.loads(sys.stdin.readline())
+
+    def emit(kind: str, payload: dict):
+        with lock:
+            out.write(json.dumps({"kind": kind, "payload": payload}, separators=(",", ":")) + "\n")
+            out.flush()
+
+    _run_solve(req["project"], req["trajectory"], emit, parallel=False)
+
+
+def _use_subprocess_jobs() -> bool:
+    mode = os.environ.get("MAYHEM_JOB_MODE", "")
+    return mode == "subprocess" or (mode != "multiprocessing" and sys.platform == "win32")
+
+
+class SubprocessJob:
+    """A solve in a child `mayhem-solver solve-job` process (no multiprocessing)."""
+
+    def __init__(self, job_id: str, name: str, project: dict, traj: dict, notify: Callable[[str, dict], None]):
+        import subprocess
+
+        self.id, self.name, self.notify = job_id, name, notify
+        self.cancelled = False
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "solve-job"]
+        else:
+            cmd = [sys.executable, "-m", "mayhem_solver", "solve-job"]
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                     text=True, encoding="utf-8", creationflags=flags)
+        self.proc.stdin.write(json.dumps({"project": project, "trajectory": traj}) + "\n")
+        self.proc.stdin.flush()
+        self.thread = threading.Thread(target=self._pump, daemon=True)
+        self.thread.start()
+
+    def _pump(self):
+        done = False
+        for line in self.proc.stdout:
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("kind") == "progress":
+                self.notify("solveProgress", {"jobId": self.id, "name": self.name, **msg["payload"]})
+            elif msg.get("kind") == "done":
+                self.notify("solveDone", {"jobId": self.id, "name": self.name, **msg["payload"]})
+                done = True
+                break
+        self.proc.wait()
+        if not done:
+            if self.cancelled:
+                self.notify("solveDone", {"jobId": self.id, "name": self.name, "success": False, "cancelled": True,
+                                          "output": None, "preview": None,
+                                          "issues": [{"severity": "info", "message": "Cancelled."}]})
+            else:
+                self.notify("solveDone", {"jobId": self.id, "name": self.name, "success": False,
+                                          "output": None, "preview": None,
+                                          "issues": [{"severity": "error", "message": "Solver process exited unexpectedly."}]})
+
+    def cancel(self):
+        self.cancelled = True
+        if self.proc.poll() is None:
+            self.proc.kill()
 
 
 class Job:
+    def __new__(cls, *args, **kwargs):
+        if _use_subprocess_jobs():
+            return SubprocessJob(*args, **kwargs)
+        return super().__new__(cls)
+
     def __init__(self, job_id: str, name: str, project: dict, traj: dict, notify: Callable[[str, dict], None]):
         ctx = mp.get_context("spawn")
         self.id, self.name = job_id, name

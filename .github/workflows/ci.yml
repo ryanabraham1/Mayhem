@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -52,7 +52,11 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
           cache-dependency-glob: solver/uv.lock
-      - run: scripts/build-sidecar.sh
+      - if: runner.os != 'Windows'
+        run: scripts/build-sidecar.sh
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/build-sidecar.ps1
 
   java:
     name: MayhemLib (Java 17)
