@@ -35,7 +35,7 @@ Run it again after you update MayhemLib. Every machine that builds robot code ne
 its `~/wpilib/2026/maven`, so run the command on each machine or use option B.
 
 To publish without touching a robot project, leave off `-ProbotProject`. To change the version,
-add `-PmayhemVersion=2026.2.0`.
+add `-PmayhemVersion=2026.3.0`.
 
 ### Option B: share a maven repository
 
@@ -282,7 +282,7 @@ symmetry stored in the file:
 - `MIRROR` maps (x, y, θ) to (L − x, y, π − θ). vx negates, ω negates, and the left and right module
   forces swap (FL↔FR, BL↔BR).
 
-Obstacles and the roadmap flip together with the path, so recovery works on both alliances. To
+Recovery data flips together with the path, so recovery works on both alliances. To
 override the alliance, for example with a dashboard toggle during practice, use
 `withAllianceFlip(...)`. `MayhemTrajectory.flipped()` is also public if you need it directly.
 
@@ -296,10 +296,17 @@ The follower responds to tracking error in three layers:
    feedforward velocity scales by `rate` and the forces by `rate²`. At large error the clock stops,
    so the reference waits for the robot.
 3. **Bridge.** A sustained large error or an accelerometer spike counts as a hit. After a hit, the
-   planner builds the fastest collision-free quintic "bridge" from the robot's current state back
-   onto the trajectory. It considers several join times, bounded by the next must-hit point. If
-   every direct bridge is blocked, it routes through the exported roadmap. When the robot rejoins,
-   normal following resumes. This is pure Java and typically takes well under 1 ms.
+   planner builds the fastest quintic "bridge" from the robot's current state back onto the
+   trajectory that respects the exported velocity and acceleration limits. It considers several
+   join times, bounded by the next must-hit point. There is **no obstacle avoidance** during
+   recovery: bridges go straight back to the path, which keeps planning cheap on the roboRIO
+   (well under 1 ms). When the robot rejoins, normal following resumes.
+
+**Intake spans.** Where a path has an "Intake extended" constraint, the solver keeps the extended
+intake clear of obstacles and walls, and the exported file marks that time.
+`AutoTrajectory.intakeExtended()` is a trigger that is true while the plan has the intake out, so
+bind your deploy command to it, e.g. `traj.intakeExtended().whileTrue(intake.deploy())`. During a
+bridge it stays true if the plan has the intake out anywhere between the hit and the join.
 
 **Rough-terrain zones.** Draw a rough-terrain polygon in the app over each bump. The solver marks
 the covered trajectory time without reducing planned speed. In the zone, the runner keeps the
@@ -324,7 +331,6 @@ zone as a trigger, and `/Mayhem/onRoughTerrain` reports it through telemetry.
 | `replanError` | 0.5 m | While bridging, replan if the robot drifts this far from the bridge. |
 | `minReplanInterval` | 0.25 s | Minimum time between plans. |
 | `limitScale` | 1.0 | Scales the conservative velocity and acceleration limits the app exports for bridges. |
-| `collisionCheckStep` | 0.04 s | Time step of the swept-bumper collision check. |
 | `visionBoostSeconds` | 1.0 s | How long `withVisionBoost` reports `true` after a hit or after leaving rough terrain. |
 | `terrainClockGain` | 10.0 1/s | How quickly the reference clock follows along-track lag on rough terrain. |
 | `terrainGraceSeconds` | 0.3 s | How long hit detection stays off after leaving rough terrain. |
@@ -513,14 +519,12 @@ the Pigeon acceleration trigger or planning time on a roboRIO 2. Use this sequen
 3. With the robot in a clear, controlled area, apply a gentle manual displacement during a
    slow auto. Log `/Mayhem/state`, `/Mayhem/positionError`, `/Mayhem/clockRate`,
    `/Mayhem/bridge`, `/Mayhem/bridgesPlanned`, and `/Mayhem/lastPlanMs`. The state should move
-   through `BRIDGING` and return to `FOLLOWING`; no bridge should cross a field obstacle or a
-   must-hit marker. Also log Pigeon horizontal acceleration alongside planned acceleration to
+   through `BRIDGING` and return to `FOLLOWING`; no bridge should skip a must-hit marker.
+   Bridges do not avoid obstacles, so test bumps away from field structures first. Also log Pigeon horizontal acceleration alongside planned acceleration to
    tune `accelSpikeG` and distinguish a real hit from normal traction-limited driving.
 4. On the roboRIO 2, repeat several bumps and inspect the **maximum** `/Mayhem/lastPlanMs`, not
    just its average. Target under 5 ms per bridge plan and confirm the 20 ms robot loop stays
-   healthy. If either budget is missed, reduce `joinCandidates`, increase
-   `collisionCheckStep` only after checking clearance, and rerun the same obstacle cases.
+   healthy. If either budget is missed, reduce `joinCandidates`.
 
-Keep the refiner disabled on the roboRIO 2 unless its separate runtime and collision checks are
-measured there. Record the robot configuration, path, DataLog, largest planning time, and final
+Keep the refiner disabled on the roboRIO 2 unless its runtime is measured there. Record the robot configuration, path, DataLog, largest planning time, and final
 pose error for each practice run; simulation results alone do not establish on-field safety.

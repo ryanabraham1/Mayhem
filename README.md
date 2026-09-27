@@ -19,7 +19,7 @@ see [installation instructions](lib/README.md).
 
 - **Desktop app** (macOS and Linux): place waypoints on the field. Mayhem computes the fastest path your drivetrain can actually drive: motor torque-speed curves, stator current limits, wheel traction, mass and inertia. It routes around polygon obstacles using the robot's real bumper rectangle.
 - **Robust solver**: CasADi + IPOPT, with parallel route candidates, a continuation ladder, and swept-collision verification. When a path truly can't be made, it tells you which waypoint or constraint is the problem and where.
-- **MayhemLib** (Java vendordep for WPILib 2026 and CTRE Phoenix 6): follows paths with per-module force feedforward. If the robot gets knocked off its path, it detects the hit and rejoins the trajectory, catching up without hitting obstacles.
+- **MayhemLib** (Java vendordep for WPILib 2026 and CTRE Phoenix 6): follows paths with per-module force feedforward. If the robot gets knocked off its path, it detects the hit and takes the fastest feasible bridge back onto the trajectory (no obstacle avoidance during recovery, to keep the roboRIO load tiny).
 
 | Part | Where | Docs |
 |---|---|---|

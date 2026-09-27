@@ -16,6 +16,7 @@ public final class MayhemTrajectory {
   private final List<TrajectorySample> samples;
   private final List<TrajectoryEvent> events;
   private final List<TerrainSpan> terrain;
+  private final List<IntakeSpan> intake;
   private final int[] splits;
   private final double[] waypointTimes;
   private final RecoveryData recovery;
@@ -32,6 +33,13 @@ public final class MayhemTrajectory {
       String name, List<TrajectorySample> samples, List<TrajectoryEvent> events,
       List<TerrainSpan> terrain, int[] splits, double[] waypointTimes, RecoveryData recovery,
       String inputHash, boolean flipped) {
+    this(name, samples, events, terrain, List.of(), splits, waypointTimes, recovery, inputHash, flipped);
+  }
+
+  public MayhemTrajectory(
+      String name, List<TrajectorySample> samples, List<TrajectoryEvent> events,
+      List<TerrainSpan> terrain, List<IntakeSpan> intake, int[] splits, double[] waypointTimes,
+      RecoveryData recovery, String inputHash, boolean flipped) {
     if (samples.isEmpty()) {
       throw new IllegalArgumentException("Trajectory '" + name + "' has no samples");
     }
@@ -39,6 +47,7 @@ public final class MayhemTrajectory {
     this.samples = Collections.unmodifiableList(new ArrayList<>(samples));
     this.events = Collections.unmodifiableList(new ArrayList<>(events));
     this.terrain = Collections.unmodifiableList(new ArrayList<>(terrain));
+    this.intake = Collections.unmodifiableList(new ArrayList<>(intake));
     this.splits = splits.clone();
     this.waypointTimes = waypointTimes.clone();
     this.recovery = recovery;
@@ -78,6 +87,31 @@ public final class MayhemTrajectory {
       }
     }
     return best;
+  }
+
+  /** Spans where the intake is planned to be extended, sorted by start time. */
+  public List<IntakeSpan> intakeSpans() {
+    return intake;
+  }
+
+  /** True if the plan has the intake extended at time t. */
+  public boolean intakeExtendedAt(double t) {
+    for (IntakeSpan s : intake) {
+      if (s.contains(t)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** True if the plan has the intake extended at any time in [a, b]. */
+  public boolean intakeExtendedBetween(double a, double b) {
+    for (IntakeSpan s : intake) {
+      if (s.overlaps(a, b)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public RecoveryData recovery() {
@@ -184,6 +218,14 @@ public final class MayhemTrajectory {
         ter.add(new TerrainSpan(a - t0, b - t0, s.expectedSpeed, s.feedbackScale));
       }
     }
+    List<IntakeSpan> itk = new ArrayList<>();
+    for (IntakeSpan s : intake) {
+      double a = Math.max(s.t, t0);
+      double b = Math.min(s.endT, t1);
+      if (b >= a) {
+        itk.add(new IntakeSpan(a - t0, b - t0));
+      }
+    }
     List<Double> wt = new ArrayList<>();
     for (double w : waypointTimes) {
       if (w >= t0 - 1e-9 && w <= t1 + 1e-9) {
@@ -203,7 +245,7 @@ public final class MayhemTrajectory {
       mh.add(t1 - t0);
       rec = rec.withMustHitTimes(mh.stream().mapToDouble(Double::doubleValue).distinct().sorted().toArray());
     }
-    return new MayhemTrajectory(name + "[" + i + "]", sub, ev, ter, new int[0],
+    return new MayhemTrajectory(name + "[" + i + "]", sub, ev, ter, itk, new int[0],
         wt.stream().mapToDouble(Double::doubleValue).toArray(), rec, inputHash, flipped);
   }
 
@@ -217,7 +259,7 @@ public final class MayhemTrajectory {
     for (TrajectorySample s : samples) {
       fs.add(s.flipped(sym, recovery.fieldLength, recovery.fieldWidth));
     }
-    return new MayhemTrajectory(name, fs, events, terrain, splits, waypointTimes, recovery.flipped(),
+    return new MayhemTrajectory(name, fs, events, terrain, intake, splits, waypointTimes, recovery.flipped(),
         inputHash, !flipped);
   }
 }

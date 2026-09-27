@@ -29,14 +29,14 @@ TOWER = rect(0.0, 3.2504, 1.1446, 4.2410)
 DEPOT = rect(0.0, 5.4316, 0.6852, 6.4984)
 
 blue = [
-    Obstacle(id="hub-blue", name="Blue Hub", points=HUB, margin=0.04),
-    Obstacle(id="bump-blue-l", name="Blue Bump (left)", points=BUMP_L, enabled=False, margin=0.0),
-    Obstacle(id="bump-blue-r", name="Blue Bump (right)", points=mirror_y(BUMP_L), enabled=False, margin=0.0),
+    Obstacle(id="hub-blue", name="Blue Hub", points=HUB),
+    Obstacle(id="bump-blue-l", name="Blue Bump (left)", points=BUMP_L, enabled=False),
+    Obstacle(id="bump-blue-r", name="Blue Bump (right)", points=mirror_y(BUMP_L), enabled=False),
     Obstacle(id="trenchwall-blue-l", name="Blue Trench Wall (left)", points=TRENCH_WALL_L),
     Obstacle(id="trenchwall-blue-r", name="Blue Trench Wall (right)", points=mirror_y(TRENCH_WALL_L)),
     Obstacle(id="trench-blue-l", name="Blue Trench (left, overhead)", points=TRENCH_L, enabled=False),
     Obstacle(id="trench-blue-r", name="Blue Trench (right, overhead)", points=mirror_y(TRENCH_L), enabled=False),
-    Obstacle(id="tower-blue", name="Blue Tower", points=TOWER, margin=0.04),
+    Obstacle(id="tower-blue", name="Blue Tower", points=TOWER),
 ]
 red = [Obstacle(id=o.id.replace("blue", "red"), name=o.name.replace("Blue", "Red"), points=rot(o.points),
                 enabled=o.enabled, margin=o.margin) for o in blue]

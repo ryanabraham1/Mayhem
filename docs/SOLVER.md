@@ -96,6 +96,34 @@ For enclosure, two fixed waypoints are in different connected regions of the fre
 the robot's inscribed circle, so no heading can get the robot through. Each check reports
 the exact waypoint index, avoiding a long infeasible solve.
 
+## Speed
+
+Measured on the benchmark, where the time goes and what keeps it short:
+
+- **Linear algebra.** About 85% of IPOPT's time is factorizing the KKT system. With MUMPS
+  the solver asks for the AMF ordering (`mumps_pivot_order = 2`). MUMPS's automatic choice
+  (PORD) makes each iteration about twice as slow on these problems.
+- **Warm re-solves.** Zone-membership and swept-collision re-solves start from a converged
+  solution. The OCP records which rows of `g` belong to which constraint block and sample
+  (`OCP._con`), and the re-solve starts from the previous multipliers matched block by
+  block and sample by sample (`OCPOptions.dual_init`), with IPOPT's
+  `warm_start_init_point`. New blocks and samples start at zero. A cold start from the same
+  point walks away from the optimum and takes about as many iterations as the first solve.
+  With the multipliers it takes about 40% fewer, and a re-solve of an unchanged problem
+  takes a handful.
+- **Stopping.** IPOPT also stops, as `Solved_To_Acceptable_Level`, once the path meets the
+  same 1e-4 constraint-violation bound as a full solve and the objective has changed by
+  less than 1e-4 (relative) for two iterations. That skips the final iterations spent
+  polishing multipliers of a path that no longer moves.
+- **Candidates.** Once one candidate has a verified path, the others get
+  `GRACE_FACTOR` (1.0) times the time it took, plus `GRACE_SECONDS` (1 s), to finish;
+  then they are cancelled. Stopping at the first success lost up to 33% of path time on
+  the benchmark (another route class can be much faster), while this grace period lost none.
+
+Adaptive barrier updates (the quality-function oracle) cost a large share of each
+iteration, but the alternatives were slower overall: monotone mu, and the probing and LOQO
+oracles, took more iterations, and the latter two failed on long paths.
+
 `MAYHEM_LINEAR_SOLVER` can select an installed IPOPT linear solver; the default probes
 HSL MA57 and otherwise uses bundled MUMPS. `MAYHEM_IPOPT_OPTIONS` accepts a JSON object
 of IPOPT options for experiments. Keep validation enabled when comparing settings:
@@ -116,5 +144,14 @@ zone-scoped maximum velocity. The previous run validated all 91/91 feasible scen
 (infeasible p90 36.4 s). The current run adds the enclosure pre-check and the elastic
 probe, along with the total-force current limit and the minimum obstacle separation. It
 validates all 91/91 feasible scenes with 0.450 s median and 2.101 s p90 wall time, and
-diagnoses all 4/4 infeasible cases with a p90 of 0.26 s (max 0.37 s). A failed solve is not
-deployment-ready; edit the path or constraint and generate again.
+diagnoses all 4/4 infeasible cases with a p90 of 0.26 s (max 0.37 s).
+
+The speed work (see Speed above) was measured on the same field and machine with the
+changes switched off (`before-speedup` in RESULTS.md) and on (`current`). Both runs validate
+91/91 feasible scenes and diagnose 4/4 infeasible ones. The total wall time for the
+feasible scenes fell from 137.8 s to 65.2 s, p90 from 2.52 s to 1.30 s, and the slowest
+scene from 37.3 s to 7.2 s. Total path time is unchanged (385.69 s vs 385.66 s). On 100
+unseen random scenes (seed 7, throughput mode) wall time fell from 429 s to 164 s. One
+scene that failed before now solves, and no path got more than 0.05% slower.
+
+A failed solve is not deployment-ready; edit the path or constraint and generate again.

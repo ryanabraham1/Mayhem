@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowDown, ArrowUp, GripVertical, ChevronDown, ChevronRight, Circle, Copy, Crosshair, Flag, Folder, FolderInput, FolderMinus,
+  ArrowDown, ArrowUp, ArrowUpFromLine, GripVertical, ChevronDown, ChevronRight, Circle, Copy, Crosshair, Flag, Folder, FolderInput, FolderMinus,
   FolderOpen, FolderPlus, Gauge, Link2, Loader2, Minus, Pentagon, Play, Plus, Route, Trash2,
 } from "lucide-react";
 import { useStore } from "../store";
@@ -309,7 +309,7 @@ function ConstraintSection({ traj }: { traj: Trajectory }) {
       {traj.constraints.map((c) => (
         <div key={c.id} className={`item ${selection?.kind === "constraint" && selection.id === c.id ? "on" : ""} ${c.enabled ? "" : "dim"}`}
           onClick={() => a.select({ kind: "constraint", id: c.id })}>
-          <span className="icon">{c.data.type === "pointAt" ? <Crosshair size={15} /> : c.data.type === "straightLine" ? <Minus size={15} /> : c.data.type.startsWith("keep") ? <Pentagon size={15} /> : <Gauge size={15} />}</span>
+          <span className="icon">{c.data.type === "pointAt" ? <Crosshair size={15} /> : c.data.type === "straightLine" ? <Minus size={15} /> : c.data.type === "intakeExtended" ? <ArrowUpFromLine size={15} /> : c.data.type.startsWith("keep") ? <Pentagon size={15} /> : <Gauge size={15} />}</span>
           <span className="name">{CONSTRAINT_LABELS[c.data.type]}</span>
           <span className="meta" title={scopeText(c)}>{constraintValue(c)}</span>
         </div>

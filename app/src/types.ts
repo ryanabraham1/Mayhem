@@ -6,10 +6,13 @@ export type MotorType =
   | "krakenX60" | "krakenX60Foc" | "krakenX44" | "falcon500" | "falcon500Foc" | "neo" | "neoVortex";
 
 export interface Bumper { front: number; back: number; left: number; right: number }
+export type IntakeSide = "front" | "back" | "left" | "right";
+/** Mechanism that reaches past one bumper side when deployed; only counts where an intakeExtended constraint applies. */
+export interface Intake { side: IntakeSide; extension: number; width: number; offset: number }
 export interface Motor { type: MotorType; gearing: number; currentLimit: number; efficiency: number }
 export interface RobotConfig {
   mass: number; moi: number; bumper: Bumper; modules: Vec2[]; wheelRadius: number; wheelCof: number;
-  motor: Motor; batteryVoltage: number; cogHeight: number;
+  motor: Motor; batteryVoltage: number; cogHeight: number; intake: Intake;
 }
 
 export interface Obstacle {
@@ -44,7 +47,8 @@ export type ConstraintData =
   | { type: "keepIn"; points: Vec2[] }
   | { type: "keepOut"; points: Vec2[]; margin: number }
   | { type: "roughTerrain"; expectedSpeed: number; feedbackScale: number }
-  | { type: "straightLine"; tolerance: number };
+  | { type: "straightLine"; tolerance: number }
+  | { type: "intakeExtended" };
 export type ConstraintType = ConstraintData["type"];
 export interface Constraint { id: string; enabled: boolean; scope: Scope; data: ConstraintData }
 
@@ -70,6 +74,7 @@ export interface SolveStats {
 export interface TrajectoryOutput {
   inputHash: string; samples: Sample[]; waypointTimes: number[]; splits: number[]; events: EventOut[];
   terrain?: { t: number; endT: number; expectedSpeed: number; feedbackScale: number; expectedDelay: number }[];
+  intake?: { t: number; endT: number }[];
   recovery: { obstacles: Vec2[][]; roadmapNodes: Vec2[]; roadmapEdges: [number, number][]; mustHitTimes: number[] } & Record<string, unknown>;
   stats: SolveStats;
 }

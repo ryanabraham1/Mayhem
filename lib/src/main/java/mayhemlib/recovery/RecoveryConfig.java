@@ -38,8 +38,6 @@ public final class RecoveryConfig {
   public double minReplanInterval = 0.25;
   /** Scales the conservative limits exported by the app. */
   public double limitScale = 1.0;
-  /** Time step for swept collision checks of bridges [s]. */
-  public double collisionCheckStep = 0.04;
   /** How long after a detected hit to report "trust vision more" [s]. */
   public double visionBoostSeconds = 1.0;
   /**

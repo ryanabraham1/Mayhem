@@ -45,6 +45,7 @@ public final class AutoTrajectory {
   private boolean isActive;
   private boolean recovering;
   private boolean onTerrain;
+  private boolean intakeOut;
   private boolean hasFinished;
   private double finishedAt = Double.NEGATIVE_INFINITY;
   private int startsAtFinish = -1;
@@ -136,6 +137,7 @@ public final class AutoTrajectory {
         }
         recovering = runner.isRecovering();
         onTerrain = runner.onRoughTerrain();
+        intakeOut = runner.intakeExtended();
         f.visionBoost.accept(runner.visionBoostActive());
         if (f.telemetry != null) {
           f.telemetry.update(runner);
@@ -164,6 +166,7 @@ public final class AutoTrajectory {
         isActive = false;
         recovering = false;
         onTerrain = false;
+        intakeOut = false;
         activeCmd = null;
         f.visionBoost.accept(false);
         if (!interrupted) {
@@ -294,6 +297,15 @@ public final class AutoTrajectory {
   /** MayhemLib extra: true while the reference is on a rough-terrain zone (e.g. the bump). */
   public Trigger onRoughTerrain() {
     return routine.observe(() -> onTerrain);
+  }
+
+  /**
+   * MayhemLib extra: true while the path plans the intake extended ("Intake extended" constraints
+   * in the app). Bind your intake deploy to it so the real intake matches what the solver avoided
+   * obstacles with, e.g. {@code traj.intakeExtended().whileTrue(intake.deploy())}.
+   */
+  public Trigger intakeExtended() {
+    return routine.observe(() -> intakeOut);
   }
 
   // --------------------------------------------------------------------------- internals

@@ -18,7 +18,7 @@ import org.wpilib.math.optimization.solver.Options;
 /**
  * Optional background refinement of a recovery bridge using Sleipnir (the optimizer behind
  * Choreo). Solves a small minimum-time problem with constant-acceleration dynamics and the
- * exported velocity/acceleration limits, then verifies it with the swept collision check.
+ * exported velocity/acceleration limits. Like the coarse planner, it does no obstacle avoidance.
  *
  * <p>Requires the SleipnirJava vendordep ({@code https://file.tavsys.net/sleipnir/SleipnirJava.json}).
  * Off by default; the roboRIO 2 is usually too slow for it to finish in time, so this is mainly
@@ -27,16 +27,14 @@ import org.wpilib.math.optimization.solver.Options;
 public final class SleipnirBridgeRefiner implements BridgeRefiner {
   private final int samples;
   private final double timeoutSeconds;
-  private final double collisionStep;
 
   public SleipnirBridgeRefiner() {
-    this(16, 0.05, 0.04);
+    this(16, 0.05);
   }
 
-  public SleipnirBridgeRefiner(int samples, double timeoutSeconds, double collisionStep) {
+  public SleipnirBridgeRefiner(int samples, double timeoutSeconds) {
     this.samples = samples;
     this.timeoutSeconds = timeoutSeconds;
-    this.collisionStep = collisionStep;
   }
 
   @Override
@@ -107,11 +105,7 @@ public final class SleipnirBridgeRefiner implements BridgeRefiner {
         }
         segs.add(new Bridge.Segment(q[0], q[1], q[2]));
       }
-      Bridge b = new Bridge(segs, joinTime, false);
-      if (!BridgePlanner.isCollisionFree(b, rec, collisionStep)) {
-        return Optional.empty();
-      }
-      return Optional.of(b);
+      return Optional.of(new Bridge(segs, joinTime));
     } catch (RuntimeException | UnsatisfiedLinkError e) {
       return Optional.empty();
     }

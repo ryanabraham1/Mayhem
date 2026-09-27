@@ -22,6 +22,7 @@ Enter the real values. The optimizer uses them as hard physical limits:
 | Wheel radius, μ | μ≈1.0–1.3 on carpet. Traction is often the limiting factor. |
 | Motor, gear ratio, stator limit | Sets the torque-speed curve and current cap. |
 | Planning voltage | Plan below 12 V (11 V default) so feedback has headroom. |
+| Intake | Which side it deploys from, how far it reaches past the bumper, its width (0 = the whole side) and offset. Only counts where a path has an **Intake extended** constraint. |
 
 The panel on the right shows derived limits (free speed, max acceleration) and what limits your acceleration.
 
@@ -71,6 +72,7 @@ While paths are generating, click **Cancel generation** in the top bar to stop r
 | Point at | The robot faces a target (drag the crosshair; it starts at the hub) |
 | Keep in / Keep out region | Draw a polygon instead of picking waypoints |
 | Rough terrain | Draw a polygon over a bump. The solver keeps its planned speed; the exported path marks the covered samples for the robot library. |
+| Intake extended | The intake (Settings → Robot) is out between the two waypoints, or in a zone. The solver keeps the intake clear of obstacles and walls there as well as the bumpers. The field shows the intake on those waypoints and highlights that stretch of the path in amber. On the robot, bind your deploy command to `AutoTrajectory.intakeExtended()`. |
 
 Selecting a constraint highlights the part of the path it covers. In its panel you can change the limit, move it to other waypoints, or make a velocity limit apply **in a zone** (a drawn region) instead.
 
@@ -113,6 +115,7 @@ return routine;
 | Symptom | Fix |
 |---|---|
 | "Waypoint N's bumpers overlap …" | The robot at that pose hits an obstacle. Move or rotate it, or add a position tolerance. |
+| "Waypoint N's extended intake overlaps …" | The intake is out at that waypoint and hits something. Rotate the waypoint, move it, or end the intake range earlier. |
 | A heading or point-at is infeasible | Loosen the heading tolerance, make the heading free, or add distance or time between waypoints. |
 | The path goes around the wrong side of an obstacle | Add a **guide** point on the side you want and drag it into place in the waypoint list. |
 | Slow to generate | Fewer waypoints, a larger sample spacing (Settings → Path solver), or fewer route candidates. |

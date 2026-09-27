@@ -1,5 +1,5 @@
 import type {
-  Constraint, ConstraintData, ConstraintType, Field, Marker, Obstacle, PoseVariable, Project, RobotConfig, Sample,
+  Constraint, ConstraintData, ConstraintType, Field, Intake, Marker, Obstacle, PoseVariable, Project, RobotConfig, Sample,
   Trajectory, TrajectoryOutput, Vec2, Waypoint,
 } from "./types";
 
@@ -45,6 +45,7 @@ export const CONSTRAINT_LABELS: Record<ConstraintType, string> = {
   keepIn: "Keep in region",
   keepOut: "Keep out region",
   roughTerrain: "Rough terrain",
+  intakeExtended: "Intake extended",
 };
 
 /** Constraint types placed by drawing a region instead of picking waypoints. */
@@ -78,9 +79,10 @@ export function defaultConstraintData(type: ConstraintType, at?: Vec2): Constrai
     case "maxAngularVelocity": return { type, value: 3 };
     case "pointAt": return { type, x, y, tolerance: 0.05, flip: false };
     case "keepIn": return { type, points: sq.map(([a, b]) => [a + (a - x) * 2, b + (b - y) * 2] as Vec2) };
-    case "keepOut": return { type, points: sq, margin: 0.03 };
+    case "keepOut": return { type, points: sq, margin: 0 };
     case "roughTerrain": return { type, expectedSpeed: 0.7, feedbackScale: 0.3 };
     case "straightLine": return { type, tolerance: 0.02 };
+    case "intakeExtended": return { type };
   }
 }
 
@@ -106,7 +108,7 @@ export function newMarker(waypoint: number): Marker {
 }
 
 export function newObstacle(points: Vec2[], name = "Obstacle"): Obstacle {
-  return { id: uid("o"), name, kind: "polygon", points, center: [0, 0], radius: 0.5, margin: 0.03, enabled: true };
+  return { id: uid("o"), name, kind: "polygon", points, center: [0, 0], radius: 0.5, margin: 0, enabled: true };
 }
 
 // ------------------------------------------------------------------ geometry
@@ -116,6 +118,46 @@ export function footprint(robot: RobotConfig, x: number, y: number, heading: num
   const c = Math.cos(heading), s = Math.sin(heading);
   const corners: Vec2[] = [[b.front, b.left], [-b.back, b.left], [-b.back, -b.right], [b.front, -b.right]];
   return corners.map(([px, py]) => [x + c * px - s * py, y + s * px + c * py]);
+}
+
+export const DEFAULT_INTAKE: Intake = { side: "front", extension: 0.3, width: 0, offset: 0 };
+
+/** Extended intake rectangle in robot frame (mirrors drivetrain.intake_rectangle); empty if it doesn't extend. */
+export function intakeCorners(robot: RobotConfig): Vec2[] {
+  const it = robot.intake ?? DEFAULT_INTAKE, b = robot.bumper;
+  if (!(it.extension > 1e-6)) return [];
+  if (it.side === "front" || it.side === "back") {
+    const [lo, hi] = it.width > 0 ? [it.offset - it.width / 2, it.offset + it.width / 2] : [-b.right, b.left];
+    const [x0, x1] = it.side === "front" ? [b.front, b.front + it.extension] : [-b.back, -b.back - it.extension];
+    return [[x1, lo], [x1, hi], [x0, hi], [x0, lo]];
+  }
+  const [lo, hi] = it.width > 0 ? [it.offset - it.width / 2, it.offset + it.width / 2] : [-b.back, b.front];
+  const [y0, y1] = it.side === "left" ? [b.left, b.left + it.extension] : [-b.right, -b.right - it.extension];
+  return [[hi, y0], [hi, y1], [lo, y1], [lo, y0]];
+}
+
+export function intakeFootprint(robot: RobotConfig, x: number, y: number, heading: number): Vec2[] {
+  const c = Math.cos(heading), s = Math.sin(heading);
+  return intakeCorners(robot).map(([px, py]) => [x + c * px - s * py, y + s * px + c * py]);
+}
+
+/** Waypoint indices where an enabled intakeExtended constraint has the intake out (zones by waypoint position). */
+export function intakeWaypoints(traj: Trajectory, poses?: PoseVariable[]): Set<number> {
+  const out = new Set<number>();
+  const n = traj.waypoints.length;
+  for (const c of traj.constraints) {
+    if (!c.enabled || c.data.type !== "intakeExtended") continue;
+    const s = c.scope;
+    if (s.kind === "zone") {
+      if (s.region.length < 3) continue;
+      traj.waypoints.forEach((w, i) => { const r = resolveWaypoint(poses, w); if (pointInPolygon([r.x, r.y], s.region)) out.add(i); });
+    } else {
+      const a = Math.max(0, Math.min(s.from, s.kind === "range" ? s.to : s.from));
+      const b = Math.min(n - 1, s.kind === "range" ? Math.max(s.from, s.to) : s.from);
+      for (let i = a; i <= b; i++) out.add(i);
+    }
+  }
+  return out;
 }
 
 export function circlePoints(o: Obstacle, n = 32): Vec2[] {

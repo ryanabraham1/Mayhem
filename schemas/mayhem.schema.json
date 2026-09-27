@@ -50,6 +50,7 @@
         "data": {
           "discriminator": {
             "mapping": {
+              "intakeExtended": "#/$defs/IntakeExtended",
               "keepIn": "#/$defs/KeepIn",
               "keepOut": "#/$defs/KeepOut",
               "maxAcceleration": "#/$defs/MaxAcceleration",
@@ -85,6 +86,9 @@
             },
             {
               "$ref": "#/$defs/RoughTerrain"
+            },
+            {
+              "$ref": "#/$defs/IntakeExtended"
             }
           ],
           "title": "Data"
@@ -285,6 +289,76 @@
       "title": "Field",
       "type": "object"
     },
+    "Intake": {
+      "description": "A mechanism that reaches past one bumper side when deployed (e.g. an over-the-bumper intake).\n\nIt only counts for collisions where an intakeExtended constraint says it is out.",
+      "properties": {
+        "side": {
+          "default": "front",
+          "enum": [
+            "front",
+            "back",
+            "left",
+            "right"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "extension": {
+          "default": 0.3,
+          "description": "How far it reaches past the bumper edge [m]",
+          "minimum": 0,
+          "title": "Extension",
+          "type": "number"
+        },
+        "width": {
+          "default": 0.0,
+          "description": "Width along the bumper side [m]; 0 = the whole side",
+          "minimum": 0,
+          "title": "Width",
+          "type": "number"
+        },
+        "offset": {
+          "default": 0.0,
+          "description": "Shift of its center along the side [m]: toward robot left on the front/back, toward robot front on the left/right. Ignored when width is 0.",
+          "title": "Offset",
+          "type": "number"
+        }
+      },
+      "title": "Intake",
+      "type": "object"
+    },
+    "IntakeExtended": {
+      "description": "The robot's intake (robot config) is deployed over this scope.\n\nObstacle, wall and keep-in checks use the bumper plus the intake there. The covered time\nspans are exported so MayhemLib can tell robot code when to deploy it.",
+      "properties": {
+        "type": {
+          "const": "intakeExtended",
+          "default": "intakeExtended",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "IntakeExtended",
+      "type": "object"
+    },
+    "IntakeSpan": {
+      "description": "A stretch of the trajectory where the intake is planned to be extended.",
+      "properties": {
+        "t": {
+          "title": "T",
+          "type": "number"
+        },
+        "endT": {
+          "title": "Endt",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t",
+        "endT"
+      ],
+      "title": "IntakeSpan",
+      "type": "object"
+    },
     "Issue": {
       "properties": {
         "severity": {
@@ -413,7 +487,7 @@
           "type": "array"
         },
         "margin": {
-          "default": 0.03,
+          "default": 0.0,
           "title": "Margin",
           "type": "number"
         }
@@ -668,7 +742,7 @@
           "type": "number"
         },
         "margin": {
-          "default": 0.03,
+          "default": 0.0,
           "description": "Extra clearance around this obstacle [m]",
           "title": "Margin",
           "type": "number"
@@ -801,7 +875,13 @@
               "type": "krakenX60"
             },
             "batteryVoltage": 11.0,
-            "cogHeight": 0.0
+            "cogHeight": 0.0,
+            "intake": {
+              "extension": 0.3,
+              "offset": 0.0,
+              "side": "front",
+              "width": 0.0
+            }
           }
         },
         "field": {
@@ -1038,6 +1118,15 @@
           "description": "Center of gravity height [m]; >0 enables weight-transfer model",
           "title": "Cogheight",
           "type": "number"
+        },
+        "intake": {
+          "$ref": "#/$defs/Intake",
+          "default": {
+            "side": "front",
+            "extension": 0.3,
+            "width": 0.0,
+            "offset": 0.0
+          }
         }
       },
       "title": "RobotConfig",
@@ -1465,6 +1554,13 @@
             "$ref": "#/$defs/TerrainSpan"
           },
           "title": "Terrain",
+          "type": "array"
+        },
+        "intake": {
+          "items": {
+            "$ref": "#/$defs/IntakeSpan"
+          },
+          "title": "Intake",
           "type": "array"
         },
         "recovery": {

@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import {
-  applyWaypointKind, centroid, circlePoints, distToSegment, footprint, newConstraint, newObstacle, newWaypoint, resolveWaypoint,
+  applyWaypointKind, centroid, circlePoints, distToSegment, footprint, intakeFootprint, intakeWaypoints, newConstraint, newObstacle, newWaypoint, resolveWaypoint,
   obstaclePoints, pointInPolygon, sampleAt, totalTime,
 } from "../model";
 import type { Decoration, Field, Obstacle, RobotConfig, Trajectory, Vec2 } from "../types";
@@ -77,6 +77,23 @@ function RobotShape({ robot, x, y, h, stroke, fill = "none", dash, width = 1.5, 
       <polygon points={pts(fp)} fill={fill} stroke={stroke} strokeWidth={width} strokeDasharray={dash} vectorEffect="non-scaling-stroke" />
       <line x1={x} y1={y} x2={front[0]} y2={front[1]} stroke={stroke} strokeWidth={width} vectorEffect="non-scaling-stroke" />
       <polyline points={pts([fp[3], front, fp[0]])} fill="none" stroke={stroke} strokeWidth={width * 1.6} vectorEffect="non-scaling-stroke" />
+    </g>
+  );
+}
+
+/** Playback robot: translucent rounded body, bold front bumper, and a chevron pointing forward. */
+function PlaybackRobot({ robot, x, y, h }: { robot: RobotConfig; x: number; y: number; h: number }) {
+  const { front: f, back: bk, left: l, right: r } = robot.bumper;
+  const k = Math.min(f + bk, l + r);
+  const rx = k * 0.14;
+  const tip = f - k * 0.22, d = k * 0.13, w = k * 0.19;
+  const line = { fill: "none", stroke: "var(--accent)", strokeLinecap: "round", strokeLinejoin: "round", vectorEffect: "non-scaling-stroke" } as const;
+  return (
+    <g transform={`translate(${x} ${y}) rotate(${(h * 180) / Math.PI})`}>
+      <rect x={-bk} y={-r} width={f + bk} height={l + r} rx={rx} fill="var(--accent)" fillOpacity={0.22}
+        stroke="var(--accent)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+      <path d={`M ${f - rx} ${-r} A ${rx} ${rx} 0 0 1 ${f} ${-r + rx} L ${f} ${l - rx} A ${rx} ${rx} 0 0 1 ${f - rx} ${l}`} {...line} strokeWidth={5} />
+      <polyline points={`${tip - d},${w} ${tip},0 ${tip - d},${-w}`} {...line} strokeWidth={2.5} />
     </g>
   );
 }
@@ -181,6 +198,14 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
   }, [out, vmax]);
 
   const ghost = out && T > 0 ? sampleAt(out, Math.min(playbackT, T)) : null;
+  const ghostIntake = ghost && out?.intake?.some((sp) => ghost.t >= sp.t - 1e-6 && ghost.t <= sp.endT + 1e-6);
+  const intakePaths = useMemo(() => (out?.intake ?? []).map((sp) => {
+    const line: Vec2[] = [];
+    for (let t = sp.t; t < sp.endT; t += 0.03) { const q = sampleAt(out!, t); line.push([q.x, q.y]); }
+    const q = sampleAt(out!, sp.endT);
+    line.push([q.x, q.y]);
+    return line;
+  }), [out]);
 
   // ------------------------------------------------------------ interaction helpers
   const updTraj = (fn: (t: Trajectory) => void, history = false) => {
@@ -206,7 +231,7 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
       const pend = st().pending;
       if (tool === "region" && pend) {
         const c = newConstraint(pend.type, traj.waypoints.length);
-        if (pend.type === "keepOut") c.data = { type: "keepOut", points: poly, margin: 0.03 };
+        if (pend.type === "keepOut") c.data = { type: "keepOut", points: poly, margin: 0 };
         else if (pend.type === "keepIn") c.data = { type: "keepIn", points: poly };
         else if (pend.type === "roughTerrain") c.scope = { kind: "zone", from: 0, to: Math.max(0, traj.waypoints.length - 1), region: poly };
         updTraj((t) => { t.constraints.push(c); }, true);
@@ -570,6 +595,7 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
   const selWp = selection?.kind === "waypoint" ? selection.index : -1;
   const selId = selection && "id" in selection ? selection.id : null;
   const wps = (traj?.waypoints ?? []).map((w) => resolveWaypoint(project.poses, w));
+  const intakeAt = traj ? intakeWaypoints(traj, project.poses) : new Set<number>();
   const selCon = selection?.kind === "constraint" ? traj?.constraints.find((c) => c.id === selection.id) : undefined;
   const issues = solveState?.issues ?? [];
 
@@ -692,6 +718,12 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
                 <polyline points={pts(wps.map((w) => [w.x, w.y]))} fill="none" stroke="var(--faint)" strokeWidth={1.2} strokeDasharray="2 5" vectorEffect="non-scaling-stroke" />
               )}
 
+              {/* intake-extended stretches of the solved path */}
+              {!stale && intakePaths.map((line, i) => (
+                <polyline key={i} points={pts(line)} fill="none" stroke="var(--amber)" strokeWidth={11} strokeOpacity={0.35}
+                  strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" pointerEvents="none" />
+              ))}
+
               {/* solved path */}
               <g opacity={stale ? 0.35 : 1}>
                 {pathSegs.map((s, i) => (
@@ -747,6 +779,10 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
                         fill={sel ? "var(--accent)" : "transparent"} opacity={sel ? 1 : 0.85} width={sel ? 2.2 : 1.4} />
                     )}
                     {sel && pose && <polygon points={pts(footprint(robot, w.x, w.y, w.heading))} fill="var(--accent)" fillOpacity={0.08} />}
+                    {pose && intakeAt.has(i) && (
+                      <polygon points={pts(intakeFootprint(robot, w.x, w.y, w.heading))} fill="var(--amber)" fillOpacity={0.15}
+                        stroke="var(--amber)" strokeWidth={1.4} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />
+                    )}
                     {w.tolerance.kind === "circle" && !guide && (
                       <circle cx={w.x} cy={w.y} r={w.tolerance.radius} fill="var(--accent)" fillOpacity={0.06} stroke="var(--accent)" strokeDasharray="3 3" strokeWidth={1} vectorEffect="non-scaling-stroke" />
                     )}
@@ -788,12 +824,16 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
               {/* playback robot; module forces only while paused/scrubbing */}
               {ghost && !stale && (
                 <g pointerEvents="none">
-                  <RobotShape robot={robot} x={ghost.x} y={ghost.y} h={ghost.heading} stroke="var(--accent)" fill="var(--accent)" width={2.2} opacity={0.9} />
+                  {ghostIntake && (
+                    <polygon points={pts(intakeFootprint(robot, ghost.x, ghost.y, ghost.heading))} fill="var(--amber)" fillOpacity={0.55}
+                      stroke="var(--amber)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                  )}
+                  <PlaybackRobot robot={robot} x={ghost.x} y={ghost.y} h={ghost.heading} />
                   {!playing && robot.modules.map(([mx, my], i) => {
                     const c = Math.cos(ghost.heading), s = Math.sin(ghost.heading);
                     const px = ghost.x + c * mx - s * my, py = ghost.y + s * mx + c * my;
                     const k = 0.004;
-                    return <line key={i} x1={px} y1={py} x2={px + (ghost.fx[i] ?? 0) * k} y2={py + (ghost.fy[i] ?? 0) * k} stroke="var(--panel)" strokeWidth={2 * pxToM} strokeLinecap="round" />;
+                    return <line key={i} x1={px} y1={py} x2={px + (ghost.fx[i] ?? 0) * k} y2={py + (ghost.fy[i] ?? 0) * k} stroke="var(--accent-ink)" strokeWidth={2 * pxToM} strokeLinecap="round" />;
                   })}
                 </g>
               )}

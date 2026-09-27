@@ -75,6 +75,14 @@ export function WaypointEditor({ traj, index, upd }: { traj: Trajectory; index: 
                 )}
               </div>
             </div>
+            {linked && <TextField label="Variable name" value={linked.name} onChange={(name) => {
+              const trimmed = name.trim();
+              if (!trimmed || trimmed === linked.name) return;
+              a.updateProject((pr) => {
+                const variable = pr.poses.find((p) => p.id === linked.id);
+                if (variable) variable.name = trimmed;
+              }, { affectsSolve: false });
+            }} />}
             {linked && <div className="note">Moving this waypoint moves <b>{linked.name}</b> in every path that uses it.</div>}
             <label className="lbl"><span>Position tolerance</span>
               <Seg value={w.tolerance.kind} onChange={(v) => set((x) => { x.tolerance.kind = v; })}
@@ -126,7 +134,15 @@ export function PoseVariableEditor({ id }: { id: string }) {
       }}><Trash2 size={14} /></button>
     }>
       <div className="form">
-        <TextField label="Name" value={v.name} onChange={(val) => set((p) => { p.name = val || p.name; })} />
+        <TextField label="Name" value={v.name} onChange={(val) => {
+          const trimmed = val.trim();
+          if (trimmed && trimmed !== v.name) {
+            a.updateProject((pr) => {
+              const variable = pr.poses.find((p) => p.id === id);
+              if (variable) variable.name = trimmed;
+            }, { affectsSolve: false });
+          }
+        }} />
         <div className="field-row">
           <NumberField label="X" unit="m" value={v.x} onChange={(val) => set((p) => { p.x = val; })} />
           <NumberField label="Y" unit="m" value={v.y} onChange={(val) => set((p) => { p.y = val; })} />
@@ -154,7 +170,22 @@ export function constraintValue(c: Constraint) {
   if (d.type === "pointAt") return `(${d.x.toFixed(2)}, ${d.y.toFixed(2)})`;
   if (d.type === "straightLine") return `±${(d.tolerance * 100).toFixed(0)} cm`;
   if (d.type === "roughTerrain") return "bump zone";
+  if (d.type === "intakeExtended") return "intake out";
   return `${d.points.length} pts`;
+}
+
+function IntakeNote() {
+  const intake = useStore((s) => s.project?.robot.intake);
+  const a = useStore.getState();
+  const out = intake && intake.extension > 1e-6;
+  return (
+    <div className="note">
+      {out
+        ? <>The {intake.side} intake reaches {intake.extension.toFixed(2)} m past the bumper{intake.width > 0 ? ` (${intake.width.toFixed(2)} m wide)` : ""}. The solver keeps it clear of obstacles and walls here, and MayhemLib reports when it should be out.</>
+        : <>The robot's intake extension is 0, so this does nothing.</>}
+      {" "}<a href="#" onClick={(e) => { e.preventDefault(); a.openSettings("robot"); }}>Intake settings</a>
+    </div>
+  );
 }
 
 export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constraint; upd: Upd }) {
@@ -220,6 +251,7 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
             <div className="note">Drag the amber region or its corners on the field.</div>
           </>
         )}
+        {d.type === "intakeExtended" && <IntakeNote />}
         {d.type === "keepOut" && (
           <NumberField label="Margin" unit="m" value={d.margin} min={0} onChange={(v) => set((x) => { if (x.data.type === "keepOut") x.data.margin = v; })} />
         )}

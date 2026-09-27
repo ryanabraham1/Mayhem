@@ -85,10 +85,15 @@ public final class TrajectoryLoader {
           s.path("expectedSpeed").asDouble(0.7), s.path("feedbackScale").asDouble(0.3)));
     }
     terrain.sort((a, b) -> Double.compare(a.t, b.t));
+    List<IntakeSpan> intake = new ArrayList<>();
+    for (JsonNode s : out.path("intake")) {
+      intake.add(new IntakeSpan(s.path("t").asDouble(), s.path("endT").asDouble()));
+    }
+    intake.sort((a, b) -> Double.compare(a.t, b.t));
     int[] splits = ints(out.path("splits"));
     double[] wtimes = doubles(out.path("waypointTimes"));
     RecoveryData rec = parseRecovery(out.path("recovery"));
-    return new MayhemTrajectory(name, samples, events, terrain, splits, wtimes, rec,
+    return new MayhemTrajectory(name, samples, events, terrain, intake, splits, wtimes, rec,
         out.path("inputHash").asText(""), false);
   }
 

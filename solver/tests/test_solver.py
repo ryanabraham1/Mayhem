@@ -167,3 +167,64 @@ def test_rough_terrain_keeps_speed_and_exports_spans(project):
     assert x_at(span.t) > 5.0 and x_at(span.end_t) < 7.0
     assert span.feedback_scale == 0.25 and span.expected_speed == 0.6
     assert span.expected_delay == pytest.approx((span.end_t - span.t) * (1 / 0.6 - 1))
+
+
+def _direct_solve(project, t):
+    from mayhem_solver.guess import build_guess
+    from mayhem_solver.pipeline import candidate_routes
+
+    solver = Solver(project, t)
+    guess = build_guess(t, candidate_routes(t, solver.dt, solver.world, 1)[0], solver.dt)
+    return solver, solver.run_ocp(guess, "hard", "direct")
+
+
+def test_constraint_blocks_cover_every_row(box_project):
+    from mayhem_solver.ocp import OCP
+
+    built = []
+    original = OCP._build
+
+    def build(self, pairs):
+        original(self, pairs)
+        built.append((self._ng, self.opti.ng))
+
+    t = Trajectory(name="b", waypoints=[wp(0, 2, 3.5, stop=True), wp(1, 8, 3.5, math.pi / 2, stop=True)])
+    OCP._build = build
+    try:
+        _direct_solve(box_project, t)
+    finally:
+        OCP._build = original
+    assert built and all(ng == opti_ng for ng, opti_ng in built)
+
+
+def test_warm_resolve_with_duals_stays_at_the_optimum(box_project):
+    t = Trajectory(name="w", waypoints=[wp(0, 2, 3.5, stop=True), wp(1, 8, 3.5, math.pi / 2, stop=True)])
+    solver, res = _direct_solve(box_project, t)
+    assert res.success and res.duals is not None
+    again = solver.run_ocp(res.solution, "hard", "again", pairs=solver._last_pairs, warm=True)
+    assert again.success
+    # a cold start from the same point walks away and takes about as long as the first solve
+    assert again.iterations <= max(10, res.iterations // 3)
+    assert again.solution.total_time == pytest.approx(res.solution.total_time, rel=1e-3)
+
+
+def test_slower_candidates_get_a_grace_period(box_project, monkeypatch):
+    import time
+
+    from mayhem_solver import pipeline
+
+    deadlines = []
+    original = pipeline._solve_candidate
+
+    def record(pj, tj, routes, cand, deadline_wall, queue=None):
+        deadlines.append((cand, deadline_wall, time.time()))
+        return original(pj, tj, routes, cand, deadline_wall, queue)
+
+    monkeypatch.setattr(pipeline, "_solve_candidate", record)
+    t = Trajectory(name="g", waypoints=[wp(0, 2, 3.5, stop=True), wp(1, 8, 3.5, stop=True)])
+    t0 = time.time()
+    r = solve(box_project, t, parallel=False)
+    assert r.success and len(deadlines) >= 2
+    # candidate 0 succeeded, so the next one must finish within the grace period, not the time limit
+    _, d1, started = deadlines[1]
+    assert d1 <= started + pipeline.GRACE_FACTOR * (started - t0) + pipeline.GRACE_SECONDS + 1e-6

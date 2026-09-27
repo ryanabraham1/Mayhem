@@ -52,6 +52,22 @@ class Bumper(Model):
     right: float = 0.45
 
 
+class Intake(Model):
+    """A mechanism that reaches past one bumper side when deployed (e.g. an over-the-bumper intake).
+
+    It only counts for collisions where an intakeExtended constraint says it is out.
+    """
+
+    side: Literal["front", "back", "left", "right"] = "front"
+    extension: float = Field(0.3, ge=0, description="How far it reaches past the bumper edge [m]")
+    width: float = Field(0.0, ge=0, description="Width along the bumper side [m]; 0 = the whole side")
+    offset: float = Field(
+        0.0,
+        description="Shift of its center along the side [m]: toward robot left on the front/back, "
+                    "toward robot front on the left/right. Ignored when width is 0.",
+    )
+
+
 class Motor(Model):
     type: MotorType = "krakenX60"
     gearing: float = Field(6.75, description="Drive reduction (motor turns per wheel turn)")
@@ -76,6 +92,7 @@ class RobotConfig(Model):
     cog_height: float = Field(
         0.0, description="Center of gravity height [m]; >0 enables weight-transfer model"
     )
+    intake: Intake = Intake()
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +107,7 @@ class Obstacle(Model):
     points: list[tuple[float, float]] = Field(default_factory=list)
     center: tuple[float, float] = (0.0, 0.0)
     radius: float = 0.5
-    margin: float = Field(0.03, description="Extra clearance around this obstacle [m]")
+    margin: float = Field(0.0, description="Extra clearance around this obstacle [m]")
     enabled: bool = True
 
 
@@ -201,7 +218,7 @@ class KeepOut(Model):
 
     type: Literal["keepOut"] = "keepOut"
     points: list[tuple[float, float]] = Field(default_factory=list)
-    margin: float = 0.03
+    margin: float = 0.0
 
 
 class StraightLine(Model):
@@ -225,9 +242,21 @@ class RoughTerrain(Model):
     feedback_scale: float = Field(
         0.3, ge=0, le=1, description="On-robot feedback strength while on the terrain (1 = normal)"
     )
+
+
+class IntakeExtended(Model):
+    """The robot's intake (robot config) is deployed over this scope.
+
+    Obstacle, wall and keep-in checks use the bumper plus the intake there. The covered time
+    spans are exported so MayhemLib can tell robot code when to deploy it.
+    """
+
+    type: Literal["intakeExtended"] = "intakeExtended"
+
+
 ConstraintData = Annotated[
     Union[MaxVelocity, MaxAcceleration, MaxAngularVelocity, PointAt, KeepIn, KeepOut, StraightLine,
-          RoughTerrain],
+          RoughTerrain, IntakeExtended],
     Field(discriminator="type"),
 ]
 
@@ -313,6 +342,13 @@ class TerrainSpan(Model):
     expected_delay: float = Field(description="Estimated time lost on this span [s]")
 
 
+class IntakeSpan(Model):
+    """A stretch of the trajectory where the intake is planned to be extended."""
+
+    t: float
+    end_t: float
+
+
 class Limits(Model):
     """Conservative limits for the on-robot bridge planner."""
 
@@ -352,6 +388,7 @@ class TrajectoryOutput(Model):
     splits: list[int] = Field(description="Sample indices where a new segment starts")
     events: list[EventOut]
     terrain: list[TerrainSpan] = Field(default_factory=list)
+    intake: list[IntakeSpan] = Field(default_factory=list)
     recovery: RecoveryPayload
     stats: SolveStats
 

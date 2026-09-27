@@ -32,6 +32,8 @@ from .drivetrain import Drivetrain, build_drivetrain
 from .guess import Solution, build_guess, dense, resample
 from .models import (
     EventOut,
+    IntakeExtended,
+    IntakeSpan,
     Issue,
     KeepOut,
     Limits,
@@ -46,7 +48,8 @@ from .models import (
     Trajectory,
     TrajectoryOutput,
 )
-from .ocp import SUCCESS, OCP, OCPOptions, OCPResult, scope_samples, select_pairs, waypoint_indices
+from .ocp import (SUCCESS, OCP, OCPOptions, OCPResult, intake_interval_mask, intake_samples, scope_samples,
+                  select_pairs, waypoint_indices)
 
 ProgressFn = Callable[[dict], None]
 
@@ -80,8 +83,11 @@ def resolve_poses(project: Project, traj: Trajectory) -> Trajectory:
 
 def input_hash(project: Project, traj: Trajectory) -> str:
     traj = resolve_poses(project, traj)
+    robot = project.robot.dump()
+    if not uses_intake(traj):
+        robot.pop("intake", None)  # paths that never extend it don't go stale when it changes
     payload = {
-        "robot": project.robot.dump(),
+        "robot": robot,
         "field": project.field.dump(),
         # Pose refs are hashed through their resolved values: moving a pose variable marks the
         # paths that use it stale, and files without refs keep their old hashes.
@@ -89,6 +95,10 @@ def input_hash(project: Project, traj: Trajectory) -> str:
                                 exclude={"output": True, "folder": True, "waypoints": {"__all__": {"pose_ref"}}}),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def uses_intake(traj: Trajectory) -> bool:
+    return any(c.enabled and isinstance(c.data, IntakeExtended) for c in traj.constraints)
 
 
 def make_world(project: Project, traj: Trajectory) -> geo.World:
@@ -140,6 +150,25 @@ def _free_components(world: geo.World, dt: Drivetrain) -> list:
     blocked = unary_union([p.buffer(r) for _, p, _ in world.obstacle_polys]) if world.obstacle_polys else Polygon()
     free = fld.difference(blocked)
     return [g for g in getattr(free, "geoms", [free]) if g.geom_type == "Polygon" and not g.is_empty]
+
+
+def _intake_waypoints(traj: Trajectory) -> set[int]:
+    """Waypoints where an intakeExtended constraint has the intake out."""
+    out: set[int] = set()
+    n = len(traj.waypoints)
+    for con in traj.constraints:
+        if not con.enabled or not isinstance(con.data, IntakeExtended):
+            continue
+        s = con.scope
+        if s.kind == "waypoint" and 0 <= s.from_ < n:
+            out.add(s.from_)
+        elif s.kind == "range":
+            a, b = sorted((s.from_, s.to))
+            out.update(range(max(a, 0), min(b, n - 1) + 1))
+        elif s.kind == "zone" and len(s.region) >= 3:
+            poly = Polygon(s.region)
+            out.update(j for j, wp in enumerate(traj.waypoints) if poly.covers(Point(wp.x, wp.y)))
+    return out
 
 
 def _enclosure_issues(traj: Trajectory, dt: Drivetrain, world: geo.World) -> list[Issue]:
@@ -240,6 +269,11 @@ def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.Worl
     if len(wps) < 2:
         issues.append(Issue(severity="error", message="A trajectory needs at least 2 waypoints."))
         return issues
+    intake_wps = _intake_waypoints(traj) if dt.intake_corners else set()
+    if uses_intake(traj) and not dt.intake_corners:
+        issues.append(Issue(severity="warning",
+                            message="This path extends the intake, but the robot's intake extension is 0. "
+                                    "Set it in Settings → Robot."))
     for j, wp in enumerate(wps):
         if not (0 <= wp.x <= world.length and 0 <= wp.y <= world.width):
             issues.append(Issue(severity="error", message=f"Waypoint {j + 1} is outside the field.",
@@ -260,6 +294,20 @@ def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.Worl
         if minx < 0 or miny < 0 or maxx > world.length or maxy > world.width:
             issues.append(Issue(severity="error", message=f"Waypoint {j + 1}'s bumpers leave the field.",
                                 waypoint=j, x=wp.x, y=wp.y))
+            continue
+        if j in intake_wps:
+            ext = geo.bumper_polygon(dt.intake_corners, wp.x, wp.y, wp.heading)
+            hit = next((p.name for p in world.pieces if ext.intersects(p.poly)), None)
+            minx, miny, maxx, maxy = ext.bounds
+            if hit is None and (minx < 0 or miny < 0 or maxx > world.length or maxy > world.width):
+                hit = "the field wall"
+            if hit is not None:
+                where = hit if hit == "the field wall" else f"'{hit}'"
+                issues.append(Issue(
+                    severity="error",
+                    message=f"Waypoint {j + 1}'s extended intake overlaps {where}. Move or rotate it, "
+                            "or end the intake range before this waypoint.",
+                    waypoint=j, x=wp.x, y=wp.y))
     for con in traj.constraints:
         s = con.scope
         n = len(wps)
@@ -386,6 +434,7 @@ class Solver:
         self._last_dense: set = set()
         self._last_zone_used: dict = {}
         self._last_planes: dict = {}
+        self._last_duals = None
 
     def _time_left(self) -> float:
         return max(self.deadline - time.monotonic(), 1.0)
@@ -406,27 +455,40 @@ class Solver:
                 time_cap: Optional[float] = None, zone_extra: Optional[dict] = None) -> OCPResult:
         if pairs is None:
             act = max(0.4, 2.5 * float(np.max(np.hypot(guess.vx, guess.vy)) * np.max(guess.h)) + 0.25)
-            pairs = select_pairs(self.world, self.dt, guess, act)
+            pairs = select_pairs(self.world, self.dt, guess, act, self._intake(guess, zone_extra))
         s = self.traj.settings
         tl = self._time_left() if time_cap is None else min(self._time_left(), time_cap)
         opts = OCPOptions(mode=mode, limit_scale=limit_scale, smoothing=s.smoothing,
                           max_iter=s.max_iterations, time_limit=tl,
                           progress=self._progress_fn(stage), dense_intervals=dense, warm=warm,
-                          zone_extra=zone_extra, plane_init=self._last_planes if warm else None)
+                          zone_extra=zone_extra, plane_init=self._last_planes if warm else None,
+                          dual_init=self._last_duals if warm and mode == "hard" else None)
         if self.progress:
             self.progress({"type": "stage", "candidate": self.candidate, "stage": stage})
         ocp = OCP(self.dt, self.world, self.traj, guess, pairs, opts)
         res = ocp.solve()
         self._last_zone_used = ocp.zone_used
         self._last_planes = res.planes
+        self._last_duals = res.duals
         self.iters += res.iterations
         self.log.append(f"{stage}: {res.status} ({res.iterations} it, {res.seconds:.2f}s)")
         self._last_pairs, self._last_dense = pairs, set(dense or ())
         return res
 
+    def _intake(self, sol: Solution, zone_extra: Optional[dict] = None) -> set[int]:
+        """Samples with the intake extended (zone membership includes the last solve's)."""
+        if not self.dt.intake_corners:
+            return set()
+        extra = {k: set(v) for k, v in (self._last_zone_used or {}).items()}
+        for k, v in (zone_extra or {}).items():
+            extra.setdefault(k, set()).update(v)
+        return intake_samples(self.traj, sol, extra)
+
     def verify(self, sol: Solution) -> list[geo.Collision]:
         t, x, y, th, idx = dense(sol, 4)
-        hits = geo.check_path(self.world, self.dt.bumper_corners, t, x, y, th)
+        mask = intake_interval_mask(self._intake(sol), sol.K)[idx] if self.dt.intake_corners else None
+        hits = geo.check_path(self.world, self.dt.bumper_corners, t, x, y, th,
+                              intake=self.dt.intake_corners, intake_mask=mask)
         for h in hits:
             h.index = int(idx[h.index])
         return hits
@@ -478,7 +540,8 @@ class Solver:
                 bad = {k for h in hits for k in range(h.index - 1, h.index + 2) if 0 <= k < K - 1}
                 dense_iv = set(self._last_dense) | bad
                 act = max(0.6, 3.0 * float(np.max(np.hypot(sol.vx, sol.vy)) * np.max(sol.h)) + 0.35)
-                pairs = {o: set(ks) for o, ks in select_pairs(self.world, self.dt, sol, act).items()}
+                pairs = {o: set(ks) for o, ks in select_pairs(self.world, self.dt, sol, act,
+                                                               self._intake(sol, zone_extra)).items()}
                 for o, ks in (self._last_pairs or {}).items():
                     pairs.setdefault(o, set()).update(ks)
                 names = {h.name for h in hits}
@@ -498,7 +561,7 @@ class Solver:
             self.log.append(f"swept check: {len(hits)} hits, refining segments {sorted(bad_segs)}")
             guess = resample(sol, Ns)
             act = max(0.6, 3.0 * float(np.max(np.hypot(guess.vx, guess.vy)) * np.max(guess.h)) + 0.35)
-            pairs = select_pairs(self.world, self.dt, guess, act)
+            pairs = select_pairs(self.world, self.dt, guess, act, self._intake(guess))
             zone_extra = {}  # sample indices changed; membership is re-evaluated on the resampled guess
             local_left = 1
             res = self.run_ocp(guess, "hard", "refine", pairs=pairs)
@@ -655,8 +718,14 @@ def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = N
     if parallel and len(cands) > 1:
         results = _run_parallel(pj, tj, cands, deadline_wall, progress)
     else:
+        t0, stop = time.time(), deadline_wall
         for i, c in enumerate(cands):
-            results.append(_solve_candidate(pj, tj, c, i, deadline_wall, None if progress is None else _Direct(progress)))
+            if time.time() >= stop - 0.5:
+                break
+            r = _solve_candidate(pj, tj, c, i, stop, None if progress is None else _Direct(progress))
+            results.append(r)
+            if r["ok"]:
+                stop = min(stop, _grace_deadline(t0, time.time()))
 
     results = [r for r in results if r.get("sol") is not None] or results
     good = [r for r in results if r["ok"]]
@@ -679,6 +748,18 @@ def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = N
     return SolveResult(False, None, issues, preview)
 
 
+# Once one candidate has a verified path, the others get this long to finish before they are
+# cancelled: GRACE_FACTOR times the time the first one took, plus GRACE_SECONDS. A slower
+# candidate may still win (another homotopy class can be much faster to drive), so this is
+# generous; in the benchmark no scenario loses path time to it.
+GRACE_FACTOR = 1.0
+GRACE_SECONDS = 1.0
+
+
+def _grace_deadline(t_start: float, t_first_ok: float) -> float:
+    return t_first_ok + GRACE_FACTOR * (t_first_ok - t_start) + GRACE_SECONDS
+
+
 def _candidate_entry(pj, tj, routes, cand, deadline_wall, queue):
     try:
         res = _solve_candidate(pj, tj, routes, cand, deadline_wall, queue)
@@ -696,12 +777,14 @@ def _run_parallel(pj, tj, cands, deadline_wall, progress) -> list[dict]:
     q = ctx.Queue()
     procs = [ctx.Process(target=_candidate_entry, args=(pj, tj, c, i, deadline_wall, q), daemon=True)
              for i, c in enumerate(cands)]
+    t_start = time.time()
     for pr in procs:
         pr.start()
     results: dict[int, dict] = {}
     hard_deadline = deadline_wall + 30
     try:
-        while len(results) < len(procs):
+        # (checked every message: progress arrives every 0.1 s per candidate, so the queue is rarely idle)
+        while len(results) < len(procs) and time.time() <= hard_deadline:
             try:
                 msg = q.get(timeout=0.2)
             except queue_mod.Empty:
@@ -709,12 +792,12 @@ def _run_parallel(pj, tj, cands, deadline_wall, progress) -> list[dict]:
                     if i not in results and not pr.is_alive() and pr.exitcode not in (0, None):
                         results[i] = {"ok": False, "sol": None, "iters": 0,
                                       "log": [f"process exited with {pr.exitcode}"], "candidate": i}
-                if time.time() > hard_deadline:
-                    break
                 continue
             if msg.get("type") == "_result":
                 r = msg["result"]
                 results[r["candidate"]] = r
+                if r["ok"]:
+                    hard_deadline = min(hard_deadline, _grace_deadline(t_start, time.time()))
             elif progress:
                 progress(msg)
     finally:
@@ -781,6 +864,9 @@ def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Is
             "force": "traction limit exceeded",
             "motor": "motor torque/current limit exceeded",
         }.get(cat, "")
+        if "(intake)" in label:
+            hint = ("the extended intake can't clear this; retract it sooner (shorten the intake range), "
+                    "turn the robot, or route further away")
         issues.append(Issue(severity="error", message=f"{label} is infeasible (violation {total:.3g}): {hint}.",
                             waypoint=waypoint,
                             t=t, x=x, y=y))
@@ -826,7 +912,7 @@ def build_output(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.
     recovery = build_recovery(project, traj, dt, world, wtimes, events, T)
     return TrajectoryOutput(input_hash=input_hash(project, traj), samples=samples, waypoint_times=wtimes,
                             splits=splits, events=events, terrain=terrain_spans(traj, sol),
-                            recovery=recovery, stats=stats)
+                            intake=intake_spans(traj, dt, sol), recovery=recovery, stats=stats)
 
 
 def terrain_spans(traj: Trajectory, sol: Solution) -> list[TerrainSpan]:
@@ -860,6 +946,35 @@ def terrain_spans(traj: Trajectory, sol: Solution) -> list[TerrainSpan]:
                                      feedback_scale=d.feedback_scale,
                                      expected_delay=(t1 - t0) * (1 / d.expected_speed - 1)))
     spans.sort(key=lambda s: s.t)
+    return spans
+
+
+def intake_spans(traj: Trajectory, dt: Drivetrain, sol: Solution) -> list[IntakeSpan]:
+    """Time spans with the intake extended, merged across constraints.
+
+    Matches the solver's (conservative) coverage: the intervals on either side of a covered
+    sample count, since the intake deploys or retracts somewhere inside them.
+    """
+    if not dt.intake_corners:
+        return []
+    ext = intake_samples(traj, sol)
+    if not ext:
+        return []
+    t = sol.times()
+    mask = intake_interval_mask(ext, sol.K)
+    spans: list[IntakeSpan] = []
+    k = 0
+    while k < sol.K:
+        if not mask[k]:
+            k += 1
+            continue
+        a = k
+        while k + 1 < sol.K and mask[k + 1]:
+            k += 1
+        # mask[k] covers interval k -> k+1
+        end = min(k + 1, sol.K - 1)
+        spans.append(IntakeSpan(t=float(t[a]), end_t=float(t[end])))
+        k += 1
     return spans
 
 

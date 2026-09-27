@@ -30,6 +30,7 @@ class Drivetrain:
     moi: float
     modules: tuple[tuple[float, float], ...]
     bumper_corners: tuple[tuple[float, float], ...]  # robot frame, CCW
+    intake_corners: tuple[tuple[float, float], ...]  # extended intake rectangle, robot frame, CCW; () if none
     wheel_radius: float
     wheel_free_speed: float  # [m/s] at planning voltage
     wheel_stall_force: float  # [N] per module at planning voltage
@@ -74,6 +75,25 @@ class Drivetrain:
     def inradius(self) -> float:
         return min(min(abs(x), abs(y)) for x, y in self.bumper_corners)
 
+    @property
+    def extended_circumradius(self) -> float:
+        """Circumradius with the intake extended."""
+        return max(math.hypot(x, y) for x, y in self.bumper_corners + self.intake_corners)
+
+
+def intake_rectangle(cfg: RobotConfig) -> tuple[tuple[float, float], ...]:
+    """The extended intake as a rectangle flush against its bumper side (robot frame, CCW)."""
+    it, b = cfg.intake, cfg.bumper
+    if it.extension <= 1e-6:
+        return ()
+    if it.side in ("front", "back"):
+        lo, hi = (-b.right, b.left) if it.width <= 0 else (it.offset - it.width / 2, it.offset + it.width / 2)
+        x0, x1 = (b.front, b.front + it.extension) if it.side == "front" else (-b.back - it.extension, -b.back)
+        return ((x1, lo), (x1, hi), (x0, hi), (x0, lo)) if it.side == "front" else ((x1, hi), (x0, hi), (x0, lo), (x1, lo))
+    lo, hi = (-b.back, b.front) if it.width <= 0 else (it.offset - it.width / 2, it.offset + it.width / 2)
+    y0, y1 = (b.left, b.left + it.extension) if it.side == "left" else (-b.right - it.extension, -b.right)
+    return ((hi, y0), (hi, y1), (lo, y1), (lo, y0))
+
 
 def build_drivetrain(cfg: RobotConfig) -> Drivetrain:
     v_nom, t_stall, i_stall, i_free, rpm_free = MOTORS[cfg.motor.type]
@@ -104,6 +124,7 @@ def build_drivetrain(cfg: RobotConfig) -> Drivetrain:
         moi=cfg.moi,
         modules=tuple((float(x), float(y)) for x, y in cfg.modules),
         bumper_corners=corners,
+        intake_corners=intake_rectangle(cfg),
         wheel_radius=r,
         wheel_free_speed=wheel_free_speed,
         wheel_stall_force=wheel_stall_force,

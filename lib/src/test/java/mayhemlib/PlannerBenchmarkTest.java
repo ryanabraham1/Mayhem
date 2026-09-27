@@ -23,7 +23,6 @@ class PlannerBenchmarkTest {
     int n = 400;
     double[] ms = new double[n];
     int found = 0;
-    int validFail = 0;
     for (int i = 0; i < n; i++) {
       double tn = rng.nextDouble() * t.totalTime();
       TrajectorySample r = t.sampleAt(tn);
@@ -33,11 +32,6 @@ class PlannerBenchmarkTest {
       ms[i] = res.planSeconds * 1000;
       if (res.bridge.isPresent()) {
         found++;
-      } else if (!RecoveryTest.collides(t.recovery(), p)) {
-        validFail++;
-        if (System.getenv("MAYHEM_DEBUG") != null) {
-          System.out.printf("fail t=%.2f pose=%s ref=%s%n", tn, p, r.getPose());
-        }
       }
     }
     double[] warm = Arrays.copyOfRange(ms, 50, n);
@@ -45,7 +39,7 @@ class PlannerBenchmarkTest {
     System.out.printf("planner: median %.3f ms, p95 %.3f ms, max %.3f ms, success %d/%d%n",
         warm[warm.length / 2], warm[(int) (warm.length * 0.95)], warm[warm.length - 1], found, n);
     assertTrue(warm[warm.length / 2] < 2.0);
-    System.out.println("failures from collision-free starts: " + validFail);
-    assertTrue(found > n * 0.8);
+    // without obstacle checks every bump gets a bridge
+    assertTrue(found == n, "found " + found + "/" + n);
   }
 }

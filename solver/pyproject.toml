@@ -1,6 +1,6 @@
 [project]
 name = "mayhem-solver"
-version = "0.4.0"
+version = "0.5.0"
 description = "Time-optimal swerve trajectory solver for FRC (Mayhem)"
 authors = [
     { name = "Ryan Abraham", email = "ryan.ryanabraham@gmail.com" }

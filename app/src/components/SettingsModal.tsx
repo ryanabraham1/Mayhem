@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Calculator, FolderOpen, Keyboard, Palette, Route, Settings2, Trash2, Truck, X } from "lucide-react";
 import { useStore, type SettingsTab } from "../store";
-import { footprint, MOTOR_LABELS } from "../model";
-import type { MotorType, RobotConfig } from "../types";
+import { DEFAULT_INTAKE, footprint, intakeCorners, MOTOR_LABELS } from "../model";
+import type { IntakeSide, MotorType, RobotConfig } from "../types";
 import { NumberField, Seg, SelectField, TextField } from "./ui";
 import { SolverSettingsEditor } from "./Inspector";
 import { pickFolder } from "./Welcome";
@@ -57,6 +57,7 @@ function RobotSettings() {
   const track = Math.abs(mods[0][1] - mods[1][1]);
   const L = robot.bumper.front + robot.bumper.back;
   const W = robot.bumper.left + robot.bumper.right;
+  const intake = robot.intake ?? DEFAULT_INTAKE;
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 200px", gap: 20 }}>
       <div className="form">
@@ -77,6 +78,16 @@ function RobotSettings() {
           <NumberField label="Left" unit="m" value={robot.bumper.left} min={0.1} onChange={(v) => set((r) => { r.bumper.left = v; })} />
           <NumberField label="Right" unit="m" value={robot.bumper.right} min={0.1} onChange={(v) => set((r) => { r.bumper.right = v; })} />
         </div>
+        <h3>Intake (when extended)</h3>
+        <div className="field-row">
+          <SelectField label="Side" value={intake.side} onChange={(v) => set((r) => { r.intake = { ...(r.intake ?? DEFAULT_INTAKE), side: v as IntakeSide }; })}
+            options={(["front", "back", "left", "right"] as IntakeSide[]).map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }))} />
+          <NumberField label="Reach past bumper" unit="m" value={intake.extension} min={0} onChange={(v) => set((r) => { r.intake = { ...(r.intake ?? DEFAULT_INTAKE), extension: v }; })} />
+          <NumberField label="Width (0 = whole side)" unit="m" value={intake.width} min={0} onChange={(v) => set((r) => { r.intake = { ...(r.intake ?? DEFAULT_INTAKE), width: v }; })} />
+          <NumberField label={intake.side === "front" || intake.side === "back" ? "Offset toward left" : "Offset toward front"} unit="m"
+            value={intake.offset} disabled={intake.width <= 0} onChange={(v) => set((r) => { r.intake = { ...(r.intake ?? DEFAULT_INTAKE), offset: v }; })} />
+        </div>
+        <div className="note">Only counts on the parts of a path covered by an <b>Intake extended</b> constraint. There the solver keeps the intake clear of obstacles and walls too.</div>
         <h3>Modules</h3>
         <div className="field-row">
           <NumberField label="Wheelbase (front–back)" unit="m" value={wheelbase} min={0.1} onChange={(v) => set((r) => { r.modules = r.modules.map(([x, y]) => [Math.sign(x) * v / 2, y]); })} />
@@ -114,10 +125,12 @@ function RobotSettings() {
 
 function RobotPreview({ robot }: { robot: RobotConfig }) {
   const fp = footprint(robot, 0, 0, Math.PI / 2);
-  const ext = Math.max(...fp.flat().map(Math.abs)) + 0.1;
+  const ip = intakeCorners(robot).map(([x, y]) => [-y, x] as [number, number]);
+  const ext = Math.max(...fp.flat().map(Math.abs), ...ip.flat().map(Math.abs)) + 0.1;
   return (
     <svg viewBox={`${-ext} ${-ext} ${2 * ext} ${2 * ext}`} style={{ width: "100%", display: "block", background: "var(--canvas)", borderRadius: 10 }}>
       <polygon points={fp.map(([x, y]) => `${x},${-y}`).join(" ")} fill="var(--accent-soft)" stroke="var(--accent)" strokeWidth={0.012} />
+      {ip.length > 0 && <polygon points={ip.map(([x, y]) => `${x},${-y}`).join(" ")} fill="var(--amber)" fillOpacity={0.18} stroke="var(--amber)" strokeWidth={0.012} strokeDasharray="0.03 0.02" />}
       {robot.modules.map(([mx, my], i) => (
         <g key={i}>
           <rect x={-my - 0.03} y={-mx - 0.045} width={0.06} height={0.09} rx={0.012} fill="var(--accent)" />

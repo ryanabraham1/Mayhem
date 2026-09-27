@@ -25,3 +25,6 @@ lib/*/build/
 .idea/
 .vscode/
 *.tsbuildinfo
+
+# pnpm store created by local installs
+.pnpm-store/

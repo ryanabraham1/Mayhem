@@ -67,6 +67,7 @@ public final class TrajectoryRunner {
   private double rate = 1;
   private double settleStart;
   private Bridge bridge;
+  private double bridgeFrom;
   private double tau;
   private double lastPlanTime = Double.NEGATIVE_INFINITY;
   private CompletableFuture<Optional<Bridge>> refineFuture;
@@ -328,6 +329,7 @@ public final class TrajectoryRunner {
       }
     }
     bridge = b;
+    bridgeFrom = t;
     tau = 0;
     state = State.BRIDGING;
     startRefine(b);
@@ -483,6 +485,17 @@ public final class TrajectoryRunner {
 
   public double lastPlanSeconds() {
     return lastPlanSeconds;
+  }
+
+  /**
+   * True while the plan has the intake extended: at the current clock time while following, and
+   * for the whole bridge if the plan has it out anywhere between the hit and the join.
+   */
+  public boolean intakeExtended() {
+    if (state == State.BRIDGING && bridge != null) {
+      return traj.intakeExtendedBetween(bridgeFrom, bridge.joinTime);
+    }
+    return (state == State.FOLLOWING || state == State.SETTLING) && traj.intakeExtendedAt(t);
   }
 
   /** True while the reference is on a rough-terrain span. */

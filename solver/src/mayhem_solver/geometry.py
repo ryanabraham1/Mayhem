@@ -135,6 +135,17 @@ def bumper_polygons(corners, xs, ys, thetas) -> np.ndarray:
     return shapely.polygons(rings)
 
 
+def robot_polygons(corners, xs, ys, thetas, intake=(), mask=None) -> np.ndarray:
+    """Bumper footprints, unioned with the intake rectangle where `mask` is set."""
+    polys = bumper_polygons(corners, xs, ys, thetas)
+    if intake and mask is not None and np.any(mask):
+        m = np.asarray(mask, dtype=bool)
+        ext = bumper_polygons(intake, np.asarray(xs)[m], np.asarray(ys)[m], np.asarray(thetas)[m])
+        polys = polys.copy()
+        polys[m] = shapely.union(polys[m], ext)
+    return polys
+
+
 # ---------------------------------------------------------------------------
 # Roadmap (visibility graph in an inflated configuration space)
 # ---------------------------------------------------------------------------
@@ -310,9 +321,11 @@ class Collision:
     depth: float
 
 
-def check_path(world: World, corners, t, x, y, th, tol_frac: float = 0.5) -> list[Collision]:
-    """Check a dense list of poses. Collisions = bumper closer than margin*tol_frac."""
-    polys = bumper_polygons(corners, x, y, th)
+def check_path(world: World, corners, t, x, y, th, tol_frac: float = 0.5,
+               intake=(), intake_mask=None) -> list[Collision]:
+    """Check a dense list of poses. Collisions = bumper (plus the intake where `intake_mask` is
+    set) closer than margin*tol_frac."""
+    polys = robot_polygons(corners, x, y, th, intake, intake_mask)
     hits: list[Collision] = []
     for piece in world.pieces:
         d = shapely.distance(polys, piece.poly)

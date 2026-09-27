@@ -30,10 +30,7 @@ public final class Bridge {
   private final double duration;
   /** Trajectory time where the bridge ends. */
   public final double joinTime;
-  /** True if the bridge was routed through the roadmap around obstacles. */
-  public final boolean routed;
-
-  public Bridge(List<Segment> segments, double joinTime, boolean routed) {
+  public Bridge(List<Segment> segments, double joinTime) {
     this.segments = List.copyOf(segments);
     double d = 0;
     for (Segment s : segments) {
@@ -41,7 +38,6 @@ public final class Bridge {
     }
     this.duration = d;
     this.joinTime = joinTime;
-    this.routed = routed;
   }
 
   public double duration() {

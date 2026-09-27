@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Ban, ChevronDown, Circle, CircleDot, Crosshair, Gauge, Minus, MousePointer2, Pentagon, RotateCw,
+  ArrowUpFromLine, Ban, ChevronDown, Circle, CircleDot, Crosshair, Gauge, Minus, MousePointer2, Pentagon, RotateCw,
   SlidersHorizontal, SquareDashed, Waypoints,
 } from "lucide-react";
 import { useStore, type Tool } from "../store";
@@ -41,6 +41,7 @@ const CONSTRAINT_MENU: { type: ConstraintType; icon: typeof Gauge; hint: string 
   { type: "keepIn", icon: SquareDashed, hint: "Draw a region the robot must stay inside" },
   { type: "keepOut", icon: Ban, hint: "Draw a region only this path avoids" },
   { type: "roughTerrain", icon: SquareDashed, hint: "Draw a bump zone; the robot adjusts its clock and correction there" },
+  { type: "intakeExtended", icon: ArrowUpFromLine, hint: "Intake is out between two waypoints; it avoids obstacles too" },
 ];
 
 const FIELD_TOOLS: typeof PATH_TOOLS = [

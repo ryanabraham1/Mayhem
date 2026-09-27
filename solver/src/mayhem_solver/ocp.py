@@ -24,10 +24,10 @@ import shapely
 from shapely.geometry import Point, Polygon
 
 from .drivetrain import G, Drivetrain
-from .geometry import World, bumper_polygons
+from .geometry import World, bumper_polygons, robot_polygons
 from .guess import Solution
-from .models import (KeepIn, MaxAcceleration, MaxAngularVelocity, MaxVelocity, PointAt, RoughTerrain, StraightLine,
-                     Trajectory)
+from .models import (IntakeExtended, KeepIn, MaxAcceleration, MaxAngularVelocity, MaxVelocity, PointAt, RoughTerrain,
+                     StraightLine, Trajectory)
 
 SOFT_MODES = {
     "hard": set(),
@@ -63,7 +63,18 @@ class OCPResult:
     iterations: int
     seconds: float
     slacks: list[tuple[str, str, float, int]] = field(default_factory=list)  # label, cat, total, worst sample
-    planes: dict = field(default_factory=dict)  # {(piece, k): (n0, n1, b)}
+    planes: dict = field(default_factory=dict)  # {(piece, k[, "intake"]): (n0, n1, b)}
+    # constraint multipliers of this solve, for warm-starting a re-solve on the same mesh
+    duals: Optional["Duals"] = None
+
+
+@dataclass
+class Duals:
+    """Constraint multipliers keyed by constraint block, so they carry over to a re-solve that
+    adds or drops blocks and samples (zone membership, obstacle pairs, quarter-point checks)."""
+
+    blocks: dict  # (key, ordinal) -> (offset, rows, rows_per_sample, samples tuple or None)
+    lam_g: np.ndarray
 
 
 @dataclass
@@ -83,7 +94,19 @@ class OCPOptions:
     zone_extra: Optional[dict[str, set[int]]] = None
     # separating-hyperplane values {(piece, k): (n0, n1, b)} from a previous solve (warm start)
     plane_init: Optional[dict] = None
+    # multipliers of a converged hard solve on the same mesh; switches IPOPT to a warm start
+    dual_init: Optional[Duals] = None
 
+
+# IPOPT settings for a re-solve that starts from a converged solution and its multipliers
+# (see OCPOptions.dual_init). A cold start re-estimates every multiplier and starts the
+# barrier high, so it walks away from the optimum it was given and spends about as many
+# iterations getting back as a cold solve. Tighter bound pushes than IPOPT's warm-start
+# defaults (1e-3) stall when the re-solve adds violated constraints (new zone samples).
+WARM_START_OPTIONS = {
+    "warm_start_init_point": "yes",
+    "mu_init": 1e-2,
+}
 
 _LINEAR_SOLVER: Optional[str] = None
 
@@ -153,9 +176,41 @@ def scope_samples(scope, Ns: list[int], sol: Solution) -> list[int]:
     return [int(i) for i in np.where(inside)[0]]
 
 
-def select_pairs(world: World, dt: Drivetrain, sol: Solution, activation: float) -> dict[int, list[int]]:
-    """Broad phase: piece index -> list of samples near that piece."""
-    polys = bumper_polygons(dt.bumper_corners, sol.x, sol.y, sol.th)
+def intake_samples(traj: Trajectory, sol: Solution, extra: Optional[dict[str, set[int]]] = None) -> set[int]:
+    """Samples where an enabled intakeExtended constraint has the intake out.
+
+    `extra` adds zone members by constraint id (sticky zone membership, see OCPOptions.zone_extra).
+    """
+    out: set[int] = set()
+    K = sol.K
+    for con in traj.constraints:
+        if con.enabled and isinstance(con.data, IntakeExtended):
+            out.update(scope_samples(con.scope, sol.Ns, sol))
+            if con.scope.kind == "zone" and extra:
+                out.update(int(k) for k in extra.get(con.id, ()) if 0 <= k < K)
+    return out
+
+
+def intake_interval_mask(ext: set[int], K: int) -> np.ndarray:
+    """Per interval k -> k+1 (and the last sample): True if the intake is out at either end.
+
+    The intake deploys or retracts somewhere inside the boundary intervals, so they are
+    checked with it out.
+    """
+    m = np.zeros(K, dtype=bool)
+    for k in ext:
+        if 0 <= k < K:
+            m[k] = True
+            if k > 0:
+                m[k - 1] = True
+    return m
+
+
+def select_pairs(world: World, dt: Drivetrain, sol: Solution, activation: float,
+                 ext: Optional[set[int]] = None) -> dict[int, list[int]]:
+    """Broad phase: piece index -> list of samples near that piece (bumper or extended intake)."""
+    mask = intake_interval_mask(ext, sol.K) if ext and dt.intake_corners else None
+    polys = robot_polygons(dt.bumper_corners, sol.x, sol.y, sol.th, dt.intake_corners, mask)
     pairs: dict[int, list[int]] = {}
     for o, piece in enumerate(world.pieces):
         d = shapely.distance(polys, piece.poly)
@@ -180,33 +235,50 @@ class OCP:
         self.slacks: list[Slack] = []
         self.opti = ca.Opti()
         self._pending_slack_init: list[tuple[ca.MX, ca.MX]] = []
+        self._blocks: dict = {}
+        self._key_count: dict[str, int] = {}
+        self._ng = 0
         self._build(pairs)
 
     # -- constraint helpers ------------------------------------------------
 
-    def _le(self, expr, label: str, cat: str, samples: list[int] | None = None):
-        """expr <= 0 (elementwise)."""
-        opti = self.opti
+    def _con(self, con, key: str, samples=None):
+        """opti.subject_to(con), recording where its rows land in g (see Duals).
+
+        Opti stacks constraints in call order, each one vec'd (column-major), so a block whose
+        expression has one column per sample has rows_per_sample consecutive rows per sample.
+        """
+        self.opti.subject_to(con)
+        n = int(con.numel())
+        ordinal = self._key_count.get(key, 0)
+        self._key_count[key] = ordinal + 1
+        per = n // len(samples) if samples and n % len(samples) == 0 else 0
+        self._blocks[(key, ordinal)] = (self._ng, n, per, tuple(samples) if per else None)
+        self._ng += n
+
+    def _le(self, expr, label: str, cat: str, samples: list[int] | None = None, key: str | None = None):
+        """expr <= 0 (elementwise). `key` names the block for dual warm starts (default: label)."""
+        key = key or label
         if cat in self.soft:
-            sig = opti.variable(expr.shape[0], expr.shape[1])
-            opti.subject_to(ca.vec(sig) >= 0)
-            opti.subject_to(ca.vec(expr - sig) <= 0)
+            sig = self.opti.variable(expr.shape[0], expr.shape[1])
+            self._con(ca.vec(sig) >= 0, key + "/slack", samples)
+            self._con(ca.vec(expr - sig) <= 0, key, samples)
             self.slacks.append(Slack(label, cat, sig, samples or []))
             self._pending_slack_init.append((sig, expr))
         else:
-            opti.subject_to(ca.vec(expr) <= 0)
+            self._con(ca.vec(expr) <= 0, key, samples)
 
-    def _eq(self, expr, label: str, cat: str, samples: list[int] | None = None):
-        opti = self.opti
+    def _eq(self, expr, label: str, cat: str, samples: list[int] | None = None, key: str | None = None):
+        key = key or label
         if cat in self.soft:
-            sig = opti.variable(expr.shape[0], expr.shape[1])
-            opti.subject_to(ca.vec(sig) >= 0)
-            opti.subject_to(ca.vec(expr - sig) <= 0)
-            opti.subject_to(ca.vec(-expr - sig) <= 0)
+            sig = self.opti.variable(expr.shape[0], expr.shape[1])
+            self._con(ca.vec(sig) >= 0, key + "/slack", samples)
+            self._con(ca.vec(expr - sig) <= 0, key + "/+", samples)
+            self._con(ca.vec(-expr - sig) <= 0, key + "/-", samples)
             self.slacks.append(Slack(label, cat, sig, samples or []))
             self._pending_slack_init.append((sig, ca.fabs(expr)))
         else:
-            opti.subject_to(ca.vec(expr) == 0)
+            self._con(ca.vec(expr) == 0, key, samples)
 
     # -- problem -------------------------------------------------------------
 
@@ -239,27 +311,29 @@ class OCP:
         T_total = ca.sum1(ca.vertcat(*[Ns[j] * h[j] for j in range(S)]))
 
         h_guess = np.maximum(g.h, 1e-3)
-        opti.subject_to(opti.bounded(2e-3, h, 1.0))
+        self._con(opti.bounded(2e-3, h, 1.0), "h", list(range(S)))
 
         # dynamics (always hard)
         a_ = slice(0, K - 1)
         b_ = slice(1, K)
-        opti.subject_to(x[b_] == x[a_] + vx[a_] * hk + 0.5 * ax[a_] * hk ** 2)
-        opti.subject_to(y[b_] == y[a_] + vy[a_] * hk + 0.5 * ay[a_] * hk ** 2)
-        opti.subject_to(vx[b_] == vx[a_] + ax[a_] * hk)
-        opti.subject_to(vy[b_] == vy[a_] + ay[a_] * hk)
-        opti.subject_to(w[b_] == w[a_] + al[a_] * hk)
+        iv = list(range(K - 1))
+        self._con(x[b_] == x[a_] + vx[a_] * hk + 0.5 * ax[a_] * hk ** 2, "dyn", iv)
+        self._con(y[b_] == y[a_] + vy[a_] * hk + 0.5 * ay[a_] * hk ** 2, "dyn", iv)
+        self._con(vx[b_] == vx[a_] + ax[a_] * hk, "dyn", iv)
+        self._con(vy[b_] == vy[a_] + ay[a_] * hk, "dyn", iv)
+        self._con(w[b_] == w[a_] + al[a_] * hk, "dyn", iv)
         dth = w[a_] * hk + 0.5 * al[a_] * hk ** 2
-        opti.subject_to(c[b_] == c[a_] * ca.cos(dth) - s[a_] * ca.sin(dth))
-        opti.subject_to(s[b_] == s[a_] * ca.cos(dth) + c[a_] * ca.sin(dth))
+        self._con(c[b_] == c[a_] * ca.cos(dth) - s[a_] * ca.sin(dth), "dyn", iv)
+        self._con(s[b_] == s[a_] * ca.cos(dth) + c[a_] * ca.sin(dth), "dyn", iv)
 
         # Newton-Euler
         Fx = [Fs[2 * i, :] for i in range(M)]
         Fy = [Fs[2 * i + 1, :] for i in range(M)]
         sum_fx = sum(Fx[1:], Fx[0])
         sum_fy = sum(Fy[1:], Fy[0])
-        opti.subject_to(sum_fx * (F_ref / m) == ax)
-        opti.subject_to(sum_fy * (F_ref / m) == ay)
+        all_k = list(range(K))
+        self._con(sum_fx * (F_ref / m) == ax, "newton", all_k)
+        self._con(sum_fy * (F_ref / m) == ay, "newton", all_k)
         tau = 0
         rix, riy = [], []
         for i, (mx, my) in enumerate(dt.modules):
@@ -268,7 +342,7 @@ class OCP:
             rix.append(rx)
             riy.append(ry)
             tau = tau + (rx * Fy[i] - ry * Fx[i])
-        opti.subject_to(tau * (F_ref / J) == al)
+        self._con(tau * (F_ref / J) == al, "newton", all_k)
 
         # module limits
         vrx = c * vx + s * vy
@@ -279,7 +353,6 @@ class OCP:
         sx2 = float(np.sum(mods[:, 0] ** 2)) or 1.0
         sy2 = float(np.sum(mods[:, 1] ** 2)) or 1.0
         eps = 1e-2
-        all_k = list(range(K))
         for i, (mx, my) in enumerate(dt.modules):
             vwx = vrx - w * my
             vwy = vry + w * mx
@@ -307,6 +380,19 @@ class OCP:
             # low-current-limit paths weave on "unmotored" side force.
             self._le((Fx[i] ** 2 + Fy[i] ** 2) * (F_ref / F_curr) ** 2 - 1, "Motor current limit", "motor", all_k)
 
+        # samples / intervals where the intake is extended (a second robot part for collisions)
+        self.zone_used: dict[str, set[int]] = {}
+        intake = dt.intake_corners
+        ext: set[int] = set()
+        if intake:
+            ext = intake_samples(traj, g, opts.zone_extra)
+            for con in traj.constraints:
+                if con.enabled and isinstance(con.data, IntakeExtended) and con.scope.kind == "zone":
+                    self.zone_used[con.id] = set(scope_samples(con.scope, Ns, g)) | {
+                        int(k) for k in (opts.zone_extra or {}).get(con.id, ()) if 0 <= k < K}
+        ext_iv = intake_interval_mask(ext, K)
+        self.intake_samples = ext
+
         def pose_at(km: list[int], frac: float):
             """Pose a fraction of the way through intervals km (exact constant-acceleration model)."""
             hm = hk[0, km] * frac
@@ -317,8 +403,8 @@ class OCP:
             sm = X[3, km] * ca.cos(dm) + X[2, km] * ca.sin(dm)
             return xm, ym, cm, sm
 
-        def corner_xy(xs, ys, cs, ss):
-            return [(xs + cs * px - ss * py, ys + ss * px + cs * py) for px, py in dt.bumper_corners]
+        def corner_xy(xs, ys, cs, ss, corners=dt.bumper_corners):
+            return [(xs + cs * px - ss * py, ys + ss * px + cs * py) for px, py in corners]
 
         dense = sorted({int(k) for k in (opts.dense_intervals or ()) if 0 <= k < K - 1})
         dense_set = set(dense)
@@ -329,55 +415,75 @@ class OCP:
         def wall_exprs(corners):
             return ca.vertcat(*[ca.vertcat(wm - cx, cx - (L - wm), wm - cy, cy - (W - wm)) for cx, cy in corners])
 
+        ki_all = [k for k in all_k if ext_iv[k]]
         if not os.environ.get("MAYHEM_NOWALL"):
             self._le(wall_exprs(corner_xy(x, y, c, s)), "Field wall", "wall", all_k)
+            if ki_all:
+                self._le(wall_exprs(corner_xy(X[0, ki_all], X[1, ki_all], X[2, ki_all], X[3, ki_all], intake)),
+                         "Field wall (intake)", "wall", ki_all)
         # ... and mid-interval (plus quarter points on dense intervals) near the walls, where
         # a rotating or curving robot's corners can bulge past the wall between samples.
-        reach = dt.circumradius + wm + 0.3 + float(np.max(np.hypot(g.vx, g.vy)) * np.max(g.h) if K > 1 else 0.0)
+        rad = dt.extended_circumradius if ext else dt.circumradius
+        reach = rad + wm + 0.3 + float(np.max(np.hypot(g.vx, g.vy)) * np.max(g.h) if K > 1 else 0.0)
         near = np.minimum.reduce([g.x, L - g.x, g.y, W - g.y]) < reach
         km_wall = [k for k in range(K - 1) if near[k] or near[k + 1] or k in dense_set]
-        if km_wall:
-            self._le(wall_exprs(corner_xy(*pose_at(km_wall, 0.5))), "Field wall", "wall", km_wall)
         kd_wall = [k for k in km_wall if k in dense_set]
-        for frac in (0.25, 0.75) if kd_wall else ():
-            self._le(wall_exprs(corner_xy(*pose_at(kd_wall, frac))), "Field wall", "wall", kd_wall)
+        for part, lab, keep in ((dt.bumper_corners, "Field wall", None), (intake, "Field wall (intake)", ext_iv)):
+            kmw = [k for k in km_wall if keep is None or keep[k]]
+            if not part or not kmw:
+                continue
+            self._le(wall_exprs(corner_xy(*pose_at(kmw, 0.5), part)), lab, "wall", kmw, key=f"{lab}@0.5")
+            kdw = [k for k in kd_wall if keep is None or keep[k]]
+            for frac in (0.25, 0.75) if kdw else ():
+                self._le(wall_exprs(corner_xy(*pose_at(kdw, frac), part)), lab, "wall", kdw, key=f"{lab}@{frac}")
 
         # obstacles: one separating hyperplane per (piece, interval k -> k+1). The robot
         # footprint at k, at the interval midpoint and at k+1 must all lie on the far side
         # (with the full margin), so the convex hull of the footprints - which is exactly
         # the swept area of a translating robot - clears the piece. Dense intervals also
         # check the quarter points.
+        # The intake is a second convex part with its own planes, on the pairs' samples whose
+        # interval has it extended.
         self.pair_vars = []
-        for o, ks in pairs.items():
+        parts = [(o, sorted(set(int(k) for k in ks)), False) for o, ks in pairs.items()]
+        if intake:
+            parts += [(o, [k for k in ks if ext_iv[k]], True) for o, ks, _ in list(parts)]
+        for o, ks, is_intake in parts:
+            if not ks:
+                continue
             piece = world.pieces[o]
-            ks = sorted(set(int(k) for k in ks))
+            corners = intake if is_intake else dt.bumper_corners
             nvar = opti.variable(3, len(ks))
             n0, n1, b = nvar[0, :], nvar[1, :], nvar[2, :]
             # a zero margin would let n = 0, b = 0 satisfy every separation constraint
             half = max(piece.margin, MIN_SEPARATION) / 2
-            label = f"Obstacle '{piece.name}'"
+            label = f"Obstacle '{piece.name}'" + (" (intake)" if is_intake else "")
+            bk = f"obs{o}" + ("i" if is_intake else "")  # block key: piece names can repeat
 
             def sep(corners, cols):
                 n0c, n1c, bc = nvar[0, cols], nvar[1, cols], nvar[2, cols]
                 return ca.vertcat(*[half - (n0c * cx + n1c * cy - bc) for cx, cy in corners])
 
             all_cols = list(range(len(ks)))
-            self._le(sep(corner_xy(X[0, ks], X[1, ks], X[2, ks], X[3, ks]), all_cols), label, "obstacle", ks)
+            self._le(sep(corner_xy(X[0, ks], X[1, ks], X[2, ks], X[3, ks], corners), all_cols), label, "obstacle", ks,
+                     key=bk)
             cols = [ci for ci, k in enumerate(ks) if k < K - 1]
             if cols:
                 km = [ks[ci] for ci in cols]
                 k1 = [k + 1 for k in km]
-                self._le(sep(corner_xy(X[0, k1], X[1, k1], X[2, k1], X[3, k1]), cols), label, "obstacle", k1)
-                self._le(sep(corner_xy(*pose_at(km, 0.5)), cols), label, "obstacle", km)
+                self._le(sep(corner_xy(X[0, k1], X[1, k1], X[2, k1], X[3, k1], corners), cols), label, "obstacle", k1,
+                         key=bk + "@1")
+                self._le(sep(corner_xy(*pose_at(km, 0.5), corners), cols), label, "obstacle", km, key=bk + "@0.5")
                 dcols = [ci for ci in cols if ks[ci] in dense_set]
                 if dcols:
                     kd = [ks[ci] for ci in dcols]
                     for frac in (0.25, 0.75):
-                        self._le(sep(corner_xy(*pose_at(kd, frac)), dcols), label, "obstacle", kd)
+                        self._le(sep(corner_xy(*pose_at(kd, frac), corners), dcols), label, "obstacle", kd,
+                                 key=f"{bk}@{frac}")
             obs = [n0 * qx + n1 * qy - b + half for qx, qy in piece.verts]
-            opti.subject_to(ca.vec(ca.vertcat(*obs)) <= 0)
-            opti.subject_to(ca.vec(n0 ** 2 + n1 ** 2) <= 1)
-            self.pair_vars.append((o, ks, nvar))
+            self._con(ca.vec(ca.vertcat(*obs)) <= 0, bk + "/plane", ks)
+            self._con(ca.vec(n0 ** 2 + n1 ** 2) <= 1, bk + "/norm", ks)
+            self.pair_vars.append((o, ks, nvar, is_intake))
 
         # waypoints
         idx = waypoint_indices(Ns)
@@ -409,12 +515,11 @@ class OCP:
         # norm, so this keeps (cosθ, sinθ) on the unit circle everywhere. Heading
         # constraints only fix the direction, so this must always be present or
         # the solver can "shrink" the robot's corners.
-        opti.subject_to(c[0] ** 2 + s[0] ** 2 == 1)
+        self._con(c[0] ** 2 + s[0] ** 2 == 1, "unit")
 
         # user constraints
-        self.zone_used: dict[str, set[int]] = {}
         for con in traj.constraints:
-            if not con.enabled or isinstance(con.data, RoughTerrain):
+            if not con.enabled or isinstance(con.data, (RoughTerrain, IntakeExtended)):
                 continue
             ks = scope_samples(con.scope, Ns, g)
             if con.scope.kind == "zone":
@@ -445,16 +550,19 @@ class OCP:
                     continue
                 hull = shapely.geometry.polygon.orient(poly.convex_hull, 1.0)
                 pts = list(hull.exterior.coords)[:-1]
-                exprs = []
-                for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]):
-                    # inside of CCW polygon: cross(edge, p - p1) >= 0
-                    ex, ey = x2 - x1, y2 - y1
-                    nrm = math.hypot(ex, ey)
-                    for px, py in dt.bumper_corners:
-                        cx = X[0, ks] + X[2, ks] * px - X[3, ks] * py
-                        cy = X[1, ks] + X[3, ks] * px + X[2, ks] * py
-                        exprs.append(-(ex * (cy - y1) - ey * (cx - x1)) / nrm)
-                self._le(ca.vertcat(*exprs), lab, "keepin", ks)
+                for corners, kk in ((dt.bumper_corners, ks), (intake, [k for k in ks if k in ext])):
+                    if not corners or not kk:
+                        continue
+                    exprs = []
+                    for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]):
+                        # inside of CCW polygon: cross(edge, p - p1) >= 0
+                        ex, ey = x2 - x1, y2 - y1
+                        nrm = math.hypot(ex, ey)
+                        for px, py in corners:
+                            cx = X[0, kk] + X[2, kk] * px - X[3, kk] * py
+                            cy = X[1, kk] + X[3, kk] * px + X[2, kk] * py
+                            exprs.append(-(ex * (cy - y1) - ey * (cx - x1)) / nrm)
+                    self._le(ca.vertcat(*exprs), lab, "keepin", kk)
             elif isinstance(d, StraightLine):
                 # range scope only (validate() warns about other scopes); line through the
                 # two end waypoints' positions
@@ -509,16 +617,19 @@ class OCP:
 
     def _init_pairs(self, g: Solution):
         dt = self.dt
-        polys = bumper_polygons(dt.bumper_corners, g.x, g.y, g.th)
-        for o, ks, nvar in self.pair_vars:
+        bumper = bumper_polygons(dt.bumper_corners, g.x, g.y, g.th)
+        intake = bumper_polygons(dt.intake_corners, g.x, g.y, g.th) if dt.intake_corners else None
+        for o, ks, nvar, is_intake in self.pair_vars:
+            polys = intake if is_intake else bumper
             piece = self.world.pieces[o]
             vals = np.zeros((3, len(ks)))
             cen = np.asarray(piece.poly.centroid.coords[0])
             K = len(g.x)
             prev = self.opts.plane_init or {}
             for col, k in enumerate(ks):
-                if (o, k) in prev:
-                    vals[:, col] = prev[(o, k)]
+                key = (o, k, "intake") if is_intake else (o, k)
+                if key in prev:
+                    vals[:, col] = prev[key]
                     continue
                 rob = polys[k] if k >= K - 1 else shapely.union(polys[k], polys[k + 1]).convex_hull
                 if rob.intersects(piece.poly) or rob.distance(piece.poly) < 1e-6:
@@ -544,8 +655,13 @@ class OCP:
             "max_iter": opts.max_iter,
             "max_cpu_time": opts.time_limit,
             "tol": 1e-6,
-            "acceptable_tol": 1e-4,
-            "acceptable_iter": 8,
+            # Stop once the path is feasible (the same 1e-4 violation bound as a full solve)
+            # and the objective has stopped moving for two iterations. Otherwise IPOPT spends
+            # the last ~10% of its iterations polishing multipliers of a path that no longer
+            # changes.
+            "acceptable_tol": 1e-2,
+            "acceptable_iter": 2,
+            "acceptable_obj_change_tol": 1e-4,
             "acceptable_constr_viol_tol": 1e-4,
             "mu_strategy": "adaptive",
             "nlp_scaling_method": "gradient-based",
@@ -554,6 +670,13 @@ class OCP:
         lin = linear_solver()
         if lin != "mumps":
             ipopt["linear_solver"] = lin
+        else:
+            # AMF fill-reducing ordering. MUMPS's automatic choice (PORD for these KKT systems)
+            # makes each factorization about twice as slow; the benchmark paths are unchanged.
+            ipopt["mumps_pivot_order"] = 2
+        if opts.dual_init is not None:
+            opti.set_initial(opti.lam_g, self._map_duals(opts.dual_init))
+            ipopt.update(WARM_START_OPTIONS)
         ipopt.update(_env_ipopt_options())
         opti.solver("ipopt", {"print_time": False, "error_on_fail": False}, ipopt)
 
@@ -590,14 +713,41 @@ class OCP:
             # a soft solve "succeeds" only as a warm start; flag if slack remains
             pass
         planes = {}
-        for o, ks, nvar in self.pair_vars:
+        for o, ks, nvar, is_intake in self.pair_vars:
             try:
                 v = np.asarray(opti.debug.value(nvar)).reshape(3, -1)
             except Exception:
                 continue
             for col, k in enumerate(ks):
-                planes[(o, k)] = v[:, col].copy()
-        return OCPResult(success, status, sol, iters, secs, slacks, planes)
+                planes[(o, k, "intake") if is_intake else (o, k)] = v[:, col].copy()
+        duals = None
+        if success and not self.slacks:
+            try:
+                duals = Duals(dict(self._blocks), np.asarray(opti.debug.value(opti.lam_g)).ravel().copy())
+            except Exception:
+                pass
+        return OCPResult(success, status, sol, iters, secs, slacks, planes, duals)
+
+    def _map_duals(self, prev: Duals) -> np.ndarray:
+        """Multipliers for this problem from a previous solve's, matched by block and sample.
+
+        Blocks and samples the previous problem did not have start at zero.
+        """
+        lam = np.zeros(self._ng)
+        for key, (off, n, per, samples) in self._blocks.items():
+            old = prev.blocks.get(key)
+            if old is None:
+                continue
+            poff, pn, pper, psamples = old
+            if samples is not None and psamples is not None and per == pper:
+                where = {k: c for c, k in enumerate(psamples)}
+                for c, k in enumerate(samples):
+                    pc = where.get(k)
+                    if pc is not None:
+                        lam[off + c * per:off + (c + 1) * per] = prev.lam_g[poff + pc * per:poff + (pc + 1) * per]
+            elif n == pn:
+                lam[off:off + n] = prev.lam_g[poff:poff + n]
+        return lam
 
     def _extract(self) -> Solution:
         opti, g, dt = self.opti, self.guess, self.dt

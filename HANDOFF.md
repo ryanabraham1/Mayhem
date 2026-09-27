@@ -29,7 +29,7 @@ An FRC swerve trajectory generator (a Choreo alternative) for the user's team. I
 
 - **Target:** 2026 season, game **REBUILT**, WPILib 2026, roboRIO 2. SystemCore/2027 comes later. Nothing should depend on 2027.
 - **Robot:** CTRE Phoenix 6 swerve (Tuner X `CommandSwerveDrivetrain`), AprilTag-fused pose, no coprocessor.
-- **Collision recovery:** on-robot bump recovery. Detect the hit, then **rejoin the trajectory and catch up**. Must avoid obstacles.
+- **Collision recovery:** on-robot bump recovery. Detect the hit, then **rejoin the trajectory and catch up**. No obstacle avoidance during recovery (user decision 2026-09-27: keep roboRIO load minimal).
 - **Obstacles:** polygons drawn in the UI, customizable preloaded field geometry, true rotating bumper rectangle, keep-in zones and walls.
 - **Choreo pain points to beat:** generation failing with obstacles, and long multi-waypoint paths failing.
 - **Features:** event markers, alliance flipping, split segments, sim playback (no AdvantageScope export), point-at, speed zones, waypoint types, tolerance waypoints.
@@ -56,7 +56,7 @@ solver/scripts_make_fixtures.py  regenerates lib/src/test/resources/*.mtraj (Jav
 lib/src/main/java/mayhemlib/
   trajectory/  TrajectoryLoader (.mtraj, deploy/mayhem/), MayhemTrajectory (sampleAt, segment, flipped), RecoveryData
   follow/      HolonomicFollower (FF + saturated P), DriveCommand, FollowerConfig
-  recovery/    BridgePlanner (quintic bridges, brake-first tier, roadmap fallback, conservative-advancement SAT check),
+  recovery/    BridgePlanner (fastest feasible quintic bridge; no obstacle checks),
                CollisionDetector (tracking error + accel beyond planned), RecoveryConfig, SleipnirBridgeRefiner (optional)
   runner/      TrajectoryRunner: framework-free state machine (FOLLOWING / BRIDGING / SETTLING), time dilation, event policies
   auto/        AutoFactory, AutoRoutine, AutoTrajectory, AutoChooser (Choreo-style API)
@@ -254,7 +254,7 @@ The example builds with GradleRIO 2026.2.1 using `JAVA_HOME=~/wpilib/2026/jdk`, 
    - Deploy writing into `deployDir`
    - rename a path by double-clicking it in the sidebar
    - the Generate all queue (at most two paths at a time)
-4. **Solver speed:** long or complex paths can take 10–75 s. Profile with the benchmark. Candidate early-cancel and cheaper swept refinement are the likely wins.
+4. **Solver speed:** done (2026-09-27): AMF MUMPS ordering, dual warm starts for re-solves, objective-stall stopping and a candidate grace period roughly halve benchmark wall time with identical paths (docs/SOLVER.md, Speed). Remaining ideas: fewer zone-membership re-solve rounds, HSL MA57 where licensing allows.
 5. **On-robot validation plan** (document it for the team): run `examples/robot-2026` in simulation with `BumpInjector`, then on a practice bot. Watch `/Mayhem/*` NetworkTables topics and the `lastPlanMs` topic on a roboRIO 2; target under ~5 ms.
 6. **Nice to have:**
    - drag-to-reorder waypoints (currently up/down buttons)
