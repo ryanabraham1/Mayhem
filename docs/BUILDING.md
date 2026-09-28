@@ -192,6 +192,10 @@ git tag v0.2.0 && git push origin v0.2.0
 # https://github.com/ryanabraham1/Mayhem/releases/latest
 ```
 
+A tag like `v0.2.0-rc1` builds a release candidate from any branch. It goes through the same
+jobs but is published as a GitHub prerelease, which never becomes `releases/latest`, so
+installed apps are not offered it. The app inside reports the plain version (`0.2.0`).
+
 ## Auto-update
 
 The desktop app updates itself with `tauri-plugin-updater` (UI in `app/src/updater.ts` and

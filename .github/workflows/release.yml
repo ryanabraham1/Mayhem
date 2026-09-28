@@ -35,8 +35,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-            echo "Use a stable version tag like v0.1.0" >&2; exit 1;
+          # vX.Y.Z-rcN builds a release candidate: published as a GitHub prerelease, which never
+          # becomes releases/latest, so installed apps aren't offered it as an update.
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$ ]] || {
+            echo "Use a version tag like v0.1.0 (or v0.1.0-rc1 for a release candidate)" >&2; exit 1;
           }
           gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq .ref >/dev/null
           # Reuse the release on reruns. GitHub requires assets to be attached
@@ -45,7 +47,7 @@ jobs:
             echo "Reusing release $id"
           else
             id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
-                   -f tag_name="${TAG}" -f name="Mayhem ${TAG}" -F draft=true \
+                   -f tag_name="${TAG}" -f name="Mayhem ${TAG}" -F draft=true -F prerelease="$([[ "$TAG" == *-rc* ]] && echo true || echo false)" \
                    -f body="Download the installer for your system below: .dmg for macOS (choose Apple Silicon or Intel), -setup.exe for Windows, or .AppImage or .deb for Linux.
 
           Mayhem 0.6.0 and later update themselves: the app offers new releases in a banner (or Settings, About & updates).
@@ -291,5 +293,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
+          if [[ "$TAG" == *-rc* ]]; then
+            gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false --prerelease --latest=false
+          else
+            gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
+          fi
           gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
