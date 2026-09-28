@@ -94,8 +94,12 @@ jobs:
       - run: pnpm build
 
   desktop:
-    name: Tauri shell (cargo check + clippy)
-    runs-on: macos-latest
+    name: Tauri shell (clippy, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: app/src-tauri
@@ -110,9 +114,11 @@ jobs:
       # tauri-build insists the externalBin exists; a placeholder is enough to type-check.
       # Also needs ../dist to exist for generate_context!().
       - name: Placeholder sidecar + frontend dist
+        shell: bash
         run: |
           triple="$(rustc -vV | sed -n 's/^host: //p')"
+          ext=""; [[ "$triple" == *windows* ]] && ext=".exe"
           mkdir -p binaries ../dist
-          touch "binaries/mayhem-solver-$triple" ../dist/index.html
-          chmod +x "binaries/mayhem-solver-$triple"
+          touch "binaries/mayhem-solver-$triple$ext" ../dist/index.html
+          chmod +x "binaries/mayhem-solver-$triple$ext"
       - run: cargo clippy --locked -- -D warnings

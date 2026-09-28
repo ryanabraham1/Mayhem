@@ -27,12 +27,13 @@ cd lib
 
 This command does two things:
 
-1. It publishes the jar, sources, and javadoc to `~/wpilib/2026/maven`. GradleRIO always searches
-   that directory, so you don't need to add a repository.
+1. It publishes the jar, sources, and javadoc to the WPILib install's maven directory,
+   `~/wpilib/2026/maven` (on Windows, `C:\Users\Public\wpilib\2026\maven`). GradleRIO always
+   searches that directory, so you don't need to add a repository.
 2. It writes `vendordeps/MayhemLib.json` into your robot project.
 
 Run it again after you update MayhemLib. Every machine that builds robot code needs the artifact in
-its `~/wpilib/2026/maven`, so run the command on each machine or use option B.
+that maven directory, so run the command on each machine or use option B.
 
 To publish without touching a robot project, leave off `-ProbotProject`. To change the version,
 add `-PmayhemVersion=2026.3.0`.
@@ -47,7 +48,8 @@ cd lib
 
 You have two ways to share the result:
 
-- Copy `build/repos/releases/mayhemlib/` into `~/wpilib/2026/maven/` on every machine.
+- Copy `build/repos/releases/mayhemlib/` into `~/wpilib/2026/maven/` (Windows:
+  `C:\Users\Public\wpilib\2026\maven\`) on every machine.
 - Host `build/repos/releases/` somewhere (GitHub Pages works), then commit the generated
   `MayhemLib.json`. Its `mavenUrls` points at the hosted repository, so GradleRIO downloads the
   library the way it does for any other vendordep.

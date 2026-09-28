@@ -15,8 +15,12 @@
 //! SIGTERM, and whatever survives that is SIGKILLed by the shell plugin right after us.
 //!
 //! Even without this hook the Python server exits once its stdin closes (which happens when
-//! this process dies, however it dies), so this is about cleanliness, not correctness. On
-//! Windows nothing extra is done; the shell plugin's TerminateProcess + stdin EOF handle it.
+//! this process dies, however it dies), so this is about cleanliness, not correctness.
+//!
+//! Windows has no SIGINT to send, so there the UI does it instead: closing the window and
+//! installing an update both send the solver a `shutdown` request and wait for it to exit
+//! (`Backend.shutdown` in app/src/backend.ts). That path works on every platform; this hook
+//! covers the exits it doesn't see, such as Cmd+Q on macOS.
 
 use std::time::Duration;
 

@@ -110,3 +110,38 @@ def test_subprocess_job_mode_solves_and_cancels(tmp_path):
     finally:
         proc.stdin.close()
         proc.wait(timeout=10)
+
+
+def test_shutdown_exits_and_non_ascii_names_roundtrip(tmp_path):
+    """The app stops the solver with `shutdown` (so onefile builds clean up), and stdio is UTF-8
+    regardless of the platform's default encoding."""
+    proc = subprocess.Popen([sys.executable, "-m", "mayhem_solver", "serve"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, encoding="utf-8", bufsize=1)
+    try:
+        def call(i, method, **params):
+            proc.stdin.write(json.dumps({"id": i, "method": method, "params": params}, ensure_ascii=False) + "\n")
+            proc.stdin.flush()
+
+        def read_until(pred, timeout=60):
+            end = time.time() + timeout
+            while time.time() < end:
+                msg = json.loads(proc.stdout.readline())
+                if pred(msg):
+                    return msg
+            raise TimeoutError
+
+        read_until(lambda m: m.get("method") == "ready")
+        call(1, "createProject", dir=str(tmp_path / "proj"))
+        opened = read_until(lambda m: m.get("id") == 1)["result"]
+        t = Trajectory(name="Départ ▸ Trench", waypoints=[wp(0, 2, 2), wp(1, 6, 6)])
+        call(2, "saveTrajectory", dir=opened["dir"], trajectory=t.model_dump(by_alias=True, mode="json"))
+        saved = read_until(lambda m: m.get("id") == 2)["result"]
+        assert saved.endswith("Départ ▸ Trench.mtraj")
+        call(3, "openProject", dir=opened["dir"])
+        assert read_until(lambda m: m.get("id") == 3)["result"]["trajectories"][0]["name"] == "Départ ▸ Trench"
+        call(4, "shutdown")
+        assert read_until(lambda m: m.get("id") == 4)["result"] is True
+        assert proc.wait(timeout=10) == 0  # exits without stdin being closed
+    finally:
+        if proc.poll() is None:
+            proc.kill()

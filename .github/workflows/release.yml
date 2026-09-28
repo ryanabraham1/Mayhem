@@ -46,13 +46,15 @@ jobs:
           else
             id="$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
                    -f tag_name="${TAG}" -f name="Mayhem ${TAG}" -F draft=true \
-                   -f body="Download the installer for your system below: .dmg for macOS (choose Apple Silicon or Intel), or .AppImage or .deb for Linux.
+                   -f body="Download the installer for your system below: .dmg for macOS (choose Apple Silicon or Intel), -setup.exe for Windows, or .AppImage or .deb for Linux.
 
           Mayhem 0.6.0 and later update themselves: the app offers new releases in a banner (or Settings, About & updates).
 
+          The Windows installer is not code-signed. If SmartScreen stops it, click More info, then Run anyway.
+
           macOS builds are not notarized. After dragging Mayhem.app into Applications, run \`xattr -dr com.apple.quarantine /Applications/Mayhem.app\` if macOS blocks the first launch.
 
-          For MayhemLib, unzip \`MayhemLib-maven.zip\` into \`~/wpilib/2026/maven\` and copy \`MayhemLib.json\` into your robot project's \`vendordeps/\`." \
+          For MayhemLib, unzip \`MayhemLib-maven.zip\` into \`~/wpilib/2026/maven\` (Windows: \`C:\\Users\\Public\\wpilib\\2026\\maven\`) and copy \`MayhemLib.json\` into your robot project's \`vendordeps/\`." \
                    --jq .id)"
           fi
           echo "id=$id" >> "$GITHUB_OUTPUT"
@@ -74,6 +76,10 @@ jobs:
           - name: Linux x64
             os: ubuntu-22.04
             bundles: appimage,deb
+          # NSIS only: a per-user install (no admin prompt) that the updater can run silently.
+          - name: Windows x64
+            os: windows-latest
+            bundles: nsis
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -140,7 +146,7 @@ jobs:
         id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signs the auto-update artifacts (.app.tar.gz, .AppImage, .deb -> .sig). The matching
+          # Signs the auto-update artifacts (.app.tar.gz, .AppImage, .deb, -setup.exe -> .sig). The matching
           # public key is plugins.updater.pubkey in tauri.conf.json.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -167,6 +173,7 @@ jobs:
             app/src-tauri/target/release/bundle/macos/*.app.tar.gz
             app/src-tauri/target/release/bundle/appimage/*.AppImage
             app/src-tauri/target/release/bundle/deb/*.deb
+            app/src-tauri/target/release/bundle/nsis/*-setup.exe
             app/src-tauri/target/release/bundle/*/*.sig
           if-no-files-found: warn
 
@@ -216,7 +223,7 @@ jobs:
           assets="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
           printf '%s\n' "$assets"
           [ "$(printf '%s\n' "$assets" | grep -cE '\.dmg$')" -ge 2 ]
-          for pattern in '\.AppImage$' '\.deb$' '^MayhemLib-maven\.zip$' '^MayhemLib\.json$'; do
+          for pattern in '\.AppImage$' '\.deb$' '_x64-setup\.exe$' '^MayhemLib-maven\.zip$' '^MayhemLib\.json$'; do
             printf '%s\n' "$assets" | grep -qE "$pattern"
           done
 
@@ -255,6 +262,7 @@ jobs:
               ("darwin-x86_64", "darwin-x86_64-app"): "*x64*.app.tar.gz.sig",
               ("linux-x86_64", "linux-x86_64-appimage"): "*amd64.AppImage.sig",
               ("linux-x86_64-deb",): "*amd64.deb.sig",
+              ("windows-x86_64", "windows-x86_64-nsis"): "*x64-setup.exe.sig",
           }
           platforms = {}
           for keys, pattern in wanted.items():

@@ -68,11 +68,11 @@ def main(argv: list[str] | None = None) -> int:
         from .rpc import PROJECT_FILE, TRAJ_EXT
 
         d = Path(args.project_dir)
-        project = Project.model_validate_json((d / PROJECT_FILE).read_text())
+        project = Project.model_validate_json((d / PROJECT_FILE).read_text(encoding="utf-8"))
         files = sorted(d.glob("*" + TRAJ_EXT))
         failed = 0
         for f in files:
-            traj = Trajectory.model_validate_json(f.read_text())
+            traj = Trajectory.model_validate_json(f.read_text(encoding="utf-8"))
             if args.names and traj.name not in args.names:
                 continue
             t0 = time.monotonic()
@@ -80,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
             dt = time.monotonic() - t0
             if res.success:
                 traj.output = res.output
-                f.write_text(json.dumps(traj.model_dump(by_alias=True, mode="json"), indent=1))
+                f.write_text(json.dumps(traj.model_dump(by_alias=True, mode="json"), indent=1), encoding="utf-8")
                 print(f"OK    {traj.name:<24} {res.output.stats.total_time:6.2f}s path  ({dt:.1f}s solve)")
             else:
                 failed += 1

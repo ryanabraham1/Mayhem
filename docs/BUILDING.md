@@ -20,7 +20,8 @@ connects to `ws://127.0.0.1:8765` instead (override with `VITE_SOLVER_WS`).
 - Rust stable (`rustup` or Homebrew)
 - JDK 17+ for `lib/`
 - Linux only, for Tauri: `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev build-essential file`
-- Windows only: WebView2 (preinstalled on Windows 11) and the MSVC build tools
+- Windows only: WebView2 (preinstalled on Windows 10 and 11), the MSVC build tools
+  ("Desktop development with C++" in the Visual Studio installer) and PowerShell 7 (`pwsh`)
 
 ## Development
 
@@ -47,6 +48,8 @@ solver code changes):
 scripts/build-sidecar.sh          # -> app/src-tauri/binaries/mayhem-solver-<target-triple>
 cd app && pnpm tauri dev          # starts `pnpm dev` itself, then opens the window
 ```
+
+On Windows, run `pwsh scripts/build-sidecar.ps1` instead of the `.sh` script.
 
 If a Vite dev server is already running on 5173, reuse it:
 `pnpm tauri dev --config '{"build":{"beforeDevCommand":""}}'`.
@@ -91,6 +94,14 @@ cancels the running solve jobs and exits, and the bootloader removes the temp di
 the server always exits when its stdin closes, so a crashed or force-killed app doesn't leave
 solvers running either.
 
+Windows has no SIGINT for this, and tauri-plugin-shell's `TerminateProcess` would leave the
+temp dir behind. The updater also exits the app there without running `RunEvent::Exit` hooks,
+and a still-running `mayhem-solver.exe` makes the installer fail. So the UI stops the solver
+itself: closing the window and installing an update both call `Backend.shutdown()`
+(`app/src/backend.ts`), which sends a `shutdown` request. The server cancels its solve jobs,
+waits for them, replies and exits. This runs on every platform; the SIGINT hook covers exits
+the UI doesn't see, such as Cmd+Q on macOS.
+
 ## Release builds
 
 Everything at once (sidecar, then desktop bundles, then MayhemLib), with artifact paths printed
@@ -104,7 +115,7 @@ Or one piece at a time:
 
 ```sh
 scripts/build-sidecar.sh
-cd app && pnpm tauri build                  # macOS: --bundles app,dmg   Linux: --bundles appimage,deb
+cd app && pnpm tauri build                  # macOS: --bundles app,dmg   Linux: --bundles appimage,deb   Windows: --bundles nsis
 cd lib && ./gradlew build vendordepJson publishJavaPublicationToLocalRepository
 ```
 
@@ -112,7 +123,7 @@ Outputs:
 
 - `app/src-tauri/target/release/bundle/macos/Mayhem.app`, `dmg/Mayhem_<ver>_<arch>.dmg`
 - `.../bundle/appimage/*.AppImage`, `.../bundle/deb/*.deb`
-- `.../bundle/nsis/*-setup.exe`, `.../bundle/msi/*.msi`
+- `.../bundle/nsis/Mayhem_<ver>_x64-setup.exe`
 - `lib/build/repos/releases/` (maven repo; `build-all.sh` also zips it to `lib/build/repos/MayhemLib-maven.zip`),
   `lib/build/vendordeps/MayhemLib.json`
 
@@ -135,6 +146,11 @@ Notes:
   differ in major.minor. Both are on 2.11. `app/src-tauri/Cargo.toml` pins the tauri crate
   family (`tauri`, `tauri-runtime(-wry)`, `tauri-utils`, `tauri-macros`, `tauri-build`) to
   2.11-compatible versions, so bump those together with `@tauri-apps/api`.
+- **Windows installer.** Releases ship the NSIS installer only. It installs per user, needs no
+  admin rights, installs WebView2 if it's missing, and is what the updater runs. It isn't
+  code-signed, so SmartScreen warns on first run.
+- **Windows file encoding.** The solver reads and writes project files as UTF-8 and switches its
+  stdio to UTF-8. Python's default on Windows is the ANSI code page, which garbles non-ASCII names.
 - **Cross-compiling.** Not supported. Each platform's sidecar has to be frozen on that
   platform, which is why CI uses a build matrix.
 
@@ -144,11 +160,11 @@ Notes:
 
 | Job | What it runs |
 |-----|--------------|
-| `solver` | `uv run pytest -q` on ubuntu-latest and macos-latest |
-| `sidecar` | Frozen solver + stdio smoke solve on Ubuntu and macOS |
+| `solver` | `uv run pytest -q` on Ubuntu, macOS and Windows |
+| `sidecar` | Frozen solver + stdio smoke solve + `shutdown` on Ubuntu, macOS and Windows |
 | `java` | `./gradlew test` on JDK 17 |
-| `frontend` | `pnpm install --frozen-lockfile && pnpm build` (`tsc -b` typecheck + Vite build) |
-| `desktop` | `cargo clippy --locked -D warnings` for the Tauri shell (placeholder sidecar) |
+| `frontend` | `pnpm test`, then `pnpm build` (`tsc -b` typecheck + Vite build) |
+| `desktop` | `cargo clippy --locked -D warnings` for the Tauri shell on macOS and Windows (placeholder sidecar) |
 
 `.github/workflows/release.yml` runs when a version tag such as `v0.1.0` is pushed, or by
 manual dispatch with an existing tag:
@@ -160,7 +176,7 @@ manual dispatch with an existing tag:
    - macOS arm64 (`macos-latest`): `.app` (tar.gz) + `.dmg`
    - macOS x64 (`macos-15-intel`, since GitHub retired `macos-13`): `.app` + `.dmg`
    - Linux x64 (`ubuntu-22.04`, for older glibc): `.AppImage` + `.deb`
-   Windows installers are pending a fix for the frozen solver worker on Windows.
+   - Windows x64 (`windows-latest`): NSIS `-setup.exe`
 3. `mayhemlib` runs `./gradlew build vendordepJson publishJavaPublicationToLocalRepository`
    and attaches `MayhemLib-maven.zip` and `MayhemLib.json`.
 4. `publish` checks that the installers and MayhemLib files are present, writes the
@@ -206,6 +222,7 @@ What each platform updates from (`latest.json` target keys):
 |---|---|---|
 | macOS `.app` | `darwin-aarch64`, `darwin-x86_64` | `Mayhem_<arch>.app.tar.gz` (replaces the bundle in place) |
 | Linux AppImage | `linux-x86_64` | the `.AppImage` itself |
+| Windows | `windows-x86_64`, `windows-x86_64-nsis` | the NSIS `-setup.exe`, run in passive mode (progress bar, no prompts); the app exits while it runs and restarts afterwards |
 | Linux `.deb` | `linux-x86_64-deb` | the `.deb`, installed with `pkexec dpkg -i` (asks for a password) |
 
 Local `pnpm tauri build` fails without the key because `bundle.createUpdaterArtifacts` is on.
@@ -221,6 +238,7 @@ and launch it.
 
 ## MayhemLib from a release
 
-To use MayhemLib from a release, unzip `MayhemLib-maven.zip` into `~/wpilib/2026/maven` and copy
+To use MayhemLib from a release, unzip `MayhemLib-maven.zip` into `~/wpilib/2026/maven` (Windows:
+`C:\Users\Public\wpilib\2026\maven`) and copy
 `MayhemLib.json` into the robot project's `vendordeps/`. Or run
 `cd lib && ./gradlew installVendordep -ProbotProject=/path/to/robot` from a checkout.

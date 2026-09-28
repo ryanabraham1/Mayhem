@@ -16,6 +16,11 @@ export async function pickFolder(title: string): Promise<string | null> {
   });
 }
 
+const joinPath = (dir: string, name: string) => {
+  const sep = /^[a-z]:|^\\\\/i.test(dir) ? "\\" : "/";
+  return dir.replace(/[\\/]+$/, "") + sep + name;
+};
+
 // Browser-mode folder picker (the Tauri build uses the native dialog).
 const folderPickerResolve: { current: ((v: string | null) => void) | null } = { current: null };
 const openListeners = new Set<() => void>();
@@ -67,7 +72,7 @@ export function FolderPickerModal() {
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <input className="input" placeholder="New folder name (optional)" value={newName} onChange={(e) => setNewName(e.target.value)} />
-            <button className="btn primary" onClick={() => close(newName ? `${path.replace(/\/$/, "")}/${newName}` : path)}>Choose</button>
+            <button className="btn primary" onClick={() => close(newName ? joinPath(path, newName) : path)}>Choose</button>
           </div>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { CheckCircle2, Info, OctagonAlert, X } from "lucide-react";
-import { useStore } from "./store";
+import { backend, isTauri } from "./backend";
+import { flushSaves, useStore } from "./store";
 import { TopBar } from "./components/TopBar";
 import { Sidebar } from "./components/Sidebar";
 import { Toolstrip } from "./components/Toolstrip";
@@ -21,6 +22,18 @@ export default function App() {
     try {
       if (localStorage.getItem("mayhem.theme") === "dark") document.documentElement.setAttribute("data-theme", "dark");
     } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    // Save pending edits, then stop the solver ourselves instead of letting Tauri kill it
+    // (see Backend.shutdown). The window closes once this resolves.
+    const unlisten = import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
+      getCurrentWindow().onCloseRequested(async () => {
+        await Promise.race([flushSaves().catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
+        await backend.shutdown(3000);
+      }));
+    return () => void unlisten.then((fn) => fn());
   }, []);
 
   useEffect(() => {

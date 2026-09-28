@@ -19,5 +19,5 @@ def export(out_dir: str | Path) -> Path:
         title="Mayhem",
     )
     path = out / "mayhem.schema.json"
-    path.write_text(json.dumps(schema, indent=2))
+    path.write_text(json.dumps(schema, indent=2), encoding="utf-8")
     return path

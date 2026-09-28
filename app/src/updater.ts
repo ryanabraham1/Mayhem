@@ -7,7 +7,7 @@ import { create } from "zustand";
 import { getVersion } from "@tauri-apps/api/app";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { isTauri } from "./backend";
+import { backend, isTauri } from "./backend";
 import { flushSaves, useStore } from "./store";
 
 export const RELEASES_URL = "https://github.com/ryanabraham1/Mayhem/releases";
@@ -79,15 +79,22 @@ export async function installUpdate() {
   const app = useStore.getState();
   if (app.generatingAll || Object.values(app.solves).some((s) => s.status === "solving")) app.cancelGeneration();
   useUpdater.setState({ phase: "downloading", downloaded: 0, total: null, error: null, dismissed: false });
+  let solverStopped = false;
   try {
     await flushSaves();
-    await update.downloadAndInstall((ev) => {
+    await update.download((ev) => {
       if (ev.event === "Started") useUpdater.setState({ total: ev.data.contentLength ?? null });
       else if (ev.event === "Progress") useUpdater.setState((s) => ({ downloaded: s.downloaded + ev.data.chunkLength }));
     });
     useUpdater.setState({ phase: "restarting" });
+    // The Windows installer can't replace mayhem-solver.exe while it runs, and install() exits
+    // the app there without the usual shutdown hooks, so stop the solver first.
+    await backend.shutdown();
+    solverStopped = true;
+    await update.install();
     await relaunch();
   } catch (e: any) {
+    if (solverStopped) void backend.connect();
     useUpdater.setState({ phase: "error", error: String(e?.message ?? e) });
   }
 }

@@ -133,6 +133,16 @@ export async function flushSaves() {
   await Promise.all(pending.map((p) => p.run()));
 }
 
+const trimDir = (d: string) => d.trim().replace(/[\\/]+$/, "");
+
+/** Compares folder paths the way Windows does too: either separator, any case there. */
+export function sameDir(a: string, b: string | null | undefined) {
+  if (b == null) return false;
+  const norm = (d: string) => trimDir(d).replace(/\\/g, "/");
+  const [x, y] = [norm(a), norm(b)];
+  return /^[a-z]:/i.test(x) || x.startsWith("//") ? x.toLowerCase() === y.toLowerCase() : x === y;
+}
+
 export const RECENTS_KEY = "mayhem.recentProjects";
 
 export function recentProjects(): string[] {
@@ -178,16 +188,16 @@ export const useStore = create<State & Actions>()(
     // Generated paths are copied there on every save, so there is no separate deploy step.
     const deployDir = () => {
       const { dir, project } = get();
-      const d = project?.deployDir.trim().replace(/\/+$/, "");
-      return d && d !== dir?.replace(/\/+$/, "") ? d : null;
+      const d = project && trimDir(project.deployDir);
+      return d && !sameDir(d, dir) ? d : null;
     };
 
     const saveTraj = (name: string) => {
       const { dir, project, trajectories, stale } = get();
       const t = trajectories[name];
       if (!dir || !project || !t) return;
-      const target = project.deployDir.trim().replace(/\/+$/, "");
-      const mirror = !!t.output && !stale[name] && !!target && target !== dir.replace(/\/+$/, "");
+      const target = trimDir(project.deployDir);
+      const mirror = !!t.output && !stale[name] && !!target && !sameDir(target, dir);
       scheduleSave(`t:${dir}:${name}`, async () => {
         await backend.call("saveTrajectory", { dir, trajectory: t });
         if (mirror) {

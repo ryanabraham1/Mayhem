@@ -3,9 +3,9 @@
 
     python3 scripts/smoke-sidecar.py app/src-tauri/binaries/mayhem-solver-<triple>
 
-Checks: time to the "ready" line, ping, fields, defaultProject, and a real solve that must
-end in a successful solveDone (this exercises the multiprocessing "spawn" workers, which
-re-exec the frozen binary). Exits non-zero on any failure. Stdlib only.
+Checks: time to the "ready" line, ping, fields, defaultProject, a real solve that must
+end in a successful solveDone (this exercises the solve workers, which re-exec the frozen
+binary), and that `shutdown` makes it exit. Exits non-zero on any failure. Stdlib only.
 """
 
 from __future__ import annotations
@@ -97,14 +97,20 @@ def main() -> int:
                     print(m["params"].get("trace", ""), file=sys.stderr)
                     return 1
                 break
+        # The app stops the solver this way on quit and before installing an update.
+        assert call(5, "shutdown") is True
+        code = p.wait(timeout=15)
+        assert code == 0, f"solver exited with {code} after shutdown"
+        print("shutdown: exited cleanly")
         print("SMOKE TEST PASSED")
         return 0
     finally:
-        try:
-            p.stdin.close()  # EOF -> server shuts down
-            p.wait(timeout=10)
-        except Exception:
-            p.kill()
+        if p.poll() is None:
+            try:
+                p.stdin.close()  # EOF -> server shuts down
+                p.wait(timeout=10)
+            except Exception:
+                p.kill()
 
 
 if __name__ == "__main__":

@@ -186,3 +186,14 @@ describe("recentProjects", () => {
     }
   });
 });
+
+describe("sameDir", () => {
+  it("ignores trailing separators and, for Windows paths, separator style and case", async () => {
+    const { sameDir } = await import("./store");
+    expect(sameDir("/robot/deploy/", "/robot/deploy")).toBe(true);
+    expect(sameDir("/Robot/deploy", "/robot/deploy")).toBe(false);
+    expect(sameDir("C:\\Robot\\deploy\\", "c:/robot/deploy")).toBe(true);
+    expect(sameDir("C:\\robot\\deploy", "C:\\robot\\src")).toBe(false);
+    expect(sameDir("C:\\robot", null)).toBe(false);
+  });
+});

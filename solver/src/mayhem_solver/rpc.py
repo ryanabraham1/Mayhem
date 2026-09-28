@@ -66,6 +66,7 @@ def solve_job_stdio() -> None:
     (Windows). Reads one JSON line {"project", "trajectory"}; writes JSON lines
     {"kind": "progress"|"done", "payload": ...}. Candidates are solved sequentially.
     """
+    _utf8_stdio()
     out = sys.stdout
     sys.stdout = sys.stderr
     lock = threading.Lock()
@@ -133,6 +134,14 @@ class SubprocessJob:
         if self.proc.poll() is None:
             self.proc.kill()
 
+    def wait(self, timeout: float):
+        import subprocess
+
+        try:
+            self.proc.wait(timeout)
+        except subprocess.TimeoutExpired:
+            pass
+
 
 class Job:
     def __new__(cls, *args, **kwargs):
@@ -182,6 +191,9 @@ class Job:
         if self.proc.is_alive():
             self.proc.terminate()
 
+    def wait(self, timeout: float):
+        self.proc.join(timeout)
+
 
 # ---------------------------------------------------------------------------
 # method handlers
@@ -192,7 +204,7 @@ def list_fields() -> list[dict]:
     out = []
     for f in sorted(resources.files("mayhem_solver").joinpath("fields").iterdir(), key=lambda p: p.name):
         if f.name.endswith(".json"):
-            out.append(Field_.model_validate_json(f.read_text()).dump())
+            out.append(Field_.model_validate_json(f.read_text(encoding="utf-8")).dump())
     return out
 
 
@@ -260,11 +272,11 @@ class Server:
         pf = d / PROJECT_FILE
         if not pf.exists():
             raise FileNotFoundError(f"No {PROJECT_FILE} in {d}")
-        project = Project.model_validate_json(pf.read_text())
+        project = Project.model_validate_json(pf.read_text(encoding="utf-8"))
         trajs = []
         for f in sorted(d.glob("*" + TRAJ_EXT)):
             try:
-                trajs.append(Trajectory.model_validate_json(f.read_text()).model_dump(by_alias=True, mode="json"))
+                trajs.append(Trajectory.model_validate_json(f.read_text(encoding="utf-8")).model_dump(by_alias=True, mode="json"))
             except Exception as e:
                 trajs.append({"name": f.stem, "error": str(e)})
         return {"dir": str(d.resolve()), "project": project.dump(), "trajectories": trajs}
@@ -276,18 +288,18 @@ class Server:
         if pf.exists():
             raise FileExistsError(f"{pf} already exists")
         proj = Project.model_validate(project) if project else Project.model_validate(self.m_defaultProject())
-        pf.write_text(json.dumps(proj.dump(), indent=2))
+        pf.write_text(json.dumps(proj.dump(), indent=2), encoding="utf-8")
         return self.m_openProject(str(d))
 
     def m_saveProject(self, dir: str, project: dict):
         proj = Project.model_validate(project)
-        (Path(dir).expanduser() / PROJECT_FILE).write_text(json.dumps(proj.dump(), indent=2))
+        (Path(dir).expanduser() / PROJECT_FILE).write_text(json.dumps(proj.dump(), indent=2), encoding="utf-8")
         return True
 
     def m_saveTrajectory(self, dir: str, trajectory: dict):
         traj = Trajectory.model_validate(trajectory)
         path = Path(dir).expanduser() / (_safe_name(traj.name) + TRAJ_EXT)
-        path.write_text(json.dumps(traj.model_dump(by_alias=True, mode="json"), indent=1))
+        path.write_text(json.dumps(traj.model_dump(by_alias=True, mode="json"), indent=1), encoding="utf-8")
         return str(path)
 
     def m_deleteTrajectory(self, dir: str, name: str):
@@ -303,9 +315,9 @@ class Server:
         if dst.exists():
             raise FileExistsError(f"A trajectory named {new!r} already exists")
         if src.exists():
-            data = json.loads(src.read_text())
+            data = json.loads(src.read_text(encoding="utf-8"))
             data["name"] = new
-            dst.write_text(json.dumps(data, indent=1))
+            dst.write_text(json.dumps(data, indent=1), encoding="utf-8")
             src.unlink()
         return True
 
@@ -321,7 +333,7 @@ class Server:
                 skipped.append(traj.name)
                 continue
             path = target / (_safe_name(traj.name) + TRAJ_EXT)
-            path.write_text(json.dumps(traj.model_dump(by_alias=True, mode="json"), separators=(",", ":")))
+            path.write_text(json.dumps(traj.model_dump(by_alias=True, mode="json"), separators=(",", ":")), encoding="utf-8")
             written.append(str(path))
         return {"dir": str(target), "written": written, "skipped": skipped}
 
@@ -360,9 +372,19 @@ class Server:
             job.cancel()
         return True
 
-    def shutdown(self):
-        for job in self.jobs.values():
+    def m_shutdown(self):
+        """Stop all solves and wait for their processes. Over stdio the server then exits (see
+        serve_stdio), which lets the app stop the solver without killing it."""
+        self.shutdown(wait=True)
+        return True
+
+    def shutdown(self, wait: bool = False):
+        jobs = list(self.jobs.values())
+        for job in jobs:
             job.cancel()
+        if wait:
+            for job in jobs:
+                job.wait(5)
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +392,16 @@ class Server:
 # ---------------------------------------------------------------------------
 
 
+def _utf8_stdio():
+    # The app sends UTF-8. Without this, Windows decodes pipes with the ANSI code page (cp1252),
+    # which garbles non-ASCII trajectory and folder names.
+    for stream in (sys.stdin, sys.stdout):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 def serve_stdio():
+    _utf8_stdio()
     lock = threading.Lock()
     out = sys.stdout
     # keep stray prints (e.g. from native libs) off the protocol channel
@@ -383,6 +414,15 @@ def serve_stdio():
             out.flush()
 
     server = Server(send)
+
+    def run(msg: dict):
+        server.handle(msg)
+        if msg.get("method") == "shutdown":
+            # The app asks for this before it quits or installs an update, instead of killing
+            # us: a PyInstaller onefile bootloader only deletes its unpacked temp dir when Python
+            # exits by itself, and on Windows a running mayhem-solver.exe can't be replaced.
+            os._exit(0)
+
     send({"method": "ready", "params": server.m_ping()})
     try:
         for line in sys.stdin:
@@ -393,7 +433,7 @@ def serve_stdio():
                 msg = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            threading.Thread(target=server.handle, args=(msg,), daemon=True).start()
+            threading.Thread(target=run, args=(msg,), daemon=True).start()
     finally:
         server.shutdown()
 

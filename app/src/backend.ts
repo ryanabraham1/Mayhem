@@ -90,10 +90,14 @@ export class Backend {
   // True from the start of a connection attempt until that connection closes. React StrictMode
   // mounts effects twice in dev, so this keeps us to a single solver process / socket.
   private live = false;
+  // Set by shutdown(); stops the automatic restart when the solver exits.
+  private stopped = false;
+  private sidecar: { kill(): Promise<void>; closed: Promise<void> } | null = null;
 
   async connect() {
     if (this.live) return;
     this.live = true;
+    this.stopped = false;
     this.setStatus("connecting");
     try {
       await this.doConnect();
@@ -101,7 +105,7 @@ export class Backend {
       console.error("[solver] failed to start", e);
       this.live = false;
       this.setStatus("down");
-      setTimeout(() => this.connect(), 2000);
+      if (!this.stopped) setTimeout(() => this.connect(), 2000);
     }
   }
 
@@ -115,16 +119,42 @@ export class Backend {
     const cmd = Command.sidecar("binaries/mayhem-solver", ["serve"]);
     cmd.stdout.on("data", (d: string) => this.feed(d.endsWith("\n") ? d : d + "\n"));
     cmd.stderr.on("data", (d: string) => console.debug("[solver]", d));
+    let onClosed = () => {};
+    const closed = new Promise<void>((resolve) => { onClosed = resolve; });
     cmd.on("close", () => {
       this.live = false;
       this.sendLine = null;
+      this.sidecar = null;
+      onClosed();
       this.setStatus("down");
       this.failAll("Solver exited");
-      setTimeout(() => this.connect(), 1500);
+      if (!this.stopped) setTimeout(() => this.connect(), 1500);
     });
     cmd.on("error", (e) => console.error("[solver]", e));
     const child = await cmd.spawn();
     this.sendLine = (line) => void child.write(line + "\n");
+    this.sidecar = { kill: () => child.kill(), closed };
+  }
+
+  /**
+   * Asks the bundled solver to exit and waits for it, rather than leaving Tauri to kill it on
+   * quit. Killing the PyInstaller onefile binary leaves its unpacked temp dir (~170 MB) behind,
+   * and on Windows a running mayhem-solver.exe stops the update installer from replacing it.
+   * Nothing restarts the solver afterwards until `connect()` is called.
+   */
+  async shutdown(timeoutMs = 5000) {
+    this.stopped = true;
+    const sidecar = this.sidecar;
+    if (!sidecar) return;
+    // Written directly: call() would queue it while the solver is still starting up.
+    this.sendLine?.(JSON.stringify({ id: this.nextId++, method: "shutdown", params: {} }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const exited = await Promise.race([
+      sidecar.closed.then(() => true),
+      new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+    ]);
+    clearTimeout(timer);
+    if (!exited) await sidecar.kill().catch(() => {});
   }
 
   private connectWs() {

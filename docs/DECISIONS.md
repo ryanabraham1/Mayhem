@@ -6,7 +6,7 @@ Standing product and engineering decisions for Mayhem. Check here before changin
 
 - **Season:** 2026, game REBUILT, WPILib 2026 on roboRIO 2 (Java 17). SystemCore / WPILib 2027 comes later; nothing may depend on 2027.
 - **Robot:** CTRE Phoenix 6 swerve (Tuner X `CommandSwerveDrivetrain`), AprilTag-fused pose, no coprocessor.
-- **Platforms:** macOS and Linux first. Windows is supported where it's cheap (solver runs solve jobs as child processes there).
+- **Platforms:** macOS, Windows (x64, NSIS installer) and Linux. On Windows the solver runs solve jobs as child processes instead of multiprocessing, and the app stops the solver with a `shutdown` request rather than killing it, so updates can replace `mayhem-solver.exe`.
 - **Libraries:** use popular, maintained libraries (CasADi + IPOPT, shapely, networkx, pydantic). Don't write our own optimizer.
 
 ## Why Mayhem exists
