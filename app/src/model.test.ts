@@ -96,3 +96,56 @@ describe("reorderWaypoint", () => {
     expect(t.markers[0].waypoint).toBe(0);
   });
 });
+
+describe("deleteWaypoint", () => {
+  const setup = async () => {
+    const m = await import("./model");
+    const t = m.newTrajectory("x");
+    t.waypoints = [0, 1, 2, 3].map((x) => m.newWaypoint(x, 0));
+    t.waypoints[3].stop = true;
+    return { m, t };
+  };
+
+  it("drops constraints scoped only to the deleted waypoint and shifts the rest", async () => {
+    const { m, t } = await setup();
+    const at2 = m.newConstraint("maxVelocity", 4, undefined, 2, 2);
+    const span = m.newConstraint("maxVelocity", 4, undefined, 1, 3);
+    const after = m.newConstraint("maxVelocity", 4, undefined, 3, 3);
+    t.constraints = [at2, span, after];
+    m.deleteWaypoint(t, 2);
+    expect(t.constraints.map((c) => c.id)).toEqual([span.id, after.id]);
+    expect([span.scope.from, span.scope.to]).toEqual([1, 2]);
+    expect([after.scope.from, after.scope.to]).toEqual([2, 2]);
+    for (const c of t.constraints) expect(c.scope.from).toBeLessThanOrEqual(c.scope.to);
+  });
+
+  it("keeps every constraint inside the path when the last waypoint goes", async () => {
+    const { m, t } = await setup();
+    const range = m.newConstraint("maxVelocity", 4, undefined, 0, 3);
+    t.constraints = [range];
+    m.deleteWaypoint(t, 3);
+    expect([range.scope.from, range.scope.to]).toEqual([0, 2]);
+    expect(t.waypoints[2].stop).toBe(true);
+  });
+
+  it("drops markers at the waypoint and shifts marker zones", async () => {
+    const { m, t } = await setup();
+    const gone = m.newMarker(2);
+    const zone = { ...m.newMarker(1), endWaypoint: 3 };
+    const endsHere = { ...m.newMarker(0), endWaypoint: 2 };
+    t.markers = [gone, zone, endsHere];
+    m.deleteWaypoint(t, 2);
+    expect(t.markers.map((x) => x.id)).toEqual([zone.id, endsHere.id]);
+    expect([zone.waypoint, zone.endWaypoint]).toEqual([1, 2]);
+    expect([endsHere.waypoint, endsHere.endWaypoint]).toEqual([0, 1]);
+  });
+
+  it("leaves zone-scoped constraints alone", async () => {
+    const { m, t } = await setup();
+    const c = m.newConstraint("roughTerrain", 4);
+    c.scope = { kind: "zone", from: 0, to: 3, region: [[0, 0], [1, 0], [1, 1]] };
+    t.constraints = [c];
+    m.deleteWaypoint(t, 1);
+    expect(t.constraints).toHaveLength(1);
+  });
+});

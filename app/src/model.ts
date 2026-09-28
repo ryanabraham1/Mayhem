@@ -302,3 +302,30 @@ export function reorderWaypoint(t: Trajectory, from: number, to: number) {
     if (m.endWaypoint !== null) m.endWaypoint = newIndex[m.endWaypoint] ?? m.endWaypoint;
   }
 }
+
+/**
+ * Remove waypoint `index` (in place on a draft trajectory). Constraints and markers that only
+ * referenced it go too; the rest keep pointing at the same waypoints. The new end waypoint stops.
+ */
+export function deleteWaypoint(t: Trajectory, index: number) {
+  const n = t.waypoints.length;
+  if (index < 0 || index >= n) return;
+  t.waypoints.splice(index, 1);
+  const last = n - 2;
+  if (index === n - 1 && last >= 0) t.waypoints[last].stop = true;
+  const shift = (i: number) => (i > index ? i - 1 : i);
+  t.constraints = t.constraints.filter((c) => {
+    if (c.scope.kind === "zone") return true;
+    const to = c.scope.kind === "range" ? c.scope.to : c.scope.from;
+    if (c.scope.from === index && to === index) return false;
+    // A range that ended at the deleted waypoint now ends at the one before it.
+    c.scope.from = shift(c.scope.from);
+    c.scope.to = Math.max(c.scope.from, to === index ? index - 1 : shift(to));
+    return true;
+  });
+  t.markers = t.markers.filter((m) => m.waypoint !== index);
+  for (const m of t.markers) {
+    m.waypoint = shift(m.waypoint);
+    if (m.endWaypoint !== null) m.endWaypoint = Math.max(m.waypoint, m.endWaypoint === index ? index - 1 : shift(m.endWaypoint));
+  }
+}

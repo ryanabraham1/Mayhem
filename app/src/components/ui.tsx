@@ -13,15 +13,14 @@ export function NumberField({
     if (!focused) setText(fmt(value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, focused]);
+  const clamp = (v: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v));
   const commit = () => {
     const v = parseFloat(text);
     if (!Number.isFinite(v)) {
       setText(fmt(value));
       return;
     }
-    let c = v;
-    if (min !== undefined) c = Math.max(min, c);
-    if (max !== undefined) c = Math.min(max, c);
+    const c = clamp(v);
     if (c !== value) onChange(c);
     setText(fmt(c));
   };
@@ -40,7 +39,7 @@ export function NumberField({
           if (e.key === "ArrowUp" || e.key === "ArrowDown") {
             e.preventDefault();
             const cur = parseFloat(text) || 0;
-            const next = cur + (e.key === "ArrowUp" ? 1 : -1) * step * (e.shiftKey ? 10 : 1);
+            const next = clamp(+(cur + (e.key === "ArrowUp" ? 1 : -1) * step * (e.shiftKey ? 10 : 1)).toFixed(10));
             setText(fmt(next));
             onChange(next);
           }

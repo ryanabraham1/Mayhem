@@ -1,10 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import {
-  applyWaypointKind, centroid, circlePoints, distToSegment, footprint, intakeFootprint, intakeWaypoints, newConstraint, newObstacle, newWaypoint, resolveWaypoint,
+  applyWaypointKind, centroid, circlePoints, deleteWaypoint, distToSegment, footprint, intakeFootprint, intakeWaypoints, newConstraint, newObstacle, newWaypoint, resolveWaypoint,
   obstaclePoints, pointInPolygon, sampleAt, totalTime,
 } from "../model";
-import type { Decoration, Field, Obstacle, RobotConfig, Trajectory, Vec2 } from "../types";
+import type { Constraint, Decoration, Field, Obstacle, RobotConfig, Trajectory, Vec2 } from "../types";
 
 type Mode = "path" | "field";
 
@@ -27,6 +27,18 @@ const speedColor = (u: number) => {
   const t = Math.max(0, Math.min(1, u));
   return `hsl(${Math.round(t * 120)}, 85%, 45%)`;
 };
+
+type RegionKind = "zone" | "in" | "out";
+
+/** The polygon a constraint draws on the field (zone scope, keep-in or keep-out), if any. */
+function constraintRegion(c: Constraint): { id: string; poly: Vec2[]; kind: RegionKind } | null {
+  if (c.scope.kind === "zone" && c.scope.region.length >= 3) return { id: c.id, poly: c.scope.region, kind: "zone" };
+  if (c.data.type === "keepOut") return { id: c.id, poly: c.data.points, kind: "out" };
+  if (c.data.type === "keepIn") return { id: c.id, poly: c.data.points, kind: "in" };
+  return null;
+}
+
+const regionColor = (kind: RegionKind) => (kind === "out" ? "var(--red)" : kind === "in" ? "var(--green)" : "var(--amber)");
 
 const pts = (p: Vec2[]) => p.map(([x, y]) => `${x},${y}`).join(" ");
 
@@ -73,7 +85,7 @@ function RobotShape({ robot, x, y, h, stroke, fill = "none", dash, width = 1.5, 
   const c = Math.cos(h), s = Math.sin(h);
   const front: Vec2 = [x + c * b.front * 0.95, y + s * b.front * 0.95];
   return (
-    <g opacity={opacity}>
+    <g opacity={opacity} pointerEvents="none">
       <polygon points={pts(fp)} fill={fill} stroke={stroke} strokeWidth={width} strokeDasharray={dash} vectorEffect="non-scaling-stroke" />
       <line x1={x} y1={y} x2={front[0]} y2={front[1]} stroke={stroke} strokeWidth={width} vectorEffect="non-scaling-stroke" />
       <polyline points={pts([fp[3], front, fp[0]])} fill="none" stroke={stroke} strokeWidth={width * 1.6} vectorEffect="non-scaling-stroke" />
@@ -554,18 +566,7 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
       if ((e.key === "Delete" || e.key === "Backspace") && sel) {
         e.preventDefault();
         if (sel.kind === "waypoint" && s.selectedTraj) {
-          s.updateTraj(s.selectedTraj, (t) => {
-            t.waypoints.splice(sel.index, 1);
-            for (const c of t.constraints) {
-              if (c.scope.from > sel.index) c.scope.from -= 1;
-              if (c.scope.to >= sel.index) c.scope.to = Math.max(0, c.scope.to - 1);
-            }
-            t.markers = t.markers.filter((m) => m.waypoint !== sel.index);
-            for (const m of t.markers) {
-              if (m.waypoint > sel.index) m.waypoint -= 1;
-              if (m.endWaypoint !== null && m.endWaypoint >= sel.index) m.endWaypoint = Math.max(0, m.endWaypoint - 1);
-            }
-          });
+          s.updateTraj(s.selectedTraj, (t) => deleteWaypoint(t, sel.index));
         } else if (sel.kind === "constraint" && s.selectedTraj) {
           s.updateTraj(s.selectedTraj, (t) => { t.constraints = t.constraints.filter((c) => c.id !== sel.id); });
         } else if (sel.kind === "marker" && s.selectedTraj) {
@@ -598,6 +599,7 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
   const intakeAt = traj ? intakeWaypoints(traj, project.poses) : new Set<number>();
   const selCon = selection?.kind === "constraint" ? traj?.constraints.find((c) => c.id === selection.id) : undefined;
   const issues = solveState?.issues ?? [];
+  const selRegion = selCon ? constraintRegion(selCon) : null;
 
   const cursorClass = readOnly ? "grab" : tool === "select" ? "default" : "crosshair";
 
@@ -652,22 +654,16 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
             <g transform={flipTransform}>
               {/* regions: zones, keep-in, keep-out */}
               {traj.constraints.map((c) => {
-                let poly: Vec2[] | null = null;
-                let kind: "zone" | "in" | "out" = "zone";
-                if (c.scope.kind === "zone" && c.scope.region.length >= 3) poly = c.scope.region;
-                else if (c.data.type === "keepOut") { poly = c.data.points; kind = "out"; }
-                else if (c.data.type === "keepIn") { poly = c.data.points; kind = "in"; }
-                if (!poly) return null;
+                const region = constraintRegion(c);
+                if (!region) return null;
+                const { poly, kind } = region;
                 const sel = selId === c.id;
-                const color = kind === "out" ? "var(--red)" : kind === "in" ? "var(--green)" : "var(--amber)";
+                const color = regionColor(kind);
                 return (
                   <g key={c.id} opacity={c.enabled ? 1 : 0.4}>
                     <polygon data-h={`rg:${c.id}`} points={pts(poly)} fill={kind === "out" ? "url(#hatch-red)" : color}
                       fillOpacity={kind === "out" ? 1 : 0.07} stroke={color} strokeWidth={sel ? 2.5 : 1.5}
                       strokeDasharray="6 4" vectorEffect="non-scaling-stroke" style={{ cursor: "move" }} />
-                    {sel && poly.map(([x, y], i) => (
-                      <circle key={i} data-h={`rv:${c.id}:${i}`} cx={x} cy={y} r={hr * 0.85} fill="var(--panel)" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
-                    ))}
                   </g>
                 );
               })}
@@ -778,20 +774,20 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
                       <RobotShape robot={robot} x={w.x} y={w.y} h={w.heading} stroke={color}
                         fill={sel ? "var(--accent)" : "transparent"} opacity={sel ? 1 : 0.85} width={sel ? 2.2 : 1.4} />
                     )}
-                    {sel && pose && <polygon points={pts(footprint(robot, w.x, w.y, w.heading))} fill="var(--accent)" fillOpacity={0.08} />}
+                    {sel && pose && <polygon points={pts(footprint(robot, w.x, w.y, w.heading))} fill="var(--accent)" fillOpacity={0.08} pointerEvents="none" />}
                     {pose && intakeAt.has(i) && (
                       <polygon points={pts(intakeFootprint(robot, w.x, w.y, w.heading))} fill="var(--amber)" fillOpacity={0.15}
                         stroke="var(--amber)" strokeWidth={1.4} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />
                     )}
                     {w.tolerance.kind === "circle" && !guide && (
-                      <circle cx={w.x} cy={w.y} r={w.tolerance.radius} fill="var(--accent)" fillOpacity={0.06} stroke="var(--accent)" strokeDasharray="3 3" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                      <circle cx={w.x} cy={w.y} r={w.tolerance.radius} fill="var(--accent)" fillOpacity={0.06} stroke="var(--accent)" strokeDasharray="3 3" strokeWidth={1} vectorEffect="non-scaling-stroke" pointerEvents="none" />
                     )}
                     {w.tolerance.kind === "box" && !guide && (
-                      <rect x={w.x - w.tolerance.dx} y={w.y - w.tolerance.dy} width={2 * w.tolerance.dx} height={2 * w.tolerance.dy} fill="var(--accent)" fillOpacity={0.06} stroke="var(--accent)" strokeDasharray="3 3" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                      <rect x={w.x - w.tolerance.dx} y={w.y - w.tolerance.dy} width={2 * w.tolerance.dx} height={2 * w.tolerance.dy} fill="var(--accent)" fillOpacity={0.06} stroke="var(--accent)" strokeDasharray="3 3" strokeWidth={1} vectorEffect="non-scaling-stroke" pointerEvents="none" />
                     )}
                     {pose && !readOnly && (
                       <>
-                        <line x1={w.x + c * robot.bumper.front} y1={w.y + s * robot.bumper.front} x2={knob[0]} y2={knob[1]} stroke={color} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+                        <line x1={w.x + c * robot.bumper.front} y1={w.y + s * robot.bumper.front} x2={knob[0]} y2={knob[1]} stroke={color} strokeWidth={1.2} vectorEffect="non-scaling-stroke" pointerEvents="none" />
                         <circle data-h={`hd:${i}`} cx={knob[0]} cy={knob[1]} r={hr * 0.8} fill="var(--panel)" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ cursor: "grab" }} />
                       </>
                     )}
@@ -806,6 +802,12 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
                   </g>
                 );
               })}
+
+              {/* corner handles of the selected region, above the waypoints so a robot box can't cover them */}
+              {selRegion && selRegion.poly.map(([x, y], i) => (
+                <circle key={i} data-h={`rv:${selRegion.id}:${i}`} cx={x} cy={y} r={hr * 0.85} fill="var(--panel)"
+                  stroke={regionColor(selRegion.kind)} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+              ))}
 
               {/* point-at targets */}
               {traj.constraints.filter((c) => c.data.type === "pointAt").map((c) => {

@@ -8,7 +8,7 @@ export type BackendStatus = "connecting" | "ready" | "down";
 
 export const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-class Backend {
+export class Backend {
   status: BackendStatus = "connecting";
   version = "";
   private nextId = 1;
@@ -83,6 +83,8 @@ class Backend {
   private failAll(reason: string) {
     this.pending.forEach((p) => p.reject(new Error(reason)));
     this.pending.clear();
+    // Their callers were just told these failed; don't send them after reconnecting.
+    this.queue = [];
   }
 
   // True from the start of a connection attempt until that connection closes. React StrictMode

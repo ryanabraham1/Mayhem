@@ -137,7 +137,8 @@ export const RECENTS_KEY = "mayhem.recentProjects";
 
 export function recentProjects(): string[] {
   try {
-    return JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]");
+    const list: unknown = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]");
+    return Array.isArray(list) ? list.filter((d): d is string => typeof d === "string") : [];
   } catch {
     return [];
   }
@@ -263,6 +264,34 @@ export const useStore = create<State & Actions>()(
       });
       if (p.success) saveTraj(name);
       else if (!p.cancelled) get().toast("error", `${name}: generation failed — see Issues`);
+    };
+
+    /** Undo/redo: swap in the newest snapshot of `from`, pushing the current state onto `to`. */
+    const restore = (from: "past" | "future", to: "past" | "future") => {
+      const target = get()[from][get()[from].length - 1];
+      const cur = snapshot();
+      if (!target || !cur) return;
+      // Paths the snapshot doesn't have (undone adds, the new name of an undone rename) lose their files.
+      const removed = cur.order.filter((n) => !target.trajectories[n]);
+      removed.forEach((n) => get().cancelSolve(n));
+      set((s) => {
+        s[from].pop();
+        s[to].push(cur);
+        s.project = target.project;
+        s.trajectories = target.trajectories;
+        s.order = target.order;
+        if (s.selectedTraj && !target.trajectories[s.selectedTraj]) s.selectedTraj = target.order[0] ?? null;
+        s.selection = null;
+      });
+      const { dir } = get();
+      for (const n of removed) {
+        cancelSave(`t:${dir}:${n}`);
+        if (dir) backend.call("deleteTrajectory", { dir, name: n }).catch(() => {});
+        removeDeployed(n);
+      }
+      get().order.forEach((n) => saveTraj(n));
+      saveProject();
+      void recomputeStale();
     };
 
     return {
@@ -522,6 +551,7 @@ export const useStore = create<State & Actions>()(
         cancelSave(saveKey);
         if (dir) await backend.call("renameTrajectory", { dir, old: oldName, new: newName });
         removeDeployed(oldName);
+        get().checkpoint();
         set((s) => {
           const t = s.trajectories[oldName];
           delete s.trajectories[oldName];
@@ -604,38 +634,11 @@ export const useStore = create<State & Actions>()(
       },
 
       undo() {
-        const prev = get().past[get().past.length - 1];
-        const cur = snapshot();
-        if (!prev || !cur) return;
-        set((s) => {
-          s.past.pop();
-          s.future.push(cur);
-          s.project = prev.project;
-          s.trajectories = prev.trajectories;
-          s.order = prev.order;
-          if (s.selectedTraj && !prev.trajectories[s.selectedTraj]) s.selectedTraj = prev.order[0] ?? null;
-          s.selection = null;
-        });
-        get().order.forEach((n) => saveTraj(n));
-        saveProject();
-        void recomputeStale();
+        restore("past", "future");
       },
 
       redo() {
-        const next = get().future[get().future.length - 1];
-        const cur = snapshot();
-        if (!next || !cur) return;
-        set((s) => {
-          s.future.pop();
-          s.past.push(cur);
-          s.project = next.project;
-          s.trajectories = next.trajectories;
-          s.order = next.order;
-          s.selection = null;
-        });
-        get().order.forEach((n) => saveTraj(n));
-        saveProject();
-        void recomputeStale();
+        restore("future", "past");
       },
 
       async solve(name) {

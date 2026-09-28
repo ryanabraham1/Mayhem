@@ -1,6 +1,6 @@
 import { Flag, Trash2, Waypoints as WaypointsIcon } from "lucide-react";
 import { useStore } from "../store";
-import { CONSTRAINT_LABELS, applyWaypointKind, defaultConstraintData, newPoseVariable, resolveWaypoint, waypointKind } from "../model";
+import { CONSTRAINT_LABELS, applyWaypointKind, defaultConstraintData, deleteWaypoint, newPoseVariable, resolveWaypoint, waypointKind } from "../model";
 import type { Constraint, ConstraintType, Marker, Trajectory, Waypoint } from "../types";
 import { AngleField, Card, Check, NumberField, Seg, SelectField, TextField } from "./ui";
 
@@ -35,15 +35,7 @@ export function WaypointEditor({ traj, index, upd }: { traj: Trajectory; index: 
     <Card title={<span style={{ display: "flex", gap: 8, alignItems: "center" }}><WaypointsIcon size={16} /> Waypoint {index + 1}</span>}
       actions={
         <button className="btn ghost sm icon danger" title="Delete waypoint (⌫)" onClick={() => {
-          upd((t) => {
-            t.waypoints.splice(index, 1);
-            t.markers = t.markers.filter((m) => m.waypoint !== index);
-            for (const m of t.markers) if (m.waypoint > index) m.waypoint -= 1;
-            for (const c of t.constraints) {
-              if (c.scope.from > index) c.scope.from -= 1;
-              if (c.scope.to >= index) c.scope.to = Math.max(0, c.scope.to - 1);
-            }
-          });
+          upd((t) => deleteWaypoint(t, index));
           a.select(null);
         }}><Trash2 size={14} /></button>
       }>
@@ -217,6 +209,12 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
                 x.data.points = x.scope.region.map(([a, b]) => [a, b]);
               }
               x.scope.kind = "range";
+            }
+            // A straight line needs two waypoints; the editor only offers From/To for it.
+            if (v === "straightLine") {
+              x.scope.kind = "range";
+              x.scope.from = Math.min(x.scope.from, Math.max(0, n - 2));
+              x.scope.to = Math.min(Math.max(x.scope.to, x.scope.from + 1), n - 1);
             }
           })}
           options={(Object.keys(CONSTRAINT_LABELS) as ConstraintType[]).map((k) => ({ value: k, label: CONSTRAINT_LABELS[k] }))} />

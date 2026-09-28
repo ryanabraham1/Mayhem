@@ -74,7 +74,7 @@ jobs:
       - run: ./gradlew test
 
   frontend:
-    name: Frontend typecheck + build
+    name: Frontend tests + typecheck + build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -90,6 +90,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: pnpm test
       - run: pnpm build
 
   desktop:

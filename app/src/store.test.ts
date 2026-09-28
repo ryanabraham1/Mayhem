@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { newTrajectory, newWaypoint } from "./model";
 import type { Project } from "./types";
 
@@ -14,7 +14,8 @@ vi.mock("./backend", () => ({
 }));
 
 import { backend } from "./backend";
-import { useStore } from "./store";
+import { RECENTS_KEY, recentProjects, useStore } from "./store";
+import { makeProject, makeTraj } from "./test/fixtures";
 
 const path = (name: string) => ({
   ...newTrajectory(name),
@@ -111,5 +112,77 @@ describe("generation cancellation", () => {
     expect(useStore.getState().generatingAll).toBe(false);
     expect(backend.call).toHaveBeenCalledWith("cancel", { jobId: "job-1" });
     expect(backend.call).toHaveBeenCalledWith("cancel", { jobId: "job-2" });
+  });
+});
+
+describe("undo and redo keep files on disk in sync", () => {
+  const calls = (method: string) => vi.mocked(backend.call).mock.calls.filter(([m]) => m === method).map(([, p]) => p as any);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(backend.call).mockImplementation(() => Promise.resolve(true));
+    useStore.setState({
+      dir: "/proj", project: makeProject(), trajectories: { A: makeTraj("A") }, order: ["A"], selectedTraj: "A",
+      solves: {}, stale: {}, past: [], future: [], generatingAll: false,
+    });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("deletes the file of a path whose creation is undone, and doesn't save it again", async () => {
+    const name = useStore.getState().addTrajectory("New Path");
+    useStore.getState().undo();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls("deleteTrajectory")).toContainEqual({ dir: "/proj", name });
+    expect(calls("saveTrajectory").map((p) => p.trajectory.name)).not.toContain(name);
+    expect(useStore.getState().selectedTraj).toBe("A");
+  });
+
+  it("restores the old file name when a rename is undone, and the new one on redo", async () => {
+    await useStore.getState().renameTrajectory("A", "B");
+    await vi.advanceTimersByTimeAsync(1000);
+    vi.mocked(backend.call).mockClear();
+
+    useStore.getState().undo();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls("deleteTrajectory")).toContainEqual({ dir: "/proj", name: "B" });
+    expect(calls("saveTrajectory").map((p) => p.trajectory.name)).toEqual(["A"]);
+    expect(useStore.getState().selectedTraj).toBe("A");
+
+    vi.mocked(backend.call).mockClear();
+    useStore.getState().redo();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls("deleteTrajectory")).toContainEqual({ dir: "/proj", name: "A" });
+    expect(calls("saveTrajectory").map((p) => p.trajectory.name)).toEqual(["B"]);
+    expect(useStore.getState().selectedTraj).toBe("B");
+  });
+
+  it("moves the selection off a path that redo removes", () => {
+    useStore.getState().addTrajectory("B");
+    useStore.getState().deleteTrajectory("B");
+    useStore.getState().undo();
+    useStore.getState().selectTraj("B");
+    useStore.getState().redo();
+    expect(useStore.getState().trajectories.B).toBeUndefined();
+    expect(useStore.getState().selectedTraj).toBe("A");
+  });
+
+  it("round-trips edits through undo and redo", () => {
+    useStore.getState().updateTraj("A", (t) => { t.waypoints[0].x = 5; });
+    useStore.getState().undo();
+    expect(useStore.getState().trajectories.A.waypoints[0].x).toBe(1);
+    useStore.getState().redo();
+    expect(useStore.getState().trajectories.A.waypoints[0].x).toBe(5);
+    expect(useStore.getState().future).toHaveLength(0);
+  });
+});
+
+describe("recentProjects", () => {
+  afterEach(() => localStorage.clear());
+
+  it("ignores anything that isn't a list of folder paths", () => {
+    for (const bad of ["{}", '"x"', "not json", "[1, null, \"/a\"]"]) {
+      localStorage.setItem(RECENTS_KEY, bad);
+      expect(recentProjects()).toEqual(bad.includes("/a") ? ["/a"] : []);
+    }
   });
 });
