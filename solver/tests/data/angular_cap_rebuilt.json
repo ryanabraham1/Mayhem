@@ -1,0 +1,836 @@
+{
+ "project": {
+  "formatVersion": 1,
+  "name": "angular-cap regression",
+  "robot": {
+   "mass": 68.0,
+   "moi": 6.0,
+   "bumper": {
+    "front": 0.4,
+    "back": 0.4,
+    "left": 0.4,
+    "right": 0.4
+   },
+   "modules": [
+    [
+     0.28,
+     0.28
+    ],
+    [
+     0.28,
+     -0.28
+    ],
+    [
+     -0.28,
+     0.28
+    ],
+    [
+     -0.28,
+     -0.28
+    ]
+   ],
+   "wheelRadius": 0.0508,
+   "wheelCof": 0.8,
+   "motor": {
+    "type": "krakenX60",
+    "gearing": 6.75,
+    "currentLimit": 60.0,
+    "efficiency": 0.75
+   },
+   "batteryVoltage": 10.5,
+   "cogHeight": 0.0,
+   "intake": {
+    "side": "front",
+    "extension": 0.3,
+    "width": 0.0,
+    "offset": 0.0
+   }
+  },
+  "field": {
+   "id": "rebuilt-2026",
+   "name": "2026 REBUILT",
+   "length": 16.541,
+   "width": 8.0692,
+   "symmetry": "rotational",
+   "wallMargin": 0.04,
+   "obstacles": [
+    {
+     "id": "hub-blue",
+     "name": "Blue Hub",
+     "kind": "polygon",
+     "points": [
+      [
+       3.9881885051727295,
+       3.2427427768707275
+      ],
+      [
+       5.357051849365234,
+       3.238882064819336
+      ],
+      [
+       5.364480495452881,
+       4.774107456207275
+      ],
+      [
+       4.004274845123291,
+       4.781711578369141
+      ]
+     ],
+     "center": [
+      0.0,
+      -0.0012845993041992188
+     ],
+     "radius": 0.5,
+     "margin": 0.0,
+     "enabled": true
+    },
+    {
+     "id": "bump-blue-l",
+     "name": "Blue Bump (left)",
+     "kind": "polygon",
+     "points": [
+      [
+       4.0618,
+       4.62811696395874
+      ],
+      [
+       5.1878,
+       4.62811696395874
+      ],
+      [
+       5.1878,
+       6.48441696395874
+      ],
+      [
+       4.0618,
+       6.48441696395874
+      ]
+     ],
+     "center": [
+      0.0,
+      -0.0004830360412597656
+     ],
+     "radius": 0.5,
+     "margin": 0.0,
+     "enabled": false
+    },
+    {
+     "id": "bump-blue-r",
+     "name": "Blue Bump (right)",
+     "kind": "polygon",
+     "points": [
+      [
+       4.0618,
+       3.4406
+      ],
+      [
+       5.1878,
+       3.4406
+      ],
+      [
+       5.1878,
+       1.5843
+      ],
+      [
+       4.0618,
+       1.5843
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.0,
+     "enabled": false
+    },
+    {
+     "id": "trenchwall-blue-l",
+     "name": "Blue Trench Wall (left)",
+     "kind": "polygon",
+     "points": [
+      [
+       3.9285941123962402,
+       6.364485740661621
+      ],
+      [
+       5.280320167541504,
+       6.373906135559082
+      ],
+      [
+       5.285336971282959,
+       6.8560566902160645
+      ],
+      [
+       3.935181140899658,
+       6.854144096374512
+      ]
+     ],
+     "center": [
+      -0.004195690155029297,
+      0.0009369850158691406
+     ],
+     "radius": 0.5,
+     "margin": 0.0,
+     "enabled": true
+    },
+    {
+     "id": "trenchwall-blue-r",
+     "name": "Blue Trench Wall (right)",
+     "kind": "polygon",
+     "points": [
+      [
+       4.0279,
+       1.5843
+      ],
+      [
+       5.2217,
+       1.5843
+      ],
+      [
+       5.2217,
+       1.2787
+      ],
+      [
+       4.0279,
+       1.2787
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.01,
+     "enabled": true
+    },
+    {
+     "id": "trench-blue-l",
+     "name": "Blue Trench (left, overhead)",
+     "kind": "polygon",
+     "points": [
+      [
+       4.0279,
+       6.7905
+      ],
+      [
+       5.2217,
+       6.7905
+      ],
+      [
+       5.2217,
+       8.0692
+      ],
+      [
+       4.0279,
+       8.0692
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.03,
+     "enabled": false
+    },
+    {
+     "id": "trench-blue-r",
+     "name": "Blue Trench (right, overhead)",
+     "kind": "polygon",
+     "points": [
+      [
+       4.0279,
+       1.2787
+      ],
+      [
+       5.2217,
+       1.2787
+      ],
+      [
+       5.2217,
+       0.0
+      ],
+      [
+       4.0279,
+       0.0
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.03,
+     "enabled": false
+    },
+    {
+     "id": "tower-blue",
+     "name": "Blue Tower",
+     "kind": "polygon",
+     "points": [
+      [
+       0.0,
+       3.2504
+      ],
+      [
+       1.1446,
+       3.2504
+      ],
+      [
+       1.1446,
+       4.241
+      ],
+      [
+       0.0,
+       4.241
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.04,
+     "enabled": true
+    },
+    {
+     "id": "hub-red",
+     "name": "Red Hub",
+     "kind": "polygon",
+     "points": [
+      [
+       12.5126,
+       4.6315
+      ],
+      [
+       11.3181,
+       4.6315
+      ],
+      [
+       11.3181,
+       3.4377
+      ],
+      [
+       12.5126,
+       3.4377
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.04,
+     "enabled": true
+    },
+    {
+     "id": "bump-red-l",
+     "name": "Red Bump (left)",
+     "kind": "polygon",
+     "points": [
+      [
+       12.4792,
+       3.4406
+      ],
+      [
+       11.3532,
+       3.4406
+      ],
+      [
+       11.3532,
+       1.5843
+      ],
+      [
+       12.4792,
+       1.5843
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.0,
+     "enabled": false
+    },
+    {
+     "id": "bump-red-r",
+     "name": "Red Bump (right)",
+     "kind": "polygon",
+     "points": [
+      [
+       12.4792,
+       4.6286
+      ],
+      [
+       11.3532,
+       4.6286
+      ],
+      [
+       11.3532,
+       6.4849
+      ],
+      [
+       12.4792,
+       6.4849
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.0,
+     "enabled": false
+    },
+    {
+     "id": "trenchwall-red-l",
+     "name": "Red Trench Wall (left)",
+     "kind": "polygon",
+     "points": [
+      [
+       12.5131,
+       1.5843
+      ],
+      [
+       11.3193,
+       1.5843
+      ],
+      [
+       11.3193,
+       1.2787
+      ],
+      [
+       12.5131,
+       1.2787
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.03,
+     "enabled": true
+    },
+    {
+     "id": "trenchwall-red-r",
+     "name": "Red Trench Wall (right)",
+     "kind": "polygon",
+     "points": [
+      [
+       12.5131,
+       6.4849
+      ],
+      [
+       11.3193,
+       6.4849
+      ],
+      [
+       11.3193,
+       6.7905
+      ],
+      [
+       12.5131,
+       6.7905
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.03,
+     "enabled": true
+    },
+    {
+     "id": "trench-red-l",
+     "name": "Red Trench (left, overhead)",
+     "kind": "polygon",
+     "points": [
+      [
+       12.5131,
+       1.2787
+      ],
+      [
+       11.3193,
+       1.2787
+      ],
+      [
+       11.3193,
+       0.0
+      ],
+      [
+       12.5131,
+       0.0
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.03,
+     "enabled": false
+    },
+    {
+     "id": "trench-red-r",
+     "name": "Red Trench (right, overhead)",
+     "kind": "polygon",
+     "points": [
+      [
+       12.5131,
+       6.7905
+      ],
+      [
+       11.3193,
+       6.7905
+      ],
+      [
+       11.3193,
+       8.0692
+      ],
+      [
+       12.5131,
+       8.0692
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.03,
+     "enabled": false
+    },
+    {
+     "id": "tower-red",
+     "name": "Red Tower",
+     "kind": "polygon",
+     "points": [
+      [
+       16.541,
+       4.8188
+      ],
+      [
+       15.3964,
+       4.8188
+      ],
+      [
+       15.3964,
+       3.8282
+      ],
+      [
+       16.541,
+       3.8282
+      ]
+     ],
+     "center": [
+      0.0,
+      0.0
+     ],
+     "radius": 0.5,
+     "margin": 0.04,
+     "enabled": true
+    }
+   ],
+   "decorations": [],
+   "notes": ""
+  },
+  "poses": [
+   {
+    "id": "p1onk04hos",
+    "name": "Pose 1",
+    "x": 3.5301005840301514,
+    "y": 5.650633335113525,
+    "heading": 0.0
+   },
+   {
+    "id": "poeba6y5aq",
+    "name": "Pose 2",
+    "x": 2.5574951171875,
+    "y": 5.6078479290008545,
+    "heading": 2.3452648584978064
+   }
+  ]
+ },
+ "trajectory": {
+  "formatVersion": 1,
+  "name": "angular-cap",
+  "waypoints": [
+   {
+    "id": "w8wnj8mpft",
+    "x": 4.564370632171631,
+    "y": 7.460121154785156,
+    "heading": -0.3918043015849411,
+    "translationMode": "fixed",
+    "headingMode": "fixed",
+    "headingTolerance": 0.0,
+    "tolerance": {
+     "kind": "none",
+     "radius": 0.1,
+     "dx": 0.6,
+     "dy": 0.6
+    },
+    "stop": true,
+    "split": false,
+    "intervals": null,
+    "poseRef": null
+   },
+   {
+    "id": "wb94codlef",
+    "x": 8.0447359085083,
+    "y": 5.953282833099365,
+    "heading": -1.6773927922469007,
+    "translationMode": "fixed",
+    "headingMode": "fixed",
+    "headingTolerance": 0.0,
+    "tolerance": {
+     "kind": "none",
+     "radius": 0.1,
+     "dx": 0.1,
+     "dy": 0.1
+    },
+    "stop": false,
+    "split": false,
+    "intervals": null,
+    "poseRef": null
+   },
+   {
+    "id": "w226q5jbld",
+    "x": 7.967085361480713,
+    "y": 4.652842998504639,
+    "heading": -2.188018532783447,
+    "translationMode": "fixed",
+    "headingMode": "fixed",
+    "headingTolerance": 0.0,
+    "tolerance": {
+     "kind": "none",
+     "radius": 0.1,
+     "dx": 0.1,
+     "dy": 0.1
+    },
+    "stop": false,
+    "split": false,
+    "intervals": null,
+    "poseRef": null
+   },
+   {
+    "id": "wx69otzj4y",
+    "x": 7.2038726806640625,
+    "y": 4.2764716148376465,
+    "heading": -3.128478105232604,
+    "translationMode": "fixed",
+    "headingMode": "fixed",
+    "headingTolerance": 0.0,
+    "tolerance": {
+     "kind": "none",
+     "radius": 0.1,
+     "dx": 0.1,
+     "dy": 0.1
+    },
+    "stop": false,
+    "split": false,
+    "intervals": null,
+    "poseRef": null
+   },
+   {
+    "id": "w82d1nbmlt",
+    "x": 6.258436679840088,
+    "y": 4.824620246887207,
+    "heading": 1.5359390982854568,
+    "translationMode": "fixed",
+    "headingMode": "fixed",
+    "headingTolerance": 0.0,
+    "tolerance": {
+     "kind": "circle",
+     "radius": 0.4,
+     "dx": 0.1,
+     "dy": 0.1
+    },
+    "stop": false,
+    "split": false,
+    "intervals": null,
+    "poseRef": null
+   },
+   {
+    "id": "wn3o8q9krz",
+    "x": 6.501412391662598,
+    "y": 5.679614543914795,
+    "heading": 2.247585018536468,
+    "translationMode": "fixed",
+    "headingMode": "free",
+    "headingTolerance": 0.0,
+    "tolerance": {
+     "kind": "none",
+     "radius": 0.1,
+     "dx": 0.1,
+     "dy": 0.1
+    },
+    "stop": false,
+    "split": false,
+    "intervals": null,
+    "poseRef": null
+   },
+   {
+    "id": "wfhxvwb4at",
+    "x": 5.806243896484375,
+    "y": 5.7267632484436035,
+    "heading": 2.247585018536468,
+    "translationMode": "fixed",
+    "headingMode": "free",
+    "headingTolerance": 0.0,
+    "tolerance": {
+     "kind": "circle",
+     "radius": 0.4,
+     "dx": 0.1,
+     "dy": 0.1
+    },
+    "stop": false,
+    "split": false,
+    "intervals": null,
+    "poseRef": null
+   },
+   {
+    "id": "wm8cwsxyhy",
+    "x": 3.5512824058532715,
+    "y": 5.696176528930664,
+    "heading": 2.247585018536468,
+    "translationMode": "fixed",
+    "headingMode": "free",
+    "headingTolerance": 0.0,
+    "tolerance": {
+     "kind": "circle",
+     "radius": 0.4,
+     "dx": 0.1,
+     "dy": 0.1
+    },
+    "stop": false,
+    "split": false,
+    "intervals": null,
+    "poseRef": null
+   },
+   {
+    "id": "wff9hbjnnj",
+    "x": 2.5233919620513916,
+    "y": 5.5218000411987305,
+    "heading": 2.247585018536468,
+    "translationMode": "fixed",
+    "headingMode": "fixed",
+    "headingTolerance": 0.0,
+    "tolerance": {
+     "kind": "none",
+     "radius": 0.1,
+     "dx": 0.1,
+     "dy": 0.1
+    },
+    "stop": true,
+    "split": false,
+    "intervals": null,
+    "poseRef": "poeba6y5aq"
+   }
+  ],
+  "constraints": [
+   {
+    "id": "clhr5vi4kh",
+    "enabled": true,
+    "scope": {
+     "kind": "zone",
+     "from": 6,
+     "to": 7,
+     "region": [
+      [
+       3.7024943828582764,
+       4.671912670135498
+      ],
+      [
+       5.786645889282227,
+       4.7132110595703125
+      ],
+      [
+       5.761434078216553,
+       6.430885314941406
+      ],
+      [
+       3.628965139389038,
+       6.464169502258301
+      ]
+     ]
+    },
+    "data": {
+     "type": "maxAngularVelocity",
+     "value": 0.01
+    }
+   },
+   {
+    "id": "cftf5dxyy8",
+    "enabled": true,
+    "scope": {
+     "kind": "zone",
+     "from": 0,
+     "to": 4,
+     "region": [
+      [
+       4.030013084411621,
+       6.4672112464904785
+      ],
+      [
+       5.176474571228027,
+       6.463233470916748
+      ],
+      [
+       5.198820114135742,
+       4.659219264984131
+      ],
+      [
+       4.024806976318359,
+       4.6702165603637695
+      ]
+     ]
+    },
+    "data": {
+     "type": "roughTerrain",
+     "expectedSpeed": 0.4,
+     "feedbackScale": 0.3
+    }
+   },
+   {
+    "id": "cawdkvy7u9",
+    "enabled": true,
+    "scope": {
+     "kind": "range",
+     "from": 1,
+     "to": 8,
+     "region": []
+    },
+    "data": {
+     "type": "intakeExtended"
+    }
+   },
+   {
+    "id": "cdtowcfwml",
+    "enabled": true,
+    "scope": {
+     "kind": "range",
+     "from": 6,
+     "to": 7,
+     "region": []
+    },
+    "data": {
+     "type": "straightLine",
+     "tolerance": 0.02
+    }
+   }
+  ],
+  "markers": [],
+  "settings": {
+   "targetDt": 0.08,
+   "smoothing": 0.02,
+   "candidates": 3,
+   "maxIterations": 1500,
+   "timeLimit": 60.0
+  },
+  "folder": null
+ }
+}

@@ -191,6 +191,56 @@ def intake_samples(traj: Trajectory, sol: Solution, extra: Optional[dict[str, se
     return out
 
 
+def user_limit_violations(traj: Trajectory, sol: Solution, rel: float = 1e-2) -> list[str]:
+    """User limits (velocity, acceleration, angular velocity, straight line) a solution breaks.
+
+    Re-checks the solved samples against the limits as the user wrote them, independently of
+    how OCP._build formulates the rows, so a mis-scaled or mis-signed row fails the solve
+    instead of shipping a path that breaks the limit. `rel` is a relative allowance well above
+    IPOPT's feasibility tolerance.
+    """
+    wps = traj.waypoints
+    out = []
+    for con in traj.constraints:
+        d = con.data
+        if not con.enabled or not isinstance(d, (MaxVelocity, MaxAcceleration, MaxAngularVelocity, StraightLine)):
+            continue
+        ks = np.asarray(scope_samples(con.scope, sol.Ns, sol), dtype=int)
+        if ks.size == 0:
+            continue
+        name = f"'{d.type}' ({con.id})"
+        if isinstance(d, (MaxVelocity, MaxAcceleration, MaxAngularVelocity)):
+            if isinstance(d, MaxVelocity):
+                val, unit = np.hypot(sol.vx[ks], sol.vy[ks]), "m/s"
+            elif isinstance(d, MaxAcceleration):
+                val, unit = np.hypot(sol.ax[ks], sol.ay[ks]), "m/s²"
+            else:
+                val, unit = np.abs(sol.w[ks]), "rad/s"
+            lim = max(d.value, 1e-3)
+            if float(val.max()) > lim * (1 + rel):
+                out.append(f"{name} reaches {float(val.max()):.4g} {unit} (limit {lim:.4g})")
+            continue
+        # StraightLine: same applicability rules as OCP._build
+        if con.scope.kind != "range":
+            continue
+        a, b = sorted((con.scope.from_, con.scope.to))
+        if a < 0 or b >= len(wps) or a == b:
+            continue
+        ex, ey = wps[b].x - wps[a].x, wps[b].y - wps[a].y
+        seg = math.hypot(ex, ey)
+        if seg < 1e-6:
+            continue
+        tol = max(d.tolerance, 1e-3) * (1 + rel)
+        rx, ry = sol.x[ks] - wps[a].x, sol.y[ks] - wps[a].y
+        off = float(np.max(np.abs(ex * ry - ey * rx))) / seg
+        proj = (ex * rx + ey * ry) / seg
+        if off > tol:
+            out.append(f"{name} strays {off:.4g} m from the line (tolerance {d.tolerance:.4g})")
+        elif float(proj.min()) < -tol or float(proj.max()) > seg + tol:
+            out.append(f"{name} leaves the segment between waypoints {a + 1} and {b + 1}")
+    return out
+
+
 def intake_interval_mask(ext: set[int], K: int) -> np.ndarray:
     """Per interval k -> k+1 (and the last sample): True if the intake is out at either end.
 
@@ -535,7 +585,11 @@ class OCP:
             elif isinstance(d, MaxAcceleration):
                 self._le((X[7, ks] ** 2 + X[8, ks] ** 2) / max(d.value, 1e-3) ** 2 - 1, lab, "user", ks)
             elif isinstance(d, MaxAngularVelocity):
-                self._le(X[6, ks] ** 2 / max(d.value, 1e-3) ** 2 - 1, lab, "user", ks)
+                # |ω| <= limit as two linear rows. The squared form ω²/limit² has curvature
+                # 2/limit² (2e4 for 0.01 rad/s): a guess that turns in the range violates it by
+                # ~1e3, and IPOPT stalls regularizing that Hessian until the time limit.
+                v = max(d.value, 1e-3)
+                self._le(ca.vertcat(X[6, ks], -X[6, ks]) / v - 1, lab, "user", ks)
             elif isinstance(d, PointAt):
                 ddx = d.x - X[0, ks]
                 ddy = d.y - X[1, ks]
@@ -578,9 +632,9 @@ class OCP:
                     continue
                 tol = max(d.tolerance, 1e-3)
                 rx, ry = X[0, ks] - px, X[1, ks] - py
-                # perpendicular distance (squared cross product / length^2) within tolerance
-                cross = ex * ry - ey * rx
-                self._le(cross ** 2 / (seg * tol) ** 2 - 1, lab, "user", ks)
+                # signed perpendicular distance within +/- tolerance (linear, see MaxAngularVelocity)
+                dist = (ex * ry - ey * rx) / seg
+                self._le(ca.vertcat(dist, -dist) / tol - 1, lab, "user", ks)
                 # projection onto the segment stays within [0, length] (+/- tolerance)
                 proj = (ex * rx + ey * ry) / seg
                 self._le(ca.vertcat(-proj - tol, proj - seg - tol) / tol, lab, "user", ks)

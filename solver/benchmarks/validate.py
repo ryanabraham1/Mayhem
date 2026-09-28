@@ -14,7 +14,8 @@ from shapely.geometry import Polygon
 
 from mayhem_solver import geometry as geo
 from mayhem_solver.drivetrain import build_drivetrain
-from mayhem_solver.models import MaxAcceleration, MaxVelocity, PointAt, Project, Trajectory, TrajectoryOutput
+from mayhem_solver.models import (MaxAcceleration, MaxAngularVelocity, MaxVelocity, PointAt, Project, StraightLine,
+                                  Trajectory, TrajectoryOutput)
 from mayhem_solver.pipeline import make_world
 
 REL = 2e-3  # relative tolerance on physical limits (IPOPT tol is 1e-6 on scaled constraints)
@@ -155,6 +156,20 @@ def check_output(project: Project, traj: Trajectory, out: TrajectoryOutput, sub:
             m = float(np.max(np.hypot(ax[ks], ay[ks])))
             if m > dd.value * (1 + REL) + 1e-3:
                 viol.append(f"maxAcceleration {con.id} exceeded ({m:.3f} > {dd.value})")
+        elif isinstance(dd, MaxAngularVelocity):
+            m = float(np.max(np.abs(w[ks])))
+            if m > dd.value * (1 + REL) + 1e-5:
+                viol.append(f"maxAngularVelocity {con.id} exceeded ({m:.4f} > {dd.value})")
+        elif isinstance(dd, StraightLine) and sc.kind == "range":
+            a, bb = sorted((sc.from_, sc.to))
+            if 0 <= a < bb < len(traj.waypoints):
+                pa, pb = traj.waypoints[a], traj.waypoints[bb]
+                ex, ey = pb.x - pa.x, pb.y - pa.y
+                seg = math.hypot(ex, ey)
+                if seg > 1e-6:
+                    off = float(np.max(np.abs(ex * (y[ks] - pa.y) - ey * (x[ks] - pa.x)))) / seg
+                    if off > dd.tolerance * (1 + REL) + 1e-5:
+                        viol.append(f"straightLine {con.id} left the line ({off:.4f} m > {dd.tolerance})")
         elif isinstance(dd, PointAt):
             ang = np.arctan2(dd.y - y[ks], dd.x - x[ks]) + (math.pi if dd.flip else 0.0)
             e = float(np.max(np.abs(np.angle(np.exp(1j * (th[ks] - ang))))))

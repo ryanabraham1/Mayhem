@@ -2,12 +2,14 @@ import math
 
 import numpy as np
 import pytest
+import shapely
+from shapely.geometry import Polygon
 
 from mayhem_solver import geometry as geo
 from mayhem_solver.drivetrain import build_drivetrain
 from mayhem_solver.guess import Trap
-from mayhem_solver.models import (Constraint, KeepOut, Marker, MaxVelocity, Obstacle, PointAt, RoughTerrain, Scope,
-                                  Tolerance, Trajectory)
+from mayhem_solver.models import (Constraint, KeepOut, Marker, MaxAcceleration, MaxAngularVelocity, MaxVelocity, Obstacle,
+                                  PointAt, Project, RoughTerrain, Scope, StraightLine, Tolerance, Trajectory)
 from mayhem_solver.pipeline import Solver, make_world, solve
 
 from .conftest import wp
@@ -128,6 +130,21 @@ def test_parallel_candidates(box_project):
     assert any(m["type"] == "candidates" for m in progress)
 
 
+def test_parallel_candidates_ignore_wall_clock_jumps(box_project, monkeypatch):
+    # Waking from sleep (or an NTP step) moves the wall clock but not the monotonic one. The
+    # parallel runner once kept its deadline on the wall clock, so closing the lid mid-solve
+    # dropped every candidate and reported "No candidate routes could be generated".
+    import time
+
+    progress = []
+    real = time.time
+    # jump an hour once the candidate processes are running (the first message is the route list)
+    monkeypatch.setattr(time, "time", lambda: real() + (3600 if len(progress) > 1 else 0))
+    t = Trajectory(name="p", waypoints=[wp(0, 2, 3.5, stop=True), wp(1, 8, 3.5, stop=True)])
+    r = solve(box_project, t, progress=progress.append, parallel=True)
+    assert r.success, [i.message for i in r.issues]
+
+
 def test_swept_refinement_resolves_a_reported_interval(project, monkeypatch):
     original_verify = Solver.verify
     calls = 0
@@ -229,3 +246,59 @@ def test_tight_trench_is_offered_as_a_route():
     assert r.success, r.issues
     a, _ = arrays(r.output)
     assert a["y"].max() < gap  # stayed under the trench wall instead of looping over the bump
+
+
+def test_limit_check_measures_user_limits_on_the_solution(box_project):
+    from mayhem_solver.ocp import user_limit_violations
+
+    # goes around the box (off the straight line) and turns a quarter turn
+    t = Trajectory(name="c", waypoints=[wp(0, 2, 3.5, stop=True), wp(1, 8, 3.5, math.pi / 2, stop=True)])
+    _, res = _direct_solve(box_project, t)
+    assert res.success
+    everywhere = Scope(kind="range", **{"from": 0, "to": 1})
+    t.constraints = [Constraint(id="v", scope=everywhere, data=MaxVelocity(value=0.5)),
+                     Constraint(id="a", scope=everywhere, data=MaxAcceleration(value=0.5)),
+                     Constraint(id="w", scope=everywhere, data=MaxAngularVelocity(value=0.1)),
+                     Constraint(id="line", scope=everywhere, data=StraightLine(tolerance=0.02))]
+    bad = user_limit_violations(t, res.solution)
+    assert [b.split("(")[1].split(")")[0] for b in bad] == ["v", "a", "w", "line"]
+    t.constraints = [Constraint(id="v", scope=everywhere, data=MaxVelocity(value=100)),
+                     Constraint(id="w", scope=everywhere, data=MaxAngularVelocity(value=100))]
+    assert user_limit_violations(t, res.solution) == []
+
+
+def test_limit_check_fails_a_converged_solve(box_project, monkeypatch):
+    """A solve whose rows converged but whose samples break a user limit (a mis-scaled or
+    mis-signed row) must fail rather than ship."""
+    import mayhem_solver.pipeline as pipeline
+
+    t = Trajectory(name="c", waypoints=[wp(0, 2, 3.5, stop=True), wp(1, 8, 3.5, stop=True)])
+    solver, res = _direct_solve(box_project, t)
+    assert res.success
+    monkeypatch.setattr(pipeline, "user_limit_violations", lambda traj, sol: ["'maxVelocity' (v) reaches 9 m/s"])
+    res = solver.polish(res)
+    assert not res.success and res.status == "User limit check failed"
+    assert any(line.startswith("limit check:") for line in solver.log)
+
+
+@pytest.mark.slow
+def test_small_angular_velocity_cap_converges_on_every_candidate():
+    """Regression (REBUILT, intake out, rough terrain, straight line): a 0.01 rad/s zone cap on a
+    leg the initial guess turns through. Written as ω²/limit² - 1 the cap was violated ~1e3 by the
+    guess and IPOPT stalled on that row's curvature; two of three candidates ran to the time limit."""
+    import json
+    from pathlib import Path
+
+    data = json.loads((Path(__file__).parent / "data" / "angular_cap_rebuilt.json").read_text())
+    project = Project.model_validate(data["project"])
+    t = Trajectory.model_validate(data["trajectory"])
+    t.settings.time_limit = 30
+    r = solve(project, t, parallel=True)
+    assert r.success, [i.message for i in r.issues]
+    stats = r.output.stats
+    assert not any("CpuTime" in a or "did not finish" in a for a in stats.attempts), stats.attempts
+    cap = next(c for c in t.constraints if isinstance(c.data, MaxAngularVelocity))
+    a, _ = arrays(r.output)
+    inside = shapely.contains_xy(Polygon(cap.scope.region).buffer(0.05), a["x"], a["y"])
+    assert inside.any()
+    assert np.abs(a["omega"][inside]).max() <= cap.data.value * (1 + 1e-3)

@@ -49,7 +49,7 @@ from .models import (
     TrajectoryOutput,
 )
 from .ocp import (SUCCESS, OCP, OCPOptions, OCPResult, intake_interval_mask, intake_samples, scope_samples,
-                  select_pairs, waypoint_indices)
+                  select_pairs, user_limit_violations, waypoint_indices)
 
 ProgressFn = Callable[[dict], None]
 
@@ -553,7 +553,7 @@ class Solver:
             hits = self.verify(sol)
             missing = self._zone_missing(sol)
             if not hits and not missing:
-                return res
+                return self._check_limits(res)
             for cid, ks in missing.items():
                 zone_extra[cid] = set(zone_extra.get(cid, set())) | ks
             K = sol.K
@@ -595,6 +595,16 @@ class Solver:
         if res.success and (self.verify(res.solution) or self._zone_missing(res.solution)):
             res.success = False
             res.status = "Swept collision / zone check failed"
+        return self._check_limits(res)
+
+    def _check_limits(self, res: OCPResult) -> OCPResult:
+        """Fail a converged solve whose samples break a user limit (see user_limit_violations)."""
+        if res.success:
+            bad = user_limit_violations(self.traj, res.solution)
+            if bad:
+                res.success = False
+                res.status = "User limit check failed"
+                self.log.append("limit check: " + "; ".join(bad))
         return res
 
     def ladder(self, guess: Solution) -> Attempt:
@@ -699,12 +709,17 @@ class Solver:
 # ---------------------------------------------------------------------------
 
 
-def _solve_candidate(project_json: dict, traj_json: dict, routes, cand: int, deadline_wall: float,
+def _solve_candidate(project_json: dict, traj_json: dict, routes, cand: int, budget: float,
                      queue=None) -> dict:
+    """Solve one candidate within `budget` seconds from now.
+
+    The time limit travels as a budget, not a clock reading: deadlines stay on the monotonic
+    clock, which (unlike time.time) doesn't jump when the computer wakes from sleep.
+    """
     project = Project.model_validate(project_json)
     traj = Trajectory.model_validate(traj_json)
     progress = (lambda msg: queue.put(msg)) if queue is not None else None
-    deadline = time.monotonic() + max(deadline_wall - time.time(), 1.0)
+    deadline = time.monotonic() + max(budget, 1.0)
     solver = Solver(project, traj, progress, cand, deadline)
     guess0 = build_guess(traj, routes, solver.dt)
     pa = point_at_members(traj, guess0)
@@ -740,13 +755,14 @@ def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = N
                   "routes": [[[list(p) for p in seg] for seg in c] for c in cands]})
 
     pj, tj = project.dump(), traj.model_dump(by_alias=True, mode="json", exclude={"output"})
-    deadline_wall = time.time() + traj.settings.time_limit
+    deadline = time.monotonic() + traj.settings.time_limit
     results = []
     if parallel and len(cands) > 1:
-        results = _run_parallel(pj, tj, cands, deadline_wall, progress)
+        results = _run_parallel(pj, tj, cands, deadline, progress)
     else:
         for i, c in enumerate(cands):
-            results.append(_solve_candidate(pj, tj, c, i, deadline_wall, None if progress is None else _Direct(progress)))
+            results.append(_solve_candidate(pj, tj, c, i, deadline - time.monotonic(),
+                                            None if progress is None else _Direct(progress)))
 
     results = [r for r in results if r.get("sol") is not None] or results
     good = [r for r in results if r["ok"]]
@@ -769,30 +785,34 @@ def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = N
     return SolveResult(False, None, issues, preview)
 
 
-def _candidate_entry(pj, tj, routes, cand, deadline_wall, queue):
+def _candidate_entry(pj, tj, routes, cand, budget, queue):
     try:
-        res = _solve_candidate(pj, tj, routes, cand, deadline_wall, queue)
+        res = _solve_candidate(pj, tj, routes, cand, budget, queue)
     except Exception as e:  # pragma: no cover - reported to the user
         res = {"ok": False, "sol": None, "iters": 0, "log": [f"crashed: {e!r}"], "candidate": cand}
     queue.put({"type": "_result", "result": res})
 
 
-def _run_parallel(pj, tj, cands, deadline_wall, progress) -> list[dict]:
-    """One daemon process per candidate; progress and results share a queue."""
+def _run_parallel(pj, tj, cands, deadline, progress) -> list[dict]:
+    """One daemon process per candidate; progress and results share a queue.
+
+    `deadline` is on the monotonic clock (see _solve_candidate).
+    """
     import multiprocessing as mp
     import queue as queue_mod
 
     ctx = mp.get_context("spawn")
     q = ctx.Queue()
-    procs = [ctx.Process(target=_candidate_entry, args=(pj, tj, c, i, deadline_wall, q), daemon=True)
+    budget = deadline - time.monotonic()
+    procs = [ctx.Process(target=_candidate_entry, args=(pj, tj, c, i, budget, q), daemon=True)
              for i, c in enumerate(cands)]
     for pr in procs:
         pr.start()
     results: dict[int, dict] = {}
-    hard_deadline = deadline_wall + 30
+    hard_deadline = deadline + 30
     try:
         # (checked every message: progress arrives every 0.1 s per candidate, so the queue is rarely idle)
-        while len(results) < len(procs) and time.time() <= hard_deadline:
+        while len(results) < len(procs) and time.monotonic() <= hard_deadline:
             try:
                 msg = q.get(timeout=0.2)
             except queue_mod.Empty:
@@ -810,6 +830,10 @@ def _run_parallel(pj, tj, cands, deadline_wall, progress) -> list[dict]:
         for pr in procs:
             if pr.is_alive():
                 pr.terminate()
+    for i in range(len(procs)):
+        if i not in results:
+            results[i] = {"ok": False, "sol": None, "iters": 0,
+                          "log": ["did not finish within the time limit"], "candidate": i}
     return [r for _, r in sorted(results.items()) if r["sol"] is not None] or list(results.values())
 
 

@@ -19,6 +19,7 @@ Choreo fails to generate paths with obstacles and long multi-waypoint paths. Bea
 - **Obstacles:** polygons drawn in the UI, customizable preloaded field geometry, the true rotating bumper rectangle, keep-in zones and walls.
 - **Intake extended:** when the constraint is active, the solver keeps the deployed intake clear of obstacles and walls (v0.5.0).
 - **Route candidates:** candidate 0 is the shortest route from either the any-heading or the inscribed-circle roadmap, so tight gaps like the trench are offered. All candidates run to completion; no early cancel, since it occasionally dropped the winner (v0.5.1).
+- **User limit rows:** max angular velocity and straight-line distance are two linear rows each (`±value / limit − 1 ≤ 0`), not `value² / limit² − 1`. The squared form's curvature (2e4 at 0.01 rad/s) stalled IPOPT until the time limit. Velocity and acceleration caps stay squared: they bound a 2D norm, and the sqrt and polygon forms were no faster in testing. After polishing, every solve re-checks the user limits on its samples and fails if one is broken by more than 1%.
 - **Sleipnir refinement** is optional and off by default on 2026 hardware.
 
 ## On-robot recovery (MayhemLib)
