@@ -97,6 +97,16 @@ On rough terrain, MayhemLib pauses collision detection and replanning, slows the
 - The graph button shows speed, acceleration, estimated motor current per module (against your current limit) and wheel force.
 - **Blue / Red** previews the red-alliance version. Paths are always authored for blue and flipped at runtime.
 
+### Fuel sim
+
+**Fuel sim** in the toolbar simulates the FUEL on the field during playback. Robots push it around, and an extended intake takes it in only as fast as its intake rate. Everything else it touches gets shoved, the way a real intake bulldozes part of a pile. The timeline shows how much fuel we're holding and keeps running after the robots stop until the pushed fuel has rolled to rest.
+
+- **Our robot** uses its solved path and its **Intake extended** spans. Set its *intake rate* (fuel per second) and *capacity* (0 = no limit) in the Fuel sim panel. An out-of-date path doesn't take part until you generate it again.
+- **Other robots**: add allies and opponents from the panel. Each drives a smooth curve through its points at a set max speed and acceleration, facing along the curve, with its intake out at the front. Select one to edit it: drag its points or its whole path, double-click the field to add a point at the end, ⇧-click a point to remove it, and press Delete to remove the robot. The copy button mirrors it to the other alliance.
+- Fuel bounces off enabled obstacles (the hubs, trench walls and towers) and the field walls. It rolls over the bumps.
+- The other robots and intake settings are saved in the project file. They never make a path out of date, and the solver ignores them.
+- It's a 2D, top-down model. Fuel doesn't stack or fly, and robots don't collide with each other. The FUEL properties come from FIRST and AndyMark's 2026 Scoring Element Testing Report (215 g, 5.91 in). Rolling friction and bounce values are estimates.
+
 ## 7. Run it on the robot
 
 See [lib/README.md](../lib/README.md). In short:

@@ -409,6 +409,35 @@ class PoseVariable(Model):
     heading: float = 0.0
 
 
+class SimRobot(Model):
+    """Another robot (ally or opponent) in the app's fuel playback sim.
+
+    It drives a smooth curve through `points` with a trapezoidal speed profile, facing along the
+    curve. Only used for playback; the solver ignores it.
+    """
+
+    id: str
+    name: str = "Robot"
+    alliance: Literal["blue", "red"] = "red"
+    points: list[tuple[float, float]] = Field(default_factory=list)
+    max_velocity: float = Field(3.0, gt=0)
+    max_acceleration: float = Field(3.0, gt=0)
+    start_delay: float = Field(0.0, ge=0, description="Seconds to wait before driving")
+    size: float = Field(0.9, gt=0, description="Bumper-to-bumper width of its square frame [m]")
+    intake: bool = Field(True, description="Intake out (at the front) while it drives")
+    intake_rate: float = Field(10.0, ge=0, description="Fuel per second it can take in")
+    capacity: int = Field(0, ge=0, description="Fuel it can hold; 0 = no limit")
+    enabled: bool = True
+
+
+class FuelSimConfig(Model):
+    """Settings for the app's fuel playback sim (our robot's intake plus other robots' autos)."""
+
+    intake_rate: float = Field(10.0, ge=0, description="Fuel per second our intake can take in")
+    capacity: int = Field(0, ge=0, description="Fuel our robot can hold; 0 = no limit")
+    robots: list[SimRobot] = Field(default_factory=list)
+
+
 class Project(Model):
     format_version: int = FORMAT_VERSION
     name: str = "Mayhem Project"
@@ -421,6 +450,9 @@ class Project(Model):
     poses: list[PoseVariable] = Field(default_factory=list)
     folders: list[str] = Field(
         default_factory=list, description="Path folders shown in the sidebar, in order"
+    )
+    fuel_sim: FuelSimConfig = Field(
+        default_factory=FuelSimConfig, description="Fuel playback sim setup; not used by the solver"
     )
 
 

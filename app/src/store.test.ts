@@ -197,3 +197,22 @@ describe("sameDir", () => {
     expect(sameDir("C:\\robot", null)).toBe(false);
   });
 });
+
+describe("fuel sim setup", () => {
+  it("edits project.fuelSim with undo and never marks paths stale", () => {
+    useStore.setState({ project: makeProject(), stale: {}, past: [], future: [], dir: null });
+    const a = useStore.getState();
+    a.updateFuelSim((f) => { f.intakeRate = 6; });
+    expect(useStore.getState().project!.fuelSim).toEqual({ intakeRate: 6, capacity: 0, robots: [] });
+    expect(useStore.getState().stale).toEqual({});
+    useStore.getState().undo();
+    expect(useStore.getState().project!.fuelSim).toBeUndefined();
+  });
+
+  it("clears a selected sim robot when the sim is turned off", () => {
+    useStore.setState({ selection: { kind: "simRobot", id: "r1" } });
+    useStore.getState().setFuelSimOn(false);
+    expect(useStore.getState().selection).toBeNull();
+    expect(useStore.getState().fuelSimOn).toBe(false);
+  });
+});

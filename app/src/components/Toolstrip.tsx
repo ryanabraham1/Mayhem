@@ -7,6 +7,7 @@ import { useStore, type Tool } from "../store";
 import { CONSTRAINT_LABELS } from "../model";
 import type { ConstraintType } from "../types";
 import { PoseVariablesPopover } from "./PoseVariablesPopover";
+import { FuelSimPopover } from "./FuelSimPanel";
 
 // Pose waypoint icon: a small robot square with a heading tick.
 function PoseIcon({ size = 16 }: { size?: number }) {
@@ -96,7 +97,7 @@ export function Toolstrip() {
           <Icon size={16} /> {label}
         </button>
       ))}
-      {view === "paths" && <><span className="divider-v" style={{ margin: "0 4px" }} /><ConstraintMenu disabled={locked} /><PoseVariablesPopover /></>}
+      {view === "paths" && <><span className="divider-v" style={{ margin: "0 4px" }} /><ConstraintMenu disabled={locked} /><PoseVariablesPopover /><FuelSimPopover /></>}
       <div style={{ flex: 1 }} />
       {view === "paths" && (
         <div className="seg" title="Preview the path for each alliance">

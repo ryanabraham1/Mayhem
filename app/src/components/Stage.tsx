@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import { FieldCanvas } from "./FieldCanvas";
 import { ConstraintEditor, MarkerEditor, PoseVariableEditor, WaypointEditor } from "./Inspector";
 import { FieldSettingsPanel, ObstacleEditor } from "./FieldPanels";
+import { SimRobotEditor } from "./FuelSimPanel";
 import type { Trajectory } from "../types";
 import { CONSTRAINT_LABELS } from "../model";
 
@@ -38,6 +39,7 @@ export function Stage() {
   } else if (traj) {
     const upd = (fn: (t: Trajectory) => void, history = true) => a.updateTraj(traj.name, fn, { history });
     if (selection?.kind === "pose") panel = <PoseVariableEditor id={selection.id} />;
+    else if (selection?.kind === "simRobot") panel = <SimRobotEditor id={selection.id} />;
     else if (selection?.kind === "waypoint" && traj.waypoints[selection.index]) panel = <WaypointEditor traj={traj} index={selection.index} upd={upd} />;
     else if (selection?.kind === "constraint") {
       const c = traj.constraints.find((x) => x.id === selection.id);

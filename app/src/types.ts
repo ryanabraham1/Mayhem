@@ -84,11 +84,19 @@ export interface Trajectory {
   /** sidebar folder; organisational only */
   folder?: string | null;
 }
+/** Another robot (ally or opponent) in the fuel playback sim; drives a smooth curve through its points. */
+export interface SimRobot {
+  id: string; name: string; alliance: "blue" | "red"; points: Vec2[]; maxVelocity: number; maxAcceleration: number;
+  startDelay: number; size: number; intake: boolean; intakeRate: number; capacity: number; enabled: boolean;
+}
+export interface FuelSimConfig { intakeRate: number; capacity: number; robots: SimRobot[] }
 export interface Project {
   formatVersion: number; name: string; robot: RobotConfig; field: Field; commands: string[]; deployDir: string;
   poses: PoseVariable[];
   /** path folders shown in the sidebar, in order */
   folders: string[];
+  /** fuel playback sim setup; absent in files from before it existed */
+  fuelSim?: FuelSimConfig;
 }
 export interface Issue {
   severity: "error" | "warning" | "info"; message: string; waypoint?: number | null; t?: number | null;

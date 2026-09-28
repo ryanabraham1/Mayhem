@@ -3,7 +3,8 @@ import { immer } from "zustand/middleware/immer";
 import { enableMapSet, produce } from "immer";
 import { backend, type BackendStatus } from "./backend";
 import { flippedName, flipTrajectoryY, folderList, newTrajectory } from "./model";
-import type { ConstraintType, DrivetrainInfo, Field, Issue, Project, Trajectory, Vec2 } from "./types";
+import type { ConstraintType, DrivetrainInfo, Field, FuelSimConfig, Issue, Project, Trajectory, Vec2 } from "./types";
+import { DEFAULT_FUEL_SIM } from "./fuelsim";
 
 enableMapSet();
 
@@ -17,6 +18,7 @@ export type Selection =
   | { kind: "obstacle"; id: string }
   | { kind: "issue"; index: number }
   | { kind: "pose"; id: string }
+  | { kind: "simRobot"; id: string }
   | null;
 
 /** Constraint being placed: pick the first waypoint, then the last (or draw a region). */
@@ -70,6 +72,8 @@ interface State {
   playback: { t: number; playing: boolean; speed: number };
   showRed: boolean;
   showGraphs: boolean;
+  /** fuel physics playback (app preference; the robots it uses live in project.fuelSim) */
+  fuelSimOn: boolean;
   settings: SettingsTab | null;
   drivetrainInfo: DrivetrainInfo | null;
   past: Snapshot[];
@@ -115,9 +119,14 @@ interface Actions {
   setShowRed(v: boolean): void;
   startConstraint(type: ConstraintType): void;
   setShowGraphs(v: boolean): void;
+  setFuelSimOn(v: boolean): void;
+  /** Edit the project's fuel sim setup (other robots, our intake rate); never marks paths stale. */
+  updateFuelSim(fn: (f: FuelSimConfig) => void, opts?: { history?: boolean }): void;
   openSettings(tab: SettingsTab | null): void;
   refreshDrivetrain(): void;
 }
+
+const FUEL_SIM_KEY = "mayhem.fuelSim";
 
 // Debounced disk writes, keyed per file. `flushSaves` runs whatever is still pending right away
 // (the updater calls it before restarting the app).
@@ -325,6 +334,7 @@ export const useStore = create<State & Actions>()(
       showRed: false,
       pending: null,
       showGraphs: false,
+      fuelSimOn: (() => { try { return localStorage.getItem(FUEL_SIM_KEY) === "1"; } catch { return false; } })(),
       settings: null,
       drivetrainInfo: null,
       past: [],
@@ -807,6 +817,21 @@ export const useStore = create<State & Actions>()(
         set((s) => {
           s.showGraphs = v;
         });
+      },
+
+      setFuelSimOn(v) {
+        try { localStorage.setItem(FUEL_SIM_KEY, v ? "1" : "0"); } catch { /* ignore */ }
+        set((s) => {
+          s.fuelSimOn = v;
+          if (!v && s.selection?.kind === "simRobot") s.selection = null;
+        });
+      },
+
+      updateFuelSim(fn, opts) {
+        get().updateProject((p) => {
+          p.fuelSim ??= structuredClone(DEFAULT_FUEL_SIM);
+          fn(p.fuelSim);
+        }, { history: opts?.history, affectsSolve: false });
       },
 
       openSettings(tab) {

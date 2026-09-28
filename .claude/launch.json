@@ -13,6 +13,13 @@
       "runtimeArgs": ["--dir", "app", "exec", "vite", "--port", "5183"],
       "port": 5183,
       "autoPort": false
+    },
+    {
+      "name": "solver",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["--directory", "solver", "run", "mayhem-solver", "serve", "--ws", "8765"],
+      "port": 8765,
+      "autoPort": false
     }
   ]
 }

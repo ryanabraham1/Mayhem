@@ -4,6 +4,8 @@ import { LineChart, Pause, Play } from "lucide-react";
 import { useStore } from "../store";
 import { moduleCurrents, sampleAt, totalTime } from "../model";
 import type { Trajectory } from "../types";
+import { useFuelSim } from "../useFuelSim";
+import { intakenBy } from "../fuelsim";
 
 export function BottomBar() {
   const traj = useStore((s) => (s.selectedTraj ? s.trajectories[s.selectedTraj] : undefined));
@@ -25,7 +27,9 @@ export function Timeline({ traj, solvingStage }: { traj: Trajectory; solvingStag
   const playback = useStore((s) => s.playback);
   const stale = useStore((s) => s.stale[traj.name]);
   const showGraphs = useStore((s) => s.showGraphs);
-  const T = totalTime(traj.output);
+  const sim = useFuelSim();
+  // The fuel sim keeps playing while other robots are still driving.
+  const T = Math.max(totalTime(traj.output), sim?.duration ?? 0);
   const set = useStore.getState().setPlayback;
 
   // animation loop
@@ -61,6 +65,7 @@ export function Timeline({ traj, solvingStage }: { traj: Trajectory; solvingStag
   }, [set]);
 
   const s = traj.output ? sampleAt(traj.output, Math.min(playback.t, T)) : null;
+  const fuel = sim && sim.taken.us ? intakenBy(sim, "us", playback.t) : null;
   const pct = (t: number) => `calc(${(t / Math.max(T, 1e-6)) * 100}% )`;
   return (
     <div className="timeline">
@@ -75,8 +80,8 @@ export function Timeline({ traj, solvingStage }: { traj: Trajectory; solvingStag
       </div>
       <div className="time-readout">
         {solvingStage ? <>optimizing · {solvingStage}</> : s
-          ? <><b>{Math.min(playback.t, T).toFixed(2)}</b> / {T.toFixed(2)} s · {Math.hypot(s.vx, s.vy).toFixed(2)} m/s{stale ? " · out of date" : ""}</>
-          : "not generated"}
+          ? <><b>{Math.min(playback.t, T).toFixed(2)}</b> / {T.toFixed(2)} s · {Math.hypot(s.vx, s.vy).toFixed(2)} m/s{fuel !== null ? ` · ${fuel} fuel` : ""}{stale ? " · out of date" : ""}</>
+          : sim ? <><b>{Math.min(playback.t, T).toFixed(2)}</b> / {T.toFixed(2)} s · path not generated</> : "not generated"}
       </div>
       <select className="select" style={{ width: 64, height: 28 }} value={playback.speed} onChange={(e) => set({ speed: +e.target.value })} title="Playback speed">
         {[0.25, 0.5, 1, 2].map((v) => <option key={v} value={v}>{v}×</option>)}

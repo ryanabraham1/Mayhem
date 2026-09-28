@@ -285,6 +285,8 @@ kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--border-
 .pose-popover-item { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); cursor: pointer; text-align: left; }
 .pose-popover-item.on { border-color: var(--accent); background: var(--accent-soft); }
 .pose-popover-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fuel-popover { width: min(380px, calc(100vw - 24px)); }
+.sim-robot-list { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
 .item .grip { color: var(--faint); cursor: grab; display: grid; place-items: center; width: 12px; margin-left: -4px; flex: none; opacity: 0; }
 .item:hover .grip, .item.on .grip { opacity: 1; }
 .item.dragging { opacity: 0.45; }

@@ -289,6 +289,34 @@
       "title": "Field",
       "type": "object"
     },
+    "FuelSimConfig": {
+      "description": "Settings for the app's fuel playback sim (our robot's intake plus other robots' autos).",
+      "properties": {
+        "intakeRate": {
+          "default": 10.0,
+          "description": "Fuel per second our intake can take in",
+          "minimum": 0,
+          "title": "Intakerate",
+          "type": "number"
+        },
+        "capacity": {
+          "default": 0,
+          "description": "Fuel our robot can hold; 0 = no limit",
+          "minimum": 0,
+          "title": "Capacity",
+          "type": "integer"
+        },
+        "robots": {
+          "items": {
+            "$ref": "#/$defs/SimRobot"
+          },
+          "title": "Robots",
+          "type": "array"
+        }
+      },
+      "title": "FuelSimConfig",
+      "type": "object"
+    },
     "Intake": {
       "description": "A mechanism that reaches past one bumper side when deployed (e.g. an over-the-bumper intake).\n\nIt only counts for collisions where an intakeExtended constraint says it is out.",
       "properties": {
@@ -925,6 +953,10 @@
           },
           "title": "Folders",
           "type": "array"
+        },
+        "fuelSim": {
+          "$ref": "#/$defs/FuelSimConfig",
+          "description": "Fuel playback sim setup; not used by the solver"
         }
       },
       "title": "Project",
@@ -1279,6 +1311,102 @@
         }
       },
       "title": "Scope",
+      "type": "object"
+    },
+    "SimRobot": {
+      "description": "Another robot (ally or opponent) in the app's fuel playback sim.\n\nIt drives a smooth curve through `points` with a trapezoidal speed profile, facing along the\ncurve. Only used for playback; the solver ignores it.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "default": "Robot",
+          "title": "Name",
+          "type": "string"
+        },
+        "alliance": {
+          "default": "red",
+          "enum": [
+            "blue",
+            "red"
+          ],
+          "title": "Alliance",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Points",
+          "type": "array"
+        },
+        "maxVelocity": {
+          "default": 3.0,
+          "exclusiveMinimum": 0,
+          "title": "Maxvelocity",
+          "type": "number"
+        },
+        "maxAcceleration": {
+          "default": 3.0,
+          "exclusiveMinimum": 0,
+          "title": "Maxacceleration",
+          "type": "number"
+        },
+        "startDelay": {
+          "default": 0.0,
+          "description": "Seconds to wait before driving",
+          "minimum": 0,
+          "title": "Startdelay",
+          "type": "number"
+        },
+        "size": {
+          "default": 0.9,
+          "description": "Bumper-to-bumper width of its square frame [m]",
+          "exclusiveMinimum": 0,
+          "title": "Size",
+          "type": "number"
+        },
+        "intake": {
+          "default": true,
+          "description": "Intake out (at the front) while it drives",
+          "title": "Intake",
+          "type": "boolean"
+        },
+        "intakeRate": {
+          "default": 10.0,
+          "description": "Fuel per second it can take in",
+          "minimum": 0,
+          "title": "Intakerate",
+          "type": "number"
+        },
+        "capacity": {
+          "default": 0,
+          "description": "Fuel it can hold; 0 = no limit",
+          "minimum": 0,
+          "title": "Capacity",
+          "type": "integer"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SimRobot",
       "type": "object"
     },
     "SolveStats": {
