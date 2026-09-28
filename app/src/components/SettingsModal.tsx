@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Calculator, FolderOpen, Keyboard, Palette, Route, Settings2, Trash2, Truck, X } from "lucide-react";
+import { Calculator, FolderOpen, Info, Keyboard, Palette, Route, Settings2, Trash2, Truck, X } from "lucide-react";
 import { useStore, type SettingsTab } from "../store";
 import { DEFAULT_INTAKE, footprint, intakeCorners, MOTOR_LABELS } from "../model";
 import type { IntakeSide, MotorType, RobotConfig } from "../types";
 import { NumberField, Seg, SelectField, TextField } from "./ui";
 import { SolverSettingsEditor } from "./Inspector";
 import { pickFolder } from "./Welcome";
+import { UpdateSettings } from "./UpdateBanner";
 
 const TABS: { tab: SettingsTab; label: string; icon: typeof Truck }[] = [
   { tab: "robot", label: "Robot", icon: Truck },
@@ -13,6 +14,7 @@ const TABS: { tab: SettingsTab; label: string; icon: typeof Truck }[] = [
   { tab: "project", label: "Project", icon: Settings2 },
   { tab: "appearance", label: "Appearance", icon: Palette },
   { tab: "shortcuts", label: "Shortcuts", icon: Keyboard },
+  { tab: "about", label: "About & updates", icon: Info },
 ];
 
 export function SettingsModal() {
@@ -40,6 +42,7 @@ export function SettingsModal() {
             {tab === "project" && <ProjectSettings />}
             {tab === "appearance" && <AppearanceSettings />}
             {tab === "shortcuts" && <Shortcuts />}
+            {tab === "about" && <UpdateSettings />}
           </div>
         </div>
       </div>

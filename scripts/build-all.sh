@@ -40,8 +40,17 @@ if [[ $DO_APP == 1 ]]; then
   echo "==> Building desktop app ($BUNDLES)"
   cd "$ROOT/app"
   pnpm install --frozen-lockfile
+  # Auto-update artifacts (.app.tar.gz / .sig) need the updater signing key. Releases get it
+  # from CI secrets; locally use ~/.tauri/mayhem-updater.key if present, else skip them.
+  TAURI_ARGS=(--bundles "$BUNDLES")
+  KEY_FILE="${MAYHEM_UPDATER_KEY:-$HOME/.tauri/mayhem-updater.key}"
+  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" && -f "$KEY_FILE" ]]; then
+    export TAURI_SIGNING_PRIVATE_KEY="$KEY_FILE"
+    [[ -f "$KEY_FILE.password" ]] && export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat "$KEY_FILE.password")"
+  fi
+  [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]] && TAURI_ARGS+=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
   # PyInstaller onefile binaries must not be stripped (linuxdeploy does that for AppImages).
-  NO_STRIP=true pnpm tauri build --bundles "$BUNDLES"
+  NO_STRIP=true pnpm tauri build "${TAURI_ARGS[@]}"
   BUNDLE_DIR="$ROOT/app/src-tauri/target/release/bundle"
   while IFS= read -r f; do ARTIFACTS+=("$f"); done < <(
     find "$BUNDLE_DIR" -maxdepth 2 \( -name '*.app' -o -name '*.dmg' -o -name '*.AppImage' \

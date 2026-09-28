@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: run the bundled solver sidecar and pick project folders",
+  "description": "Main window: run the bundled solver sidecar, pick project folders, install app updates",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -15,6 +15,9 @@
       "allow": [{ "name": "binaries/mayhem-solver", "sidecar": true, "args": ["serve"] }]
     },
     "shell:allow-stdin-write",
-    "shell:allow-kill"
+    "shell:allow-kill",
+    "shell:allow-open",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

@@ -1,6 +1,7 @@
 import { FolderOpen, Loader2, Play, Redo2, Settings2, Square, Undo2 } from "lucide-react";
 import { useStore } from "../store";
 import { Seg } from "./ui";
+import { UpdateButton } from "./UpdateBanner";
 
 export function TopBar() {
   const project = useStore((s) => s.project);
@@ -35,6 +36,7 @@ export function TopBar() {
         </>
       )}
       <div className="spacer" />
+      <UpdateButton />
       {project && (
         <>
           <button className="btn ghost icon" onClick={a.undo} disabled={!canUndo} title="Undo (⌘Z)"><Undo2 size={16} /></button>

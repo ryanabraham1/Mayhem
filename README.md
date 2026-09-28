@@ -14,6 +14,8 @@ Get the latest installer from [GitHub Releases](https://github.com/ryanabraham1/
 
 On macOS, drag Mayhem into Applications. These builds are not notarized, so if macOS blocks
 the first launch, run `xattr -dr com.apple.quarantine /Applications/Mayhem.app` in Terminal.
+From 0.6.0 on, Mayhem updates itself. It shows a banner when a new release is out and installs
+the update when you click **Install & restart**.
 For the robot library, download `MayhemLib-maven.zip` and `MayhemLib.json` from the same release;
 see [installation instructions](lib/README.md).
 

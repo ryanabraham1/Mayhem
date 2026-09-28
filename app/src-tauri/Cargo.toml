@@ -1,6 +1,6 @@
 [package]
 name = "mayhem"
-version = "0.5.1"
+version = "0.6.0"
 description = "Mayhem - time-optimal FRC swerve trajectory generator"
 authors = ["Ryan Abraham"]
 license = ""
@@ -21,6 +21,8 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "~2.11.6", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
+# Updater/process 2.12+ require tauri 2.12; stay on the releases that match the pinned 2.11 family.
+tauri-plugin-process = "~2.3.1"
 # The CLI refuses to build when the tauri crate and @tauri-apps/api (package.json, 2.11.x) differ
 # in major.minor, and tauri 2.11's requirements on its runtime/utils crates are loose enough that
 # cargo would otherwise pull the incompatible 2.12 family. Keep the whole family on 2.11.x;
@@ -36,6 +38,9 @@ lto = true
 opt-level = "s"
 panic = "abort"
 strip = true
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "~2.11.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

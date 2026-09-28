@@ -48,6 +48,8 @@ jobs:
                    -f tag_name="${TAG}" -f name="Mayhem ${TAG}" -F draft=true \
                    -f body="Download the installer for your system below: .dmg for macOS (choose Apple Silicon or Intel), or .AppImage or .deb for Linux.
 
+          Mayhem 0.6.0 and later update themselves: the app offers new releases in a banner (or Settings, About & updates).
+
           macOS builds are not notarized. After dragging Mayhem.app into Applications, run \`xattr -dr com.apple.quarantine /Applications/Mayhem.app\` if macOS blocks the first launch.
 
           For MayhemLib, unzip \`MayhemLib-maven.zip\` into \`~/wpilib/2026/maven\` and copy \`MayhemLib.json\` into your robot project's \`vendordeps/\`." \
@@ -124,10 +126,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
         working-directory: app
 
+      - name: Check updater signing key
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          [ -n "$KEY" ] || {
+            echo "::error::Set the TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD repo secrets (see docs/BUILDING.md, Auto-update)." >&2
+            exit 1
+          }
+
       - uses: tauri-apps/tauri-action@v0.6.2
         id: tauri
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the auto-update artifacts (.app.tar.gz, .AppImage, .deb -> .sig). The matching
+          # public key is plugins.updater.pubkey in tauri.conf.json.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # PyInstaller onefile binaries break if stripped (linuxdeploy strips AppImage contents).
           NO_STRIP: "true"
           # Skip the Finder AppleScript window-layout step when building the DMG headless.
@@ -138,6 +154,9 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           tagName: ${{ env.TAG }}
           releaseDraft: true
+          # Parallel jobs racing to merge one latest.json can drop platforms; the publish job
+          # writes it once from the uploaded .sig files instead.
+          includeUpdaterJson: false
           args: --bundles ${{ matrix.bundles }}
 
       - uses: actions/upload-artifact@v4
@@ -148,6 +167,7 @@ jobs:
             app/src-tauri/target/release/bundle/macos/*.app.tar.gz
             app/src-tauri/target/release/bundle/appimage/*.AppImage
             app/src-tauri/target/release/bundle/deb/*.deb
+            app/src-tauri/target/release/bundle/*/*.sig
           if-no-files-found: warn
 
   mayhemlib:
@@ -189,7 +209,7 @@ jobs:
     needs: [create-release, desktop, mayhemlib]
     runs-on: ubuntu-latest
     steps:
-      - name: Verify assets and publish
+      - name: Verify assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -199,5 +219,69 @@ jobs:
           for pattern in '\.AppImage$' '\.deb$' '^MayhemLib-maven\.zip$' '^MayhemLib\.json$'; do
             printf '%s\n' "$assets" | grep -qE "$pattern"
           done
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+          sparse-checkout: app/src-tauri/tauri.conf.json
+          sparse-checkout-cone-mode: false
+
+      # The app reads releases/latest/download/latest.json (tauri.conf.json plugins.updater), and
+      # "latest" only moves once this release is published, so installs never see a partial release.
+      - name: Write updater manifest (latest.json)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir sigs && cd sigs
+          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern '*.sig'
+          ls -l
+          python3 - <<'PY'
+          import base64, glob, json, os, sys, datetime
+          tag, repo = os.environ["TAG"], os.environ["GITHUB_REPOSITORY"]
+
+          # Installed apps reject updates not signed by the key behind plugins.updater.pubkey, so
+          # a wrong TAURI_SIGNING_PRIVATE_KEY secret must fail here, not in users' hands.
+          # Keys and .sig files are base64 of minisign text; line 2 is base64(alg[2] + key id[8] + ...).
+          def key_id(b64_text):
+              return base64.b64decode(base64.b64decode(b64_text).decode().splitlines()[1])[2:10]
+          conf = json.load(open("../app/src-tauri/tauri.conf.json"))
+          want = key_id(conf["plugins"]["updater"]["pubkey"])
+          bad = [s for s in glob.glob("*.sig") if key_id(open(s).read().strip()) != want]
+          if bad:
+              sys.exit(f"{bad} not signed with the key matching plugins.updater.pubkey; check the TAURI_SIGNING_PRIVATE_KEY secret")
+          # updater target key(s) -> glob for the signed artifact's .sig
+          wanted = {
+              ("darwin-aarch64", "darwin-aarch64-app"): "*aarch64*.app.tar.gz.sig",
+              ("darwin-x86_64", "darwin-x86_64-app"): "*x64*.app.tar.gz.sig",
+              ("linux-x86_64", "linux-x86_64-appimage"): "*amd64.AppImage.sig",
+              ("linux-x86_64-deb",): "*amd64.deb.sig",
+          }
+          platforms = {}
+          for keys, pattern in wanted.items():
+              hits = glob.glob(pattern)
+              if len(hits) != 1:
+                  sys.exit(f"expected exactly one {pattern}, found {hits}")
+              sig = hits[0]
+              entry = {
+                  "signature": open(sig).read().strip(),
+                  "url": f"https://github.com/{repo}/releases/download/{tag}/{sig[:-len('.sig')]}",
+              }
+              for k in keys:
+                  platforms[k] = entry
+          manifest = {
+              "version": tag.lstrip("v"),
+              "notes": f"https://github.com/{repo}/releases/tag/{tag}",
+              "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "platforms": platforms,
+          }
+          json.dump(manifest, open("../latest.json", "w"), indent=2)
+          print(json.dumps(manifest, indent=2))
+          PY
+          cd .. && gh release upload "${TAG}" latest.json --repo "${GITHUB_REPOSITORY}" --clobber
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
           gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"

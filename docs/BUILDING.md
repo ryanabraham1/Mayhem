@@ -163,9 +163,10 @@ manual dispatch with an existing tag:
    Windows installers are pending a fix for the frozen solver worker on Windows.
 3. `mayhemlib` runs `./gradlew build vendordepJson publishJavaPublicationToLocalRepository`
    and attaches `MayhemLib-maven.zip` and `MayhemLib.json`.
-4. `publish` checks that the installers and MayhemLib files are present, then publishes the
+4. `publish` checks that the installers and MayhemLib files are present, writes the
+   auto-update manifest `latest.json` from the uploaded `.sig` files, then publishes the
    release. If a build fails, the release stays a draft so incomplete downloads are not shown
-   as the latest release.
+   as the latest release, and installed apps are not offered it.
 
 To cut a release:
 
@@ -174,6 +175,51 @@ git tag v0.2.0 && git push origin v0.2.0
 # wait for the Release workflow; installers appear at
 # https://github.com/ryanabraham1/Mayhem/releases/latest
 ```
+
+## Auto-update
+
+The desktop app updates itself with `tauri-plugin-updater` (UI in `app/src/updater.ts` and
+`app/src/components/UpdateBanner.tsx`). It checks
+`https://github.com/ryanabraham1/Mayhem/releases/latest/download/latest.json` a few seconds
+after launch and every 6 hours, shows a banner when a newer version exists, and installs only
+when the user clicks **Install & restart**. Before restarting it stops running generations
+and saves pending edits. Settings, About & updates, and the Welcome screen have a manual
+check. Dev builds (`tauri dev`) skip the automatic check.
+
+Every update is verified against the public key in `app/src-tauri/tauri.conf.json`
+(`plugins.updater.pubkey`). The release workflow signs with the matching private key from two
+repository secrets:
+
+| Secret | Value |
+|---|---|
+| `TAURI_SIGNING_PRIVATE_KEY` | contents of `~/.tauri/mayhem-updater.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | contents of `~/.tauri/mayhem-updater.key.password` |
+
+**Back up the private key and password** (e.g. in a password manager). If they are lost,
+installed copies can't be updated again; you'd have to generate a new key pair
+(`pnpm tauri signer generate -w ~/.tauri/mayhem-updater.key`), put the new public key in
+`tauri.conf.json`, and have everyone reinstall manually once.
+
+What each platform updates from (`latest.json` target keys):
+
+| Install | Target | Artifact |
+|---|---|---|
+| macOS `.app` | `darwin-aarch64`, `darwin-x86_64` | `Mayhem_<arch>.app.tar.gz` (replaces the bundle in place) |
+| Linux AppImage | `linux-x86_64` | the `.AppImage` itself |
+| Linux `.deb` | `linux-x86_64-deb` | the `.deb`, installed with `pkexec dpkg -i` (asks for a password) |
+
+Local `pnpm tauri build` fails without the key because `bundle.createUpdaterArtifacts` is on.
+`scripts/build-all.sh` uses `~/.tauri/mayhem-updater.key` if it exists and otherwise turns
+updater artifacts off. For a one-off build without the key, run:
+`pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'`.
+
+To test an update locally, build the "new" version with the key
+(`pnpm tauri build --bundles app --config '{"version":"9.9.9"}'`) and serve a `latest.json`
+pointing at its `Mayhem.app.tar.gz` + `.sig`. Then build an "old" version with
+`--config '{"version":"0.0.1","plugins":{"updater":{"endpoints":["http://127.0.0.1:8799/latest.json"],"dangerousInsecureTransportProtocol":true}}}'`
+and launch it.
+
+## MayhemLib from a release
 
 To use MayhemLib from a release, unzip `MayhemLib-maven.zip` into `~/wpilib/2026/maven` and copy
 `MayhemLib.json` into the robot project's `vendordeps/`. Or run

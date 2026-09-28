@@ -5,6 +5,7 @@ Instructions for whoever picks this up next. Read [PLAN.md](PLAN.md) first (the 
 ## Current status (2026-09-26)
 
 - **Released:** v0.2.0 and v0.3.0 on GitHub Releases. Pushing a `v*` tag makes `.github/workflows/release.yml` build macOS arm64/x64 DMGs, a Linux AppImage/.deb and the MayhemLib Maven zip + vendordep, verify the assets, then publish automatically.
+- **Auto-update (v0.6.0, 2026-09-27):** the desktop app updates itself via `tauri-plugin-updater` from `releases/latest/download/latest.json` (banner + Settings, About & updates; installs only on click). Release CI signs with the `TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD` repo secrets; the key pair lives in `~/.tauri/mayhem-updater.key*` on Ryan's Mac and must be backed up. See docs/BUILDING.md, Auto-update. Verified locally end to end on macOS (0.0.1 → 0.6.0 install + relaunch, sidecar shut down cleanly). **Deferred:** MayhemLib vendordep update checks (`jsonUrl` + hosted maven repo).
 - **All background-agent work is integrated.** Packaging/CI, the robot example, and the solver benchmark/robustness work are merged, along with pose variables, straight line, fast infeasibility, and the current-limit and zero-margin fixes. The "Agent" briefs further down are history.
 - **Latest user-requested UI (v0.2.0):**
   - Choreo-style Pose / Translation / Guide tools; new waypoints always append at the end.

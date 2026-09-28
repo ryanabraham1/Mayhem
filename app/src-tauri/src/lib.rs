@@ -3,7 +3,8 @@
 //! The UI (app/src) spawns the Python solver itself through tauri-plugin-shell:
 //! `Command.sidecar("binaries/mayhem-solver", ["serve"])`, talking newline-delimited JSON over
 //! its stdin/stdout. This crate only has to register the plugins and make sure the solver goes
-//! away cleanly when the app quits.
+//! away cleanly when the app quits. Updates are checked and installed from the UI as well
+//! (app/src/updater.ts); restarting after an update goes through the same exit path.
 
 mod sidecar;
 
@@ -16,6 +17,8 @@ pub fn run() {
         .plugin(sidecar::reaper())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .run(tauri::generate_context!())
         .expect("error while running Mayhem");
 }

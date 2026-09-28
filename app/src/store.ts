@@ -8,7 +8,7 @@ import type { ConstraintType, DrivetrainInfo, Field, Issue, Project, Trajectory,
 enableMapSet();
 
 export type View = "paths" | "field";
-export type SettingsTab = "robot" | "path" | "project" | "appearance" | "shortcuts";
+export type SettingsTab = "robot" | "path" | "project" | "appearance" | "shortcuts" | "about";
 export type Tool = "select" | "pose" | "translation" | "guide" | "constraint" | "region" | "polygon" | "circle";
 export type Selection =
   | { kind: "waypoint"; index: number }
@@ -117,7 +117,21 @@ interface Actions {
   refreshDrivetrain(): void;
 }
 
-const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+// Debounced disk writes, keyed per file. `flushSaves` runs whatever is still pending right away
+// (the updater calls it before restarting the app).
+const saveTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => Promise<void> }>();
+
+function cancelSave(key: string) {
+  clearTimeout(saveTimers.get(key)?.timer);
+  saveTimers.delete(key);
+}
+
+export async function flushSaves() {
+  const pending = [...saveTimers.values()];
+  saveTimers.clear();
+  pending.forEach((p) => clearTimeout(p.timer));
+  await Promise.all(pending.map((p) => p.run()));
+}
 
 export const RECENTS_KEY = "mayhem.recentProjects";
 
@@ -151,10 +165,12 @@ export const useStore = create<State & Actions>()(
     };
 
     const scheduleSave = (key: string, fn: () => Promise<unknown>) => {
-      clearTimeout(saveTimers.get(key));
-      saveTimers.set(key, setTimeout(() => {
-        fn().catch((e) => get().toast("error", `Save failed: ${e.message}`));
-      }, 400));
+      cancelSave(key);
+      const run = () => {
+        if (saveTimers.get(key)?.run === run) saveTimers.delete(key);
+        return fn().then(() => {}, (e) => get().toast("error", `Save failed: ${e.message}`));
+      };
+      saveTimers.set(key, { timer: setTimeout(run, 400), run });
     };
 
     // The robot project's deploy folder, when it is somewhere other than the project folder.
@@ -482,8 +498,7 @@ export const useStore = create<State & Actions>()(
       deleteTrajectory(name) {
         const { dir } = get();
         const saveKey = `t:${dir}:${name}`;
-        clearTimeout(saveTimers.get(saveKey));
-        saveTimers.delete(saveKey);
+        cancelSave(saveKey);
         get().checkpoint();
         set((s) => {
           delete s.trajectories[name];
@@ -504,8 +519,7 @@ export const useStore = create<State & Actions>()(
         }
         const { dir } = get();
         const saveKey = `t:${dir}:${oldName}`;
-        clearTimeout(saveTimers.get(saveKey));
-        saveTimers.delete(saveKey);
+        cancelSave(saveKey);
         if (dir) await backend.call("renameTrajectory", { dir, old: oldName, new: newName });
         removeDeployed(oldName);
         set((s) => {

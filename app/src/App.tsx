@@ -8,6 +8,8 @@ import { Stage } from "./components/Stage";
 import { BottomBar } from "./components/Timeline";
 import { SettingsModal } from "./components/SettingsModal";
 import { FolderPickerModal, Welcome } from "./components/Welcome";
+import { UpdateBanner } from "./components/UpdateBanner";
+import { startUpdateChecks } from "./updater";
 
 export default function App() {
   const project = useStore((s) => s.project);
@@ -15,6 +17,7 @@ export default function App() {
 
   useEffect(() => {
     useStore.getState().init();
+    startUpdateChecks();
     try {
       if (localStorage.getItem("mayhem.theme") === "dark") document.documentElement.setAttribute("data-theme", "dark");
     } catch { /* ignore */ }
@@ -66,6 +69,7 @@ export default function App() {
       )}
       <SettingsModal />
       <FolderPickerModal />
+      <UpdateBanner />
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className={`toast ${t.kind}`}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowUp, Folder, FolderOpen, FolderPlus, X } from "lucide-react";
 import { backend, isTauri } from "../backend";
 import { recentProjects, useStore } from "../store";
+import { checkForUpdate, useUpdater } from "../updater";
 
 export async function pickFolder(title: string): Promise<string | null> {
   if (isTauri()) {
@@ -145,7 +146,22 @@ export function Welcome() {
             </div>
           </div>
         )}
+        <VersionLine />
       </div>
+    </div>
+  );
+}
+
+function VersionLine() {
+  const current = useUpdater((s) => s.current);
+  const phase = useUpdater((s) => s.phase);
+  if (!current) return null;
+  return (
+    <div className="muted" style={{ fontSize: 12, display: "flex", gap: 10, justifyContent: "center" }}>
+      <span>Version {current}</span>·
+      <button className="link-btn" style={{ fontSize: 12 }} disabled={phase === "checking"} onClick={() => void checkForUpdate(true)}>
+        {phase === "checking" ? "Checking…" : "Check for updates"}
+      </button>
     </div>
   );
 }
