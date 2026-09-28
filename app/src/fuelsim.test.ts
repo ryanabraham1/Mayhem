@@ -78,6 +78,27 @@ describe("fuel sim", () => {
     expect(simRobotEnd(tr)).toBeCloseTo(0.5 + 5 / 3 + 1, 5);
   });
 
+  it("slows other robots for bends instead of snapping through them", () => {
+    // a hairpin: out, then sharply back
+    const tr = simRobotTrack(bot({ points: [[3, 2], [6, 2], [6.3, 2.6], [3, 3.2]], startDelay: 0 }));
+    const straight = simRobotTrack(bot({ points: [[3, 2], [9, 2]], startDelay: 0 }));
+    expect(tr.driveTime).toBeGreaterThan(straight.driveTime * 1.1); // it had to brake for the turn
+    let prev = simRobotPose(tr, 0), maxLat = 0, maxOmega = 0, maxAccel = 0, maxJump = 0;
+    const dt = 0.005;
+    for (let t = dt; t <= tr.driveTime; t += dt) {
+      const q = simRobotPose(tr, t), v = Math.hypot(q.vx, q.vy);
+      maxLat = Math.max(maxLat, v * Math.abs(q.omega));
+      maxOmega = Math.max(maxOmega, Math.abs(q.omega));
+      maxAccel = Math.max(maxAccel, Math.abs(v - Math.hypot(prev.vx, prev.vy)) / dt);
+      maxJump = Math.max(maxJump, Math.abs(Math.atan2(Math.sin(q.heading - prev.heading), Math.cos(q.heading - prev.heading))));
+      prev = q;
+    }
+    expect(maxAccel).toBeLessThanOrEqual(3 + 1e-6);
+    expect(maxLat).toBeLessThan(3 * 1.3);
+    expect(maxOmega).toBeLessThan(2 * Math.PI * 1.3);
+    expect(maxJump).toBeLessThan(2 * Math.PI * 1.3 * dt);
+  });
+
   it("lets other robots push and intake fuel with no path of ours", () => {
     const sim = simulateFuel(field, robot, null, { intakeRate: 10, capacity: 0, robots: [bot({})] })!;
     expect(sim.duration).toBeGreaterThan(3);

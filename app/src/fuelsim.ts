@@ -126,10 +126,19 @@ export interface SimTrack {
   pts: Vec2[];
   s: number[];
   length: number;
+  /** Direction the robot faces at each point (along the curve). */
+  dir: number[];
+  /** Speed at each point, peak speed within each stretch to the next, and time each point is reached (after the delay). */
+  v: number[];
+  vp: number[];
+  t: number[];
   /** Seconds from the robot's start (after its delay) to reaching the end. */
   driveTime: number;
   robot: SimRobot;
 }
+
+/** Fastest other robots turn, since they face along their curve: one rotation per second. */
+const SIM_MAX_OMEGA = 2 * Math.PI;
 
 export function simRobotTrack(robot: SimRobot): SimTrack {
   const pts: Vec2[] = [];
@@ -141,52 +150,80 @@ export function simRobotTrack(robot: SimRobot): SimTrack {
     }
   }
   if (!pts.length && robot.points[0]) pts.push(robot.points[0]);
+  const n = pts.length;
   const s = [0];
-  for (let i = 1; i < pts.length; i++) s.push(s[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
-  const length = s[s.length - 1] ?? 0;
+  for (let i = 1; i < n; i++) s.push(s[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const length = s[n - 1] ?? 0;
   const vm = Math.max(0.1, robot.maxVelocity), am = Math.max(0.1, robot.maxAcceleration);
-  // trapezoid (or triangle, if it never reaches top speed)
-  const ramp = (vm * vm) / am;
-  const driveTime = length >= ramp ? length / vm + vm / am : 2 * Math.sqrt(length / am);
-  return { pts, s, length, driveTime, robot };
-}
+  const at = (i: number) => pts[Math.max(0, Math.min(n - 1, i))];
+  const chord = (i: number, j: number) => Math.atan2(at(j)[1] - at(i)[1], at(j)[0] - at(i)[0]);
+  const dir = pts.map((_, i) => chord(i - 1, i + 1));
 
-/** Distance along the curve and speed at time t (from the start of the auto). */
-function trapezoid(tr: SimTrack, t: number): [number, number] {
-  const vm = Math.max(0.1, tr.robot.maxVelocity), am = Math.max(0.1, tr.robot.maxAcceleration);
-  const tau = t - tr.robot.startDelay;
-  if (tau <= 0) return [0, 0];
-  if (tau >= tr.driveTime) return [tr.length, 0];
-  const vp = Math.min(vm, Math.sqrt(am * tr.length)); // peak speed
-  const ta = vp / am, tc = tr.driveTime - 2 * ta;
-  if (tau < ta) return [0.5 * am * tau * tau, am * tau];
-  if (tau < ta + tc) return [0.5 * am * ta * ta + vp * (tau - ta), vp];
-  const td = tr.driveTime - tau;
-  return [tr.length - 0.5 * am * td * td, am * td];
-}
+  // Speed limit from how hard the curve bends (κ, from the turn between neighboring chords): the
+  // sideways acceleration v²κ stays within the robot's acceleration and the turn rate vκ within
+  // SIM_MAX_OMEGA. Then forward/backward passes so it speeds up and brakes into bends at its accel.
+  const kappa = pts.map((_, j) => {
+    const i = Math.max(1, Math.min(n - 2, j));
+    const l = s[i + 1] - s[i - 1];
+    return n < 3 || !(l > 1e-9) ? 0 : Math.abs(wrapAngle(chord(i, i + 1) - chord(i - 1, i))) / (l / 2);
+  });
+  const cap = kappa.map((k) => (k > 1e-9 ? Math.max(0.05, Math.min(vm, Math.sqrt(am / k), SIM_MAX_OMEGA / k)) : vm));
+  const v = [...cap];
+  v[0] = 0;
+  for (let i = 0; i + 1 < n; i++) v[i + 1] = Math.min(v[i + 1], Math.sqrt(v[i] * v[i] + 2 * am * (s[i + 1] - s[i])));
+  v[n - 1] = 0;
+  for (let i = n - 2; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] * v[i + 1] + 2 * am * (s[i + 1] - s[i])));
 
-function trackPoint(tr: SimTrack, dist: number): { p: Vec2; dir: number } {
-  const { pts, s } = tr;
-  if (pts.length < 2) return { p: pts[0] ?? [0, 0], dir: 0 };
-  let lo = 0, hi = s.length - 1;
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (s[mid] <= dist) lo = mid; else hi = mid;
+  // each stretch between points is its own little trapezoid: up to vp, cruise, down to the next speed
+  const vp: number[] = [], t = [0];
+  for (let i = 0; i + 1 < n; i++) {
+    const v0 = v[i], v1 = v[i + 1], ds = s[i + 1] - s[i];
+    const peak = Math.max(v0, v1, Math.min(cap[i], cap[i + 1], Math.sqrt((v0 * v0 + v1 * v1) / 2 + am * ds)));
+    vp.push(peak);
+    const xc = Math.max(0, ds - (2 * peak * peak - v0 * v0 - v1 * v1) / (2 * am));
+    t.push(t[i] + (2 * peak - v0 - v1) / am + (peak > 0 ? xc / peak : 0));
   }
-  const u = s[hi] > s[lo] ? Math.max(0, Math.min(1, (dist - s[lo]) / (s[hi] - s[lo]))) : 0;
-  const a = pts[lo], b = pts[hi];
-  return { p: [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u], dir: Math.atan2(b[1] - a[1], b[0] - a[0]) };
+  return { pts, s, length, dir, v, vp, t, driveTime: t[n - 1] ?? 0, robot };
+}
+
+/** Distance along the curve, the index of the stretch it's in, and speed at time t (from the start of the auto). */
+function motion(tr: SimTrack, time: number): [number, number, number] {
+  const tau = time - tr.robot.startDelay, last = tr.pts.length - 1;
+  if (tau <= 0 || last < 1) return [0, 0, 0];
+  if (tau >= tr.driveTime) return [tr.length, last - 1, 0];
+  const am = Math.max(0.1, tr.robot.maxAcceleration);
+  let i = 0, hi = last;
+  while (hi - i > 1) {
+    const mid = (i + hi) >> 1;
+    if (tr.t[mid] <= tau) i = mid; else hi = mid;
+  }
+  const v0 = tr.v[i], v1 = tr.v[i + 1], p = tr.vp[i], ds = tr.s[i + 1] - tr.s[i];
+  const ta = (p - v0) / am, xa = (p * p - v0 * v0) / (2 * am);
+  const xc = Math.max(0, ds - xa - (p * p - v1 * v1) / (2 * am)), tc = p > 0 ? xc / p : 0;
+  const u = tau - tr.t[i];
+  let x: number, sp: number;
+  if (u < ta) [x, sp] = [v0 * u + 0.5 * am * u * u, v0 + am * u];
+  else if (u < ta + tc) [x, sp] = [xa + p * (u - ta), p];
+  else {
+    const w = Math.min((p - v1) / am, u - ta - tc);
+    [x, sp] = [xa + xc + p * w - 0.5 * am * w * w, p - am * w];
+  }
+  return [tr.s[i] + Math.min(ds, x), i, sp];
 }
 
 /** Where another robot is at time t; it faces along its curve. */
 export function simRobotPose(tr: SimTrack, t: number): Pose {
-  const [d, v] = trapezoid(tr, t);
-  const { p, dir } = trackPoint(tr, d);
-  // heading follows the curve; look a little ahead/behind for its turn rate
-  const h = 0.02;
-  const dAhead = trapezoid(tr, t + h)[0];
-  const omega = v > 1e-6 ? wrapAngle(trackPoint(tr, dAhead).dir - dir) / h : 0;
-  return { x: p[0], y: p[1], heading: dir, vx: v * Math.cos(dir), vy: v * Math.sin(dir), omega };
+  const [d, i, v] = motion(tr, t);
+  const { pts, s, dir } = tr;
+  if (pts.length < 2) return { x: pts[0]?.[0] ?? 0, y: pts[0]?.[1] ?? 0, heading: dir[0] ?? 0, vx: 0, vy: 0, omega: 0 };
+  const ds = s[i + 1] - s[i], u = ds > 0 ? Math.max(0, Math.min(1, (d - s[i]) / ds)) : 0;
+  const a = pts[i], b = pts[i + 1];
+  const turn = wrapAngle(dir[i + 1] - dir[i]), heading = dir[i] + turn * u;
+  const move = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  return {
+    x: a[0] + (b[0] - a[0]) * u, y: a[1] + (b[1] - a[1]) * u, heading,
+    vx: v * Math.cos(move), vy: v * Math.sin(move), omega: ds > 0 ? (v * turn) / ds : 0,
+  };
 }
 
 const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
