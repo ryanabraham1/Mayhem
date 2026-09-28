@@ -231,6 +231,44 @@ export function flipHeading(f: Field, h: number): number {
   return f.symmetry === "rotational" ? h + Math.PI : Math.PI - h;
 }
 
+/**
+ * Mirrors a path across the field's long center line (y -> width - y), so a route over one side of
+ * an alliance's half becomes the same route over the other side. Waypoints linked to a pose variable
+ * relink to one sitting at the mirrored pose, or unlink. Drops the old output: it needs a re-solve.
+ */
+export function flipTrajectoryY(t: Trajectory, f: Field, poses: PoseVariable[] = []): Trajectory {
+  const fy = ([x, y]: Vec2): Vec2 => [x, f.width - y];
+  // Reversed so polygons keep their winding.
+  const fpoly = (pts: Vec2[]) => pts.map(fy).reverse();
+  const out = structuredClone(t);
+  out.output = null;
+  out.waypoints = t.waypoints.map((raw) => {
+    const w = resolveWaypoint(poses, raw);
+    const x = w.x, y = f.width - w.y, heading = wrap(-w.heading);
+    const match = raw.poseRef
+      ? poses.find((p) => Math.hypot(p.x - x, p.y - y) < 1e-3 && Math.abs(wrap(p.heading - heading)) < 1e-3)
+      : undefined;
+    return { ...structuredClone(raw), x, y, heading, poseRef: match?.id ?? null };
+  });
+  for (const c of out.constraints) {
+    if (c.scope.kind === "zone") c.scope.region = fpoly(c.scope.region);
+    const d = c.data;
+    if (d.type === "pointAt") d.y = f.width - d.y;
+    else if (d.type === "keepIn" || d.type === "keepOut") d.points = fpoly(d.points);
+  }
+  return out;
+}
+
+/** Swaps Top/Bottom (or Left/Right) in a path name; otherwise appends "(flipped)". */
+export function flippedName(name: string): string {
+  const pairs: [string, string][] = [["Top", "Bottom"], ["top", "bottom"], ["Left", "Right"], ["left", "right"]];
+  for (const [a, b] of pairs) {
+    const re = new RegExp(`\\b(${a}|${b})\\b`);
+    if (re.test(name)) return name.replace(new RegExp(`\\b(${a}|${b})\\b`, "g"), (m) => (m === a ? b : a));
+  }
+  return `${name} (flipped)`;
+}
+
 // ------------------------------------------------------------------ motors (WPILib DCMotor)
 
 const MOTORS: Record<string, [number, number, number, number, number]> = {

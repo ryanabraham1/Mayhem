@@ -122,6 +122,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .menu.folder-menu .menu-item { align-items: center; }
 .menu.folder-menu .menu-item svg { margin-top: 0; }
 .menu.folder-menu .menu-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu.context-menu { position: fixed; top: 0; min-width: 240px; cursor: default; }
+.menu.context-menu .menu-item:disabled { opacity: .45; cursor: default; background: none; }
+.menu.context-menu .menu-item.danger, .menu.context-menu .menu-item.danger svg { color: var(--red); }
+.menu-sep { height: 1px; background: var(--border); margin: 4px 6px; }
 .sidebar-foot { border-top: 1px solid var(--border); padding: 8px 14px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 
 /* ------------------------------------------------------------------ buttons */

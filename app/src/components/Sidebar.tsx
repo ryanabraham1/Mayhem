@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowDown, ArrowUp, ArrowUpFromLine, GripVertical, ChevronDown, ChevronRight, Circle, Copy, Crosshair, Flag, Folder, FolderInput, FolderMinus,
-  FolderOpen, FolderPlus, Gauge, Link2, Loader2, Minus, Pentagon, Play, Plus, Route, Trash2,
+  FolderOpen, FolderPlus, FlipVertical2, Gauge, Link2, Loader2, Minus, Pencil, Pentagon, Play, Plus, Route, Trash2,
 } from "lucide-react";
 import { useStore } from "../store";
 import { CONSTRAINT_LABELS, folderList, newMarker, reorderWaypoint, totalTime } from "../model";
@@ -180,6 +181,30 @@ function PathRow({ name, folders, indent, dropBefore, onDragStart, onDragEnd, on
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
   }, [menu]);
+  const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
+  const ctxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ctx) return;
+    const close = (e: Event) => { if (!ctxRef.current?.contains(e.target as Node)) setCtx(null); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setCtx(null); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", key);
+    };
+  }, [ctx]);
+  // Keep the menu on screen near the bottom/right edges.
+  useEffect(() => {
+    const el = ctxRef.current;
+    if (!ctx || !el) return;
+    const r = el.getBoundingClientRect();
+    const x = Math.min(ctx.x, window.innerWidth - r.width - 8), y = Math.min(ctx.y, window.innerHeight - r.height - 8);
+    if (x !== ctx.x || y !== ctx.y) setCtx({ x, y });
+  }, [ctx]);
+  const act = (fn: () => void) => () => { setCtx(null); fn(); };
 
   const T = totalTime(t.output);
   let meta = T ? `${T.toFixed(2)}s` : "";
@@ -190,7 +215,8 @@ function PathRow({ name, folders, indent, dropBefore, onDragStart, onDragEnd, on
       draggable={!renaming}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", name); onDragStart(); }}
       onDragEnd={onDragEnd} onDragOver={onDragOver} onDrop={onDrop}
-      onClick={() => a.selectTraj(name)} onDoubleClick={() => setRenaming(true)}>
+      onClick={() => a.selectTraj(name)} onDoubleClick={() => setRenaming(true)}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu(false); setCtx({ x: e.clientX, y: e.clientY }); }}>
       <span className="icon">{st?.status === "solving" ? <Loader2 size={15} className="spin" /> : <Route size={15} />}</span>
       {renaming ? (
         <RenameInput value={name} onDone={(v) => { if (v !== null) void a.renameTrajectory(name, v); setRenaming(false); }} />
@@ -221,6 +247,26 @@ function PathRow({ name, folders, indent, dropBefore, onDragStart, onDragEnd, on
           if (window.confirm(`Delete "${name}"? This removes its file.`)) a.deleteTrajectory(name);
         }}><Trash2 size={13} /></button>
       </span>
+      {ctx && createPortal(
+        <div ref={ctxRef} className="menu context-menu" style={{ left: ctx.x, top: ctx.y }}
+          onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onContextMenu={(e) => e.preventDefault()}>
+          <button className="menu-item" disabled={!t.waypoints.length} onClick={act(() => a.flipTrajectory(name))}>
+            <FlipVertical2 size={15} />
+            <span><span className="menu-title">Flip across blue alliance</span><span className="menu-hint">Mirror top ↔ bottom, then re-solve</span></span>
+          </button>
+          <button className="menu-item" disabled={!t.waypoints.length} onClick={act(() => a.flipTrajectory(name, true))}>
+            <Copy size={15} />
+            <span><span className="menu-title">Duplicate flipped</span><span className="menu-hint">Keep this path, add the mirrored one</span></span>
+          </button>
+          <div className="menu-sep" />
+          <button className="menu-item" onClick={act(() => setRenaming(true))}><Pencil size={15} /><span className="menu-title">Rename</span></button>
+          <button className="menu-item" onClick={act(() => a.duplicateTrajectory(name))}><Copy size={15} /><span className="menu-title">Duplicate</span></button>
+          <button className="menu-item danger" onClick={act(() => {
+            if (window.confirm(`Delete "${name}"? This removes its file.`)) a.deleteTrajectory(name);
+          })}><Trash2 size={15} /><span className="menu-title">Delete</span></button>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

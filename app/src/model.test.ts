@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { flipHeading, flipPoint, folderList, footprint, pointInPolygon, sampleAt, wrap } from "./model";
+import { flipHeading, flippedName, flipPoint, flipTrajectoryY, folderList, footprint, pointInPolygon, sampleAt, wrap } from "./model";
+import { makeTraj } from "./test/fixtures";
 import type { Field, Project, RobotConfig, Trajectory, TrajectoryOutput } from "./types";
 
 const field = { length: 16.541, width: 8.0692, symmetry: "rotational" } as Field;
@@ -27,6 +28,51 @@ describe("geometry helpers", () => {
     expect(pointInPolygon([1, 1], fp)).toBe(false);
   });
 
+});
+
+describe("flipTrajectoryY", () => {
+  const f = { ...field, width: 8 } as Field;
+
+  it("mirrors waypoints and field-anchored constraints top to bottom", () => {
+    const t = makeTraj("Top Bump", [[2, 6], [5, 7]]);
+    t.waypoints[0].heading = 0.5;
+    t.constraints = [
+      { id: "c1", enabled: true, scope: { kind: "waypoint", from: 0, to: 0, region: [] }, data: { type: "pointAt", x: 4, y: 6, tolerance: 0.05, flip: false } },
+      { id: "c2", enabled: true, scope: { kind: "zone", from: 0, to: 1, region: [[0, 5], [1, 5], [1, 6]] }, data: { type: "keepOut", points: [[1, 6], [2, 6], [2, 7]], margin: 0 } },
+    ];
+    t.output = {} as TrajectoryOutput;
+    const out = flipTrajectoryY(t, f);
+    expect(out.waypoints.map((w) => [w.x, w.y])).toEqual([[2, 2], [5, 1]]);
+    expect(out.waypoints[0].heading).toBeCloseTo(-0.5);
+    expect(out.waypoints[0].id).toBe(t.waypoints[0].id);
+    expect(out.output).toBeNull();
+    const [pa, ko] = out.constraints.map((c) => c.data);
+    expect(pa).toMatchObject({ x: 4, y: 2 });
+    expect(ko.type === "keepOut" && ko.points).toEqual([[2, 1], [2, 2], [1, 2]]);
+    expect(out.constraints[1].scope.region).toEqual([[1, 2], [1, 3], [0, 3]]);
+    expect(t.waypoints[0].y).toBe(6); // original untouched
+  });
+
+  it("relinks pose variables to the mirrored pose or unlinks them", () => {
+    const poses = [
+      { id: "top", name: "Top", x: 2, y: 6, heading: 0.5 },
+      { id: "bottom", name: "Bottom", x: 2, y: 2, heading: -0.5 },
+      { id: "lone", name: "Lone", x: 5, y: 7, heading: 0 },
+    ];
+    const t = makeTraj("P", [[0, 0], [0, 0]]);
+    t.waypoints[0].poseRef = "top";
+    t.waypoints[1].poseRef = "lone";
+    const out = flipTrajectoryY(t, f, poses);
+    expect(out.waypoints[0]).toMatchObject({ x: 2, y: 2, poseRef: "bottom" });
+    expect(out.waypoints[1]).toMatchObject({ x: 5, y: 1, poseRef: null });
+  });
+
+  it("names the flipped copy", () => {
+    expect(flippedName("Top Bump Shoot")).toBe("Bottom Bump Shoot");
+    expect(flippedName("bottom run")).toBe("top run");
+    expect(flippedName("Left to Right")).toBe("Right to Left");
+    expect(flippedName("Hub Cycle")).toBe("Hub Cycle (flipped)");
+  });
 });
 
 describe("sampleAt", () => {

@@ -89,6 +89,8 @@ On rough terrain, MayhemLib pauses collision detection and replanning, slows the
 
 **Folders**: organize paths with the folder button in the *Paths* header, and drag paths into folders.
 
+**Flip top ↔ bottom**: right-click a path and choose *Flip across blue alliance* to mirror it across the field's long center line (e.g. a route over the top bump becomes the same route over the bottom one), or *Duplicate flipped* to keep the original and add the mirrored copy. Waypoints, point-at targets, and keep-in/keep-out/zone regions are mirrored, then the path is re-solved against the obstacles on that side. Waypoints linked to a pose variable relink to one at the mirrored pose if it exists, otherwise they unlink.
+
 ## 6. Check it
 
 - The timeline at the bottom plays the path (Space). Tick marks show waypoints (gray) and markers (amber).

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { enableMapSet, produce } from "immer";
 import { backend, type BackendStatus } from "./backend";
-import { folderList, newTrajectory } from "./model";
+import { flippedName, flipTrajectoryY, folderList, newTrajectory } from "./model";
 import type { ConstraintType, DrivetrainInfo, Field, Issue, Project, Trajectory, Vec2 } from "./types";
 
 enableMapSet();
@@ -94,6 +94,8 @@ interface Actions {
   updateTraj(name: string, fn: (t: Trajectory) => void, opts?: { history?: boolean }): void;
   addTrajectory(name?: string, folder?: string | null): string;
   duplicateTrajectory(name: string): void;
+  /** Mirrors a path top <-> bottom (across the field's long center line) and re-solves it; `copy` keeps the original. */
+  flipTrajectory(name: string, copy?: boolean): void;
   deleteTrajectory(name: string): void;
   renameTrajectory(oldName: string, newName: string): Promise<void>;
   /** Put a path in a folder (null = top level), optionally placing it before another path. */
@@ -532,6 +534,26 @@ export const useStore = create<State & Actions>()(
           s.stale[n] = !!s.stale[name];
         });
         saveTraj(n);
+      },
+
+      flipTrajectory(name, copy) {
+        const { project, trajectories } = get();
+        const t = trajectories[name];
+        if (!project || !t) return;
+        const flipped = flipTrajectoryY(t, project.field, project.poses);
+        let target = name;
+        if (copy) {
+          target = get().addTrajectory(flippedName(name), t.folder);
+          set((s) => {
+            s.trajectories[target] = { ...flipped, name: target, folder: t.folder };
+          });
+          saveTraj(target);
+        } else {
+          get().cancelSolve(name); // a solve already running would land the unflipped result
+          get().updateTraj(name, (d) => { Object.assign(d, flipped); });
+          set((s) => { delete s.stale[name]; });
+        }
+        if (get().backendStatus === "ready" && flipped.waypoints.length >= 2) void get().solve(target);
       },
 
       deleteTrajectory(name) {
