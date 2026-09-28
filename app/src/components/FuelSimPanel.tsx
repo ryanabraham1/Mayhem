@@ -140,7 +140,7 @@ export function SimRobotEditor({ id }: { id: string }) {
         </div>
         <Check label="Include in the sim" checked={r.enabled} onChange={(v) => set((x) => { x.enabled = v; })} />
         <div className="note">
-          Drag its points or its path on the field. Double-click the field to add a point at the end; ⇧-click a point to remove it.
+          Drag its points to reshape its path, or drag the robot to move the whole path. Double-click the field to add a point at the end; ⇧-click a point to remove it.
           It faces along its path.
         </div>
       </div>

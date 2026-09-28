@@ -49,7 +49,8 @@ const SIM_INTAKE_DEPTH = 0.25; // how far other robots' intakes reach past their
 export const SETTLE_TIME = 6;
 
 interface Rect { x0: number; x1: number; y0: number; y1: number }
-interface Seg { a: Vec2; b: Vec2 }
+/** One obstacle's edges as flat [ax, ay, ex, ey, 1/|e|²] rows, with its bounding box. */
+interface Wall { box: Rect; seg: Float64Array }
 interface Pose { x: number; y: number; heading: number; vx: number; vy: number; omega: number }
 type Side = "front" | "back" | "left" | "right";
 
@@ -74,9 +75,9 @@ export function fuelStart(field: Field): { pts: Vec2[]; radius: number } {
   return { pts: balls.map((d) => [d.center[0], d.center[1]] as Vec2), radius: balls[0]?.radius ?? 0.075 };
 }
 
-/** Obstacle edges the balls bounce off (enabled obstacles only, matching what the paths avoid). */
-function wallSegments(field: Field): Seg[] {
-  const segs: Seg[] = [];
+/** Obstacles the balls bounce off (enabled ones only, matching what the paths avoid). */
+function walls(field: Field): Wall[] {
+  const out: Wall[] = [];
   for (const o of field.obstacles) {
     if (!o.enabled) continue;
     let p = o.points;
@@ -84,9 +85,15 @@ function wallSegments(field: Field): Seg[] {
       p = [];
       for (let i = 0; i < 16; i++) p.push([o.center[0] + o.radius * Math.cos((i / 16) * 2 * Math.PI), o.center[1] + o.radius * Math.sin((i / 16) * 2 * Math.PI)]);
     }
-    for (let i = 0; i < p.length; i++) segs.push({ a: p[i], b: p[(i + 1) % p.length] });
+    if (p.length < 2) continue;
+    const seg = new Float64Array(p.length * 5);
+    p.forEach((a, i) => {
+      const b = p[(i + 1) % p.length], ex = b[0] - a[0], ey = b[1] - a[1];
+      seg.set([a[0], a[1], ex, ey, 1 / (ex * ex + ey * ey || 1e-12)], i * 5);
+    });
+    out.push({ box: bounds(p), seg });
   }
-  return segs;
+  return out;
 }
 
 const rectCorners = (R: Rect): Vec2[] => [[R.x0, R.y0], [R.x1, R.y0], [R.x1, R.y1], [R.x0, R.y1]];
@@ -277,13 +284,26 @@ export function simulateFuel(field: Field, robot: RobotConfig, out: TrajectoryOu
   const taken: Record<string, number[]> = Object.fromEntries(agents.map((a) => [a.key, [] as number[]]));
   pts.forEach(([x, y], i) => { px[i] = x; py[i] = y; });
 
-  const segs = wallSegments(field);
+  const obstacles = walls(field);
   const L = field.length, W = field.width;
 
   // uniform grid broadphase for ball-ball contacts
   const cell = 2 * r * 1.05;
   const gx = Math.max(1, Math.ceil(L / cell) + 2), gy = Math.max(1, Math.ceil(W / cell) + 2);
-  const head = new Int32Array(gx * gy), next = new Int32Array(n);
+  const head = new Int32Array(gx * gy).fill(-1), next = new Int32Array(n);
+  const used = new Int32Array(n); // cells filled this step, to clear cheaply
+  let nUsed = 0;
+  const buildGrid = () => {
+    for (let k = 0; k < nUsed; k++) head[used[k]] = -1;
+    nUsed = 0;
+    for (let i = 0; i < n; i++) {
+      if (!alive[i]) continue;
+      const k = cellY(py[i]) * gx + cellX(px[i]);
+      if (head[k] === -1) used[nUsed++] = k;
+      next[i] = head[k];
+      head[k] = i;
+    }
+  };
   const cellX = (x: number) => Math.min(gx - 1, Math.max(0, Math.floor(x / cell) + 1));
   const cellY = (y: number) => Math.min(gy - 1, Math.max(0, Math.floor(y / cell) + 1));
 
@@ -302,19 +322,20 @@ export function simulateFuel(field: Field, robot: RobotConfig, out: TrajectoryOu
   const hitRect = (i: number, ag: Agent, R: Rect, rx: number, ry: number, c: number, s: number, rob: Pose, canEat: boolean, t: number): boolean => {
     const qx = Math.min(R.x1, Math.max(R.x0, rx)), qy = Math.min(R.y1, Math.max(R.y0, ry));
     let nx = rx - qx, ny = ry - qy;
-    const d = Math.hypot(nx, ny);
+    const d2 = nx * nx + ny * ny;
     let depth: number;
-    if (d > 1e-9) {
-      if (d >= r) return false;
+    if (d2 > 1e-18) {
+      if (d2 >= r * r) return false;
+      const d = Math.sqrt(d2);
       nx /= d; ny /= d;
       depth = r - d;
     } else {
       // center inside: leave through the nearest face
-      const faces = [rx - R.x0, R.x1 - rx, ry - R.y0, R.y1 - ry];
-      const k = faces.indexOf(Math.min(...faces));
-      nx = k === 0 ? -1 : k === 1 ? 1 : 0;
-      ny = k === 2 ? -1 : k === 3 ? 1 : 0;
-      depth = faces[k] + r;
+      const f0 = rx - R.x0, f1 = R.x1 - rx, f2 = ry - R.y0, f3 = R.y1 - ry;
+      const m = Math.min(f0, f1, f2, f3);
+      nx = m === f0 ? -1 : m === f1 ? 1 : 0;
+      ny = nx !== 0 ? 0 : m === f2 ? -1 : 1;
+      depth = m + r;
     }
 
     if (canEat) {
@@ -353,48 +374,61 @@ export function simulateFuel(field: Field, robot: RobotConfig, out: TrajectoryOu
   };
 
   let frame = 1;
-  const steps = Math.ceil(duration / SUBSTEP);
-  const dt = SUBSTEP;
-  for (let step = 1; step <= steps; step++) {
-    const t = Math.min(duration, step * SUBSTEP);
+  const r2 = r * r, d2max = 4 * r2;
+  let t = 0;
+  while (t < duration - 1e-9) {
+    // Once the robots are done only rolling fuel is left, which is fine at half the rate.
+    const dt = t >= robotsDone ? 2 * SUBSTEP : SUBSTEP;
+    t = Math.min(duration, t + dt);
 
     // integrate
+    let moving = 0;
     for (let i = 0; i < n; i++) {
       if (!alive[i] || !awake[i]) continue;
-      const sp = Math.hypot(vx[i], vy[i]);
-      if (sp < SLEEP_SPEED) {
+      const v2 = vx[i] * vx[i] + vy[i] * vy[i];
+      if (v2 < SLEEP_SPEED * SLEEP_SPEED) {
         if (++still[i] >= SLEEP_STEPS) { vx[i] = 0; vy[i] = 0; awake[i] = 0; continue; }
       } else still[i] = 0;
-      if (sp < 1e-9) continue;
-      const k = Math.max(0, sp - (ROLL_DECEL + CARPET_LOSS * sp + AIR_DRAG * sp * sp) * dt) / sp;
+      moving++;
+      if (v2 < 1e-18) continue;
+      const sp = Math.sqrt(v2);
+      const k = Math.max(0, sp - (ROLL_DECEL + CARPET_LOSS * sp + AIR_DRAG * v2) * dt) / sp;
       vx[i] *= k; vy[i] *= k;
       px[i] += vx[i] * dt; py[i] += vy[i] * dt;
     }
+    // once the robots are done, stop as soon as every ball is at rest
+    if (t >= robotsDone && moving === 0) {
+      if (frame < frames) record(frame++);
+      duration = Math.max(robotsDone, (frame - 1) * FRAME_DT);
+      break;
+    }
 
-    // robots: bumpers and intakes
+    buildGrid();
+
+    // robots: bumpers and intakes (only the grid cells within reach)
     for (const ag of agents) {
       const rob = ag.pose(t);
       const c = Math.cos(rob.heading), s = Math.sin(rob.heading);
       const eating = !!ag.intake && ag.intakeOn(t);
       ag.tokens = Math.min(BURST, ag.tokens + ag.rate * dt);
-      for (let i = 0; i < n; i++) {
-        if (!alive[i]) continue;
-        const dx = px[i] - rob.x, dy = py[i] - rob.y;
-        if (dx * dx + dy * dy > ag.reach * ag.reach) continue;
-        const rx = c * dx + s * dy, ry = -s * dx + c * dy;
-        if (eating && hitRect(i, ag, ag.intake!, rx, ry, c, s, rob, true, t)) continue;
-        hitRect(i, ag, ag.body, rx, ry, c, s, rob, false, t);
+      const reach2 = ag.reach * ag.reach;
+      const cx0 = cellX(rob.x - ag.reach), cx1 = cellX(rob.x + ag.reach);
+      const cy0 = cellY(rob.y - ag.reach), cy1 = cellY(rob.y + ag.reach);
+      for (let cy = cy0; cy <= cy1; cy++) {
+        for (let cx = cx0; cx <= cx1; cx++) {
+          for (let i = head[cy * gx + cx]; i !== -1; i = next[i]) {
+            if (!alive[i]) continue;
+            const dx = px[i] - rob.x, dy = py[i] - rob.y;
+            if (dx * dx + dy * dy > reach2) continue;
+            const rx = c * dx + s * dy, ry = -s * dx + c * dy;
+            if (eating && hitRect(i, ag, ag.intake!, rx, ry, c, s, rob, true, t)) continue;
+            hitRect(i, ag, ag.body, rx, ry, c, s, rob, false, t);
+          }
+        }
       }
     }
 
-    // ball-ball
-    head.fill(-1);
-    for (let i = 0; i < n; i++) {
-      if (!alive[i]) continue;
-      const k = cellY(py[i]) * gx + cellX(px[i]);
-      next[i] = head[k];
-      head[k] = i;
-    }
+    // ball-ball (balls barely move within a step, so the grid built above still holds)
     for (let i = 0; i < n; i++) {
       if (!alive[i] || !awake[i]) continue;
       const cx = cellX(px[i]), cy = cellY(py[i]);
@@ -405,10 +439,10 @@ export function simulateFuel(field: Field, robot: RobotConfig, out: TrajectoryOu
           const xx = cx + ox;
           if (xx < 0 || xx >= gx) continue;
           for (let j = head[yy * gx + xx]; j !== -1; j = next[j]) {
-            if (j === i || (awake[j] && j < i)) continue; // awake pairs are handled once
+            if (j === i || !alive[j] || (awake[j] && j < i)) continue; // awake pairs are handled once
             let nx = px[j] - px[i], ny = py[j] - py[i];
             const d2 = nx * nx + ny * ny;
-            if (d2 >= 4 * r * r) continue;
+            if (d2 >= d2max) continue;
             const d = Math.sqrt(d2) || 1e-6;
             nx /= d; ny /= d;
             const push = (2 * r - d) / 2;
@@ -433,32 +467,31 @@ export function simulateFuel(field: Field, robot: RobotConfig, out: TrajectoryOu
       if (px[i] > L - r) { px[i] = L - r; if (vx[i] > 0) vx[i] *= -E_WALL; }
       if (py[i] < r) { py[i] = r; if (vy[i] < 0) vy[i] *= -E_WALL; }
       if (py[i] > W - r) { py[i] = W - r; if (vy[i] > 0) vy[i] *= -E_WALL; }
-      for (const sg of segs) {
-        const ex = sg.b[0] - sg.a[0], ey = sg.b[1] - sg.a[1];
-        const len2 = ex * ex + ey * ey || 1e-12;
-        const u = Math.max(0, Math.min(1, ((px[i] - sg.a[0]) * ex + (py[i] - sg.a[1]) * ey) / len2));
-        let nx = px[i] - (sg.a[0] + u * ex), ny = py[i] - (sg.a[1] + u * ey);
-        const d = Math.hypot(nx, ny);
-        if (d >= r || d < 1e-9) continue;
-        nx /= d; ny /= d;
-        px[i] += nx * (r - d); py[i] += ny * (r - d);
-        const vn = vx[i] * nx + vy[i] * ny;
-        if (vn < 0) { vx[i] -= (1 + E_WALL) * vn * nx; vy[i] -= (1 + E_WALL) * vn * ny; }
+      for (const o of obstacles) {
+        const b = o.box;
+        if (px[i] < b.x0 - r || px[i] > b.x1 + r || py[i] < b.y0 - r || py[i] > b.y1 + r) continue;
+        const sg = o.seg;
+        for (let q = 0; q < sg.length; q += 5) {
+          const ax = sg[q], ay = sg[q + 1], ex = sg[q + 2], ey = sg[q + 3];
+          const u = Math.max(0, Math.min(1, ((px[i] - ax) * ex + (py[i] - ay) * ey) * sg[q + 4]));
+          let nx = px[i] - (ax + u * ex), ny = py[i] - (ay + u * ey);
+          const d2 = nx * nx + ny * ny;
+          if (d2 >= r2 || d2 < 1e-18) continue;
+          const d = Math.sqrt(d2);
+          nx /= d; ny /= d;
+          px[i] += nx * (r - d); py[i] += ny * (r - d);
+          const vn = vx[i] * nx + vy[i] * ny;
+          if (vn < 0) { vx[i] -= (1 + E_WALL) * vn * nx; vy[i] -= (1 + E_WALL) * vn * ny; }
+        }
       }
     }
 
     while (frame < frames && frame * FRAME_DT <= t + 1e-9) record(frame++);
-    // once the robots are done, stop as soon as every ball is at rest
-    if (t >= robotsDone && !awake.some((a, i) => a && alive[i])) {
-      if (frame < frames) record(frame++);
-      duration = Math.max(robotsDone, (frame - 1) * FRAME_DT);
-      break;
-    }
   }
-  const used = Math.min(frames, Math.floor(duration / FRAME_DT + 1e-9) + 1);
-  while (frame < used) record(frame++);
+  const nFrames = Math.min(frames, Math.floor(duration / FRAME_DT + 1e-9) + 1);
+  while (frame < nFrames) record(frame++);
 
-  return { n, radius: r, duration, frameDt: FRAME_DT, frames: used, pos: pos.subarray(0, used * n * 2), takenAt, taken };
+  return { n, radius: r, duration, frameDt: FRAME_DT, frames: nFrames, pos: pos.slice(0, nFrames * n * 2), takenAt, taken };
 }
 
 /** Ball positions at time t (linear between recorded frames). */

@@ -1,11 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import {
   applyWaypointKind, centroid, circlePoints, deleteWaypoint, distToSegment, footprint, intakeFootprint, intakeWaypoints, newConstraint, newObstacle, newWaypoint, resolveWaypoint,
   obstaclePoints, pointInPolygon, sampleAt, totalTime,
 } from "../model";
-import type { Constraint, Decoration, Field, FuelSimConfig, Obstacle, RobotConfig, SimRobot, Trajectory, Vec2 } from "../types";
-import { DEFAULT_FUEL_SIM, fuelAt, simRobotPathD, simRobotPose, simRobotTrack, type FuelSim, type SimTrack } from "../fuelsim";
+import type { Constraint, Decoration, Field, FuelSimConfig, Obstacle, RobotConfig, SimRobot, Trajectory, TrajectoryOutput, Vec2 } from "../types";
+import { DEFAULT_FUEL_SIM, simRobotPathD, simRobotPose, simRobotTrack, type FuelSim, type SimTrack } from "../fuelsim";
 import { useFuelSim } from "../useFuelSim";
 
 type Mode = "path" | "field";
@@ -114,40 +114,122 @@ function PlaybackRobot({ robot, x, y, h }: { robot: RobotConfig; x: number; y: n
   );
 }
 
-/** Simulated fuel at time t; intaken balls disappear. */
-const FuelBalls = memo(function FuelBalls({ sim, t }: { sim: FuelSim; t: number }) {
-  const p = fuelAt(sim, t);
-  const balls = [];
-  for (let i = 0; i < sim.n; i++) {
-    if (sim.takenAt[i] <= t) continue;
-    balls.push(<circle key={i} cx={p[2 * i]} cy={p[2 * i + 1]} r={sim.radius} fill="#e3b341" fillOpacity={0.85} stroke="#b8860b" strokeWidth={0.012} />);
-  }
-  return <g pointerEvents="none">{balls}</g>;
-});
+/**
+ * Simulated fuel, drawn on a canvas between the field art and the interactive SVG: repainting
+ * hundreds of moving SVG circles every frame is slow, especially in WebKit. It follows playback
+ * through a store subscription, so the field itself doesn't re-render per frame. `frame` is the SVG
+ * group the fuel lives in; its screen transform (view, zoom, red flip) maps field meters to pixels.
+ */
+function FuelCanvas({ sim, frame, viewKey }: { sim: FuelSim; frame: React.RefObject<SVGGElement | null>; viewKey: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useLayoutEffect(() => {
+    const cv = ref.current;
+    const ctx = cv?.getContext("2d");
+    if (!cv || !ctx) return;
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr);
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      const m = frame.current?.getScreenCTM();
+      if (!m) return;
+      const box = cv.getBoundingClientRect();
+      ctx.setTransform(dpr * m.a, dpr * m.b, dpr * m.c, dpr * m.d, dpr * (m.e - box.left), dpr * (m.f - box.top));
+      const t = Math.min(useStore.getState().playback.t, sim.duration);
+      const f = Math.max(0, Math.min(sim.frames - 1, t / sim.frameDt));
+      const a = Math.floor(f), u = f - a;
+      const oa = a * sim.n * 2, ob = Math.min(sim.frames - 1, a + 1) * sim.n * 2;
+      const P = sim.pos, r = sim.radius;
+      ctx.beginPath();
+      for (let i = 0; i < sim.n; i++) {
+        if (sim.takenAt[i] <= t) continue; // intaken
+        const x = P[oa + 2 * i] + (P[ob + 2 * i] - P[oa + 2 * i]) * u;
+        const y = P[oa + 2 * i + 1] + (P[ob + 2 * i + 1] - P[oa + 2 * i + 1]) * u;
+        ctx.moveTo(x + r, y);
+        ctx.arc(x, y, r, 0, 2 * Math.PI);
+      }
+      ctx.fillStyle = "rgba(227, 179, 65, 0.85)";
+      ctx.fill();
+      ctx.lineWidth = 0.012;
+      ctx.strokeStyle = "#b8860b";
+      ctx.stroke();
+    };
+    draw();
+    const unsub = useStore.subscribe((st, prev) => { if (st.playback.t !== prev.playback.t) draw(); });
+    const ro = new ResizeObserver(draw);
+    ro.observe(cv);
+    return () => { unsub(); ro.disconnect(); };
+  }, [sim, frame, viewKey]);
+  return <canvas ref={ref} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }} />;
+}
 
 const allianceColor = (a: SimRobot["alliance"]) => (a === "blue" ? "var(--blue-alliance)" : "var(--red-alliance)");
+// In the red preview we're red, so allies are drawn red and opponents blue.
+const simColor = (r: SimRobot, red: boolean) => allianceColor(red === (r.alliance === "blue") ? "red" : "blue");
 
-/** Another robot in the fuel sim: its curve, and its frame (plus intake) where it is at time t. */
-function SimRobotShape({ track, t, selected, interactive, red }: { track: SimTrack; t: number; selected: boolean; interactive: boolean; red: boolean }) {
-  const r = track.robot;
-  // In the red preview we're red, so allies are drawn red and opponents blue.
-  const color = allianceColor(red === (r.alliance === "blue") ? "red" : "blue");
-  const q = simRobotPose(track, t);
-  const h = r.size / 2;
-  const driving = t >= r.startDelay && t <= r.startDelay + track.driveTime;
+/** Another robot's auto curve. Clicking it selects the robot; drag its body or points to edit. */
+function SimRobotPath({ robot: r, selected, interactive, red }: { robot: SimRobot; selected: boolean; interactive: boolean; red: boolean }) {
+  const color = simColor(r, red);
+  const d = simRobotPathD(r.points);
   return (
-    <g opacity={r.enabled ? 1 : 0.35} data-h={interactive ? `sr:${r.id}` : undefined} style={{ cursor: interactive ? (selected ? "move" : "pointer") : undefined }}>
-      <path d={simRobotPathD(r.points)} fill="none" stroke={color} strokeOpacity={0.12} strokeWidth={14} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-      <path d={simRobotPathD(r.points)} fill="none" stroke={color} strokeWidth={selected ? 2.4 : 1.6} strokeDasharray="6 4" strokeOpacity={0.85} vectorEffect="non-scaling-stroke" />
-      <g transform={`translate(${q.x} ${q.y}) rotate(${(q.heading * 180) / Math.PI})`}>
-        {r.intake && driving && (
-          <rect x={h} y={-h} width={0.25} height={2 * h} fill="var(--amber)" fillOpacity={0.5} stroke="var(--amber)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
-        )}
-        <rect x={-h} y={-h} width={2 * h} height={2 * h} rx={h * 0.2} fill={color} fillOpacity={0.3} stroke={color}
-          strokeWidth={selected ? 2.5 : 1.8} vectorEffect="non-scaling-stroke" />
-        <polyline points={`${h * 0.35},${h * 0.4} ${h * 0.75},0 ${h * 0.35},${-h * 0.4}`} fill="none" stroke={color} strokeWidth={2.2}
-          strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-      </g>
+    <g opacity={r.enabled ? 1 : 0.35} data-h={interactive ? `sl:${r.id}` : undefined} style={{ cursor: interactive ? "pointer" : undefined }}>
+      <path d={d} fill="none" stroke={color} strokeOpacity={0.12} strokeWidth={14} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      <path d={d} fill="none" stroke={color} strokeWidth={selected ? 2.4 : 1.6} strokeDasharray="6 4" strokeOpacity={0.85} vectorEffect="non-scaling-stroke" />
+    </g>
+  );
+}
+
+/** The other robots where they are at the playback time (re-renders per frame on its own). */
+function SimRobotBodies({ tracks, selectedId, interactive, red }: { tracks: SimTrack[]; selectedId: string | null; interactive: boolean; red: boolean }) {
+  const t = useStore((s) => s.playback.t);
+  return (
+    <>
+      {tracks.map((track) => {
+        const r = track.robot;
+        const color = simColor(r, red);
+        const q = simRobotPose(track, t);
+        const h = r.size / 2;
+        const selected = r.id === selectedId;
+        const driving = t >= r.startDelay && t <= r.startDelay + track.driveTime;
+        return (
+          <g key={r.id} opacity={r.enabled ? 1 : 0.35} transform={`translate(${q.x} ${q.y}) rotate(${(q.heading * 180) / Math.PI})`}
+            data-h={interactive ? `sr:${r.id}` : undefined} style={{ cursor: interactive ? (selected ? "move" : "pointer") : undefined }}>
+            {r.intake && driving && (
+              <rect x={h} y={-h} width={0.25} height={2 * h} fill="var(--amber)" fillOpacity={0.5} stroke="var(--amber)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+            )}
+            <rect x={-h} y={-h} width={2 * h} height={2 * h} rx={h * 0.2} fill={color} fillOpacity={0.3} stroke={color}
+              strokeWidth={selected ? 2.5 : 1.8} vectorEffect="non-scaling-stroke" />
+            <polyline points={`${h * 0.35},${h * 0.4} ${h * 0.75},0 ${h * 0.35},${-h * 0.4}`} fill="none" stroke={color} strokeWidth={2.2}
+              strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+          </g>
+        );
+      })}
+    </>
+  );
+}
+
+/** Our robot at the playback time; module forces only while paused/scrubbing. */
+function PlaybackGhost({ out, robot, pxToM }: { out: TrajectoryOutput; robot: RobotConfig; pxToM: number }) {
+  const t = useStore((s) => s.playback.t);
+  const playing = useStore((s) => s.playback.playing);
+  const T = totalTime(out);
+  if (!(T > 0)) return null;
+  const ghost = sampleAt(out, Math.min(t, T));
+  const intakeOut = out.intake?.some((sp) => ghost.t >= sp.t - 1e-6 && ghost.t <= sp.endT + 1e-6);
+  const c = Math.cos(ghost.heading), s = Math.sin(ghost.heading);
+  return (
+    <g pointerEvents="none">
+      {intakeOut && (
+        <polygon points={pts(intakeFootprint(robot, ghost.x, ghost.y, ghost.heading))} fill="var(--amber)" fillOpacity={0.55}
+          stroke="var(--amber)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+      )}
+      <PlaybackRobot robot={robot} x={ghost.x} y={ghost.y} h={ghost.heading} />
+      {!playing && robot.modules.map(([mx, my], i) => {
+        const px = ghost.x + c * mx - s * my, py = ghost.y + s * mx + c * my;
+        const k = 0.004;
+        return <line key={i} x1={px} y1={py} x2={px + (ghost.fx[i] ?? 0) * k} y2={py + (ghost.fy[i] ?? 0) * k} stroke="var(--accent-ink)" strokeWidth={2 * pxToM} strokeLinecap="round" />;
+      })}
     </g>
   );
 }
@@ -161,8 +243,6 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
   const pending = useStore((s) => s.pending);
   const solveState = useStore((s) => (s.selectedTraj ? s.solves[s.selectedTraj] : undefined));
   const stale = useStore((s) => (s.selectedTraj ? s.stale[s.selectedTraj] : false));
-  const playbackT = useStore((s) => s.playback.t);
-  const playing = useStore((s) => s.playback.playing);
   const showRed = useStore((s) => s.showRed);
   const info = useStore((s) => s.drivetrainInfo);
   const fuelOn = useStore((s) => s.fuelSimOn) && mode === "path";
@@ -177,6 +257,7 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
+  const flipRef = useRef<SVGGElement>(null);
   const [size, setSize] = useState({ w: 800, h: 450 });
   const [view, setView] = useState<View | null>(null);
   const [cursor, setCursor] = useState<Vec2 | null>(null);
@@ -238,7 +319,6 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
 
   // ------------------------------------------------------------ derived
   const out = traj?.output ?? null;
-  const T = totalTime(out);
   const vmax = info?.maxSpeed ?? 4.5;
 
   const pathSegs = useMemo(() => {
@@ -262,8 +342,6 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
   const updSimRobot = (id: string, fn: (r: SimRobot) => void, history = false) =>
     updFuel((f) => { const r = f.robots.find((x) => x.id === id); if (r) fn(r); }, history);
 
-  const ghost = out && T > 0 ? sampleAt(out, Math.min(playbackT, T)) : null;
-  const ghostIntake = ghost && out?.intake?.some((sp) => ghost.t >= sp.t - 1e-6 && ghost.t <= sp.endT + 1e-6);
   const intakePaths = useMemo(() => (out?.intake ?? []).map((sp) => {
     const line: Vec2[] = [];
     for (let t = sp.t; t < sp.endT; t += 0.03) { const q = sampleAt(out!, t); line.push([q.x, q.y]); }
@@ -408,6 +486,10 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
         }
         st().checkpoint();
         drag.current = { kind: "simPoint", id: a, vi: +b };
+        return;
+      }
+      if (kind === "sl" && tool === "select") {
+        st().select({ kind: "simRobot", id: a });
         return;
       }
       if (kind === "sr" && tool === "select") {
@@ -697,6 +779,15 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
 
   return (
     <div ref={wrapRef} style={{ position: "absolute", inset: 0 }}>
+      {/* static field art in its own layer, so the fuel canvas can sit between it and the editor */}
+      <svg className="field field-art" viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`} aria-hidden>
+        <g transform={`matrix(1 0 0 -1 0 ${W})`}>
+          <FieldArt field={field} hideFuel={!!sim && mode === "path" && !!traj} />
+        </g>
+      </svg>
+      {sim && mode === "path" && traj && (
+        <FuelCanvas sim={sim} frame={flipRef} viewKey={`${vb.x} ${vb.y} ${vb.w} ${vb.h} ${flipTransform ?? ""} ${size.w} ${size.h}`} />
+      )}
       <svg
         ref={svgRef}
         className="field"
@@ -719,7 +810,6 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
           </pattern>
         </defs>
         <g ref={gRef} transform={`matrix(1 0 0 -1 0 ${W})`}>
-          <FieldArt field={field} hideFuel={!!sim} />
 
           {/* obstacles */}
           {field.obstacles.map((o) => {
@@ -743,7 +833,7 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
           })}
 
           {mode === "path" && traj && (
-            <g transform={flipTransform}>
+            <g ref={flipRef} transform={flipTransform}>
               {/* regions: zones, keep-in, keep-out */}
               {traj.constraints.map((c) => {
                 const region = constraintRegion(c);
@@ -761,11 +851,14 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
               })}
 
               {/* fuel sim: balls and other robots, under our path */}
-              {sim && <FuelBalls sim={sim} t={Math.min(playbackT, sim.duration)} />}
               {simTracks.map((tr) => (
-                <SimRobotShape key={tr.robot.id} track={tr} t={playbackT} red={showRed} interactive={!readOnly && tool === "select"}
+                <SimRobotPath key={tr.robot.id} robot={tr.robot} red={showRed} interactive={!readOnly && tool === "select"}
                   selected={selection?.kind === "simRobot" && selection.id === tr.robot.id} />
               ))}
+              {simTracks.length > 0 && (
+                <SimRobotBodies tracks={simTracks} red={showRed} interactive={!readOnly && tool === "select"}
+                  selectedId={selection?.kind === "simRobot" ? selection.id : null} />
+              )}
 
               {/* candidate routes while solving */}
               {solveState?.status === "solving" && solveState.candidates?.map((cand, ci) => (
@@ -908,15 +1001,20 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
                   stroke={regionColor(selRegion.kind)} strokeWidth={2} vectorEffect="non-scaling-stroke" />
               ))}
 
-              {/* points of the selected sim robot's auto */}
-              {fuelOn && !readOnly && selection?.kind === "simRobot" && fuelCfg.robots.find((r) => r.id === selection.id)?.points.map(([x, y], i, all) => (
-                <circle key={`sp${i}`} data-h={`sp:${selection.id}:${i}`} cx={x} cy={y} r={hr * (i === 0 ? 1.1 : 0.85)}
-                  fill={i === 0 ? allianceColor(fuelCfg.robots.find((r) => r.id === selection.id)!.alliance) : "var(--panel)"}
-                  stroke={allianceColor(fuelCfg.robots.find((r) => r.id === selection.id)!.alliance)} strokeWidth={2}
-                  vectorEffect="non-scaling-stroke" style={{ cursor: "grab" }}>
-                  <title>{i === 0 ? "Start" : i === all.length - 1 ? "End" : `Point ${i + 1}`}</title>
-                </circle>
-              ))}
+              {/* points of the selected sim robot's auto, each with a generous invisible grab area */}
+              {fuelOn && !readOnly && selection?.kind === "simRobot" && (() => {
+                const sr = fuelCfg.robots.find((r) => r.id === selection.id);
+                if (!sr) return null;
+                const color = simColor(sr, showRed);
+                return sr.points.map(([x, y], i) => (
+                  <g key={`sp${i}`} data-h={`sp:${sr.id}:${i}`} style={{ cursor: "grab" }}>
+                    <circle cx={x} cy={y} r={hr * 2.2} fill="transparent" />
+                    <circle cx={x} cy={y} r={hr * (i === 0 ? 1.1 : 0.85)} fill={i === 0 ? color : "var(--panel)"} stroke={color} strokeWidth={2}
+                      vectorEffect="non-scaling-stroke" />
+                    <title>{i === 0 ? "Start" : i === sr.points.length - 1 ? "End" : `Point ${i + 1}`}</title>
+                  </g>
+                ));
+              })()}
 
               {/* point-at targets */}
               {traj.constraints.filter((c) => c.data.type === "pointAt").map((c) => {
@@ -932,22 +1030,8 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
                 );
               })}
 
-              {/* playback robot; module forces only while paused/scrubbing */}
-              {ghost && !stale && (
-                <g pointerEvents="none">
-                  {ghostIntake && (
-                    <polygon points={pts(intakeFootprint(robot, ghost.x, ghost.y, ghost.heading))} fill="var(--amber)" fillOpacity={0.55}
-                      stroke="var(--amber)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
-                  )}
-                  <PlaybackRobot robot={robot} x={ghost.x} y={ghost.y} h={ghost.heading} />
-                  {!playing && robot.modules.map(([mx, my], i) => {
-                    const c = Math.cos(ghost.heading), s = Math.sin(ghost.heading);
-                    const px = ghost.x + c * mx - s * my, py = ghost.y + s * mx + c * my;
-                    const k = 0.004;
-                    return <line key={i} x1={px} y1={py} x2={px + (ghost.fx[i] ?? 0) * k} y2={py + (ghost.fy[i] ?? 0) * k} stroke="var(--accent-ink)" strokeWidth={2 * pxToM} strokeLinecap="round" />;
-                  })}
-                </g>
-              )}
+              {/* playback robot */}
+              {out && !stale && <PlaybackGhost out={out} robot={robot} pxToM={pxToM} />}
 
               {/* issue pins */}
               {issues.map((is, i) => (is.x != null && is.y != null ? (

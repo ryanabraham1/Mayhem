@@ -66,7 +66,7 @@ describe("FieldCanvas hit targets", () => {
 describe("FieldCanvas dragging", () => {
   it("rotates a pose by dragging its heading knob", () => {
     const { container } = setup([[1, 1], [3, 1]]);
-    const svg = container.querySelector("svg")!;
+    const svg = container.querySelector("svg.field:not(.field-art)")!;
     fireEvent.pointerDown(handle(container, "hd:0"), { button: 0, clientX: 1.67, clientY: 1 });
     fireEvent.pointerMove(svg, { clientX: 1, clientY: 2 });
     fireEvent.pointerUp(svg, { clientX: 1, clientY: 2 });
@@ -82,7 +82,7 @@ describe("FieldCanvas dragging", () => {
       t.constraints.push(c);
     });
     act(() => { useStore.getState().select({ kind: "constraint", id: "zone" }); });
-    const svg = container.querySelector("svg")!;
+    const svg = container.querySelector("svg.field:not(.field-art)")!;
     fireEvent.pointerDown(handle(container, "rv:zone:0"), { button: 0, clientX: 0.8, clientY: 0.8 });
     fireEvent.pointerMove(svg, { clientX: 0.5, clientY: 0.4 });
     fireEvent.pointerUp(svg, { clientX: 0.5, clientY: 0.4 });
@@ -93,7 +93,7 @@ describe("FieldCanvas dragging", () => {
   it("adds a waypoint at the end with the pose tool and moves the stop", () => {
     const { container } = setup([[1, 1], [3, 1]]);
     act(() => { useStore.getState().setTool("pose"); });
-    const svg = container.querySelector("svg")!;
+    const svg = container.querySelector("svg.field:not(.field-art)")!;
     fireEvent.pointerDown(svg, { button: 0, clientX: 5, clientY: 4 });
     const w = useStore.getState().trajectories.A.waypoints;
     expect(w).toHaveLength(3);

@@ -1,6 +1,6 @@
 [package]
 name = "mayhem"
-version = "0.7.0"
+version = "0.7.1"
 description = "Mayhem - time-optimal FRC swerve trajectory generator"
 authors = ["Ryan Abraham"]
 license = ""
