@@ -103,7 +103,7 @@ On rough terrain, MayhemLib pauses collision detection and replanning, slows the
 
 - **Our robot** uses its solved path and its **Intake extended** spans. Set its *intake rate* (fuel per second) and *capacity* (0 = no limit) in the Fuel sim panel. An out-of-date path doesn't take part until you generate it again.
 - **Other robots**: add allies and opponents from the panel. Each drives a smooth curve through its points at a set max speed and acceleration, facing along the curve, with its intake out at the front. Click its path to select it, then drag its points to reshape the path or drag the robot itself to move the whole path; double-click the field to add a point at the end, ⇧-click a point to remove it, and press Delete to remove the robot. The copy button mirrors it to the other alliance.
-- Fuel bounces off enabled obstacles (the hubs, trench walls and towers) and the field walls. It rolls over the bumps.
+- Fuel bounces off the field walls and, by default, off the obstacles paths avoid (the hubs, trench walls and towers). To change that for one obstacle, select it in **Field** mode and set **Fuel sim** to *Blocks fuel* or *Fuel passes through*. The 2026 preset's bumps are disabled for paths (robots drive over them) but block fuel. With the fuel sim on, obstacles that only block fuel are outlined in amber.
 - The other robots and intake settings are saved in the project file. They never make a path out of date, and the solver ignores them.
 - It's a 2D, top-down model. Fuel doesn't stack or fly, and robots don't collide with each other. The FUEL properties come from FIRST and AndyMark's 2026 Scoring Element Testing Report (215 g, 5.91 in). Rolling friction and bounce values are estimates.
 

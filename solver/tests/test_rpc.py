@@ -66,6 +66,33 @@ def test_folders_roundtrip_and_do_not_affect_input_hash(tmp_path):
     assert input_hash(p, t) == input_hash(p, moved)
 
 
+def test_fuel_collision_roundtrips_and_does_not_affect_input_hash():
+    from importlib.resources import files
+
+    from mayhem_solver.models import Field_, Project
+    from mayhem_solver.pipeline import input_hash
+
+    raw = json.loads(files("mayhem_solver").joinpath("fields/rebuilt-2026.json").read_text())
+    field = Field_.model_validate(raw)
+    assert {o.name: o.fuel_collision for o in field.obstacles}["Blue Bump (left)"] == "block"
+    assert field.dump()["obstacles"][0]["fuelCollision"] in ("paths", "block", "pass")
+    t = Trajectory(name="Auto 1", waypoints=[wp(0, 2, 2), wp(1, 6, 6)])
+    h = input_hash(Project(field=field), t)
+
+    # files from before the setting existed keep their hashes
+    legacy = {**raw, "obstacles": [{k: v for k, v in o.items() if k != "fuelCollision"} for o in raw["obstacles"]]}
+    assert input_hash(Project(field=Field_.model_validate(legacy)), t) == h
+    # changing it never marks a path stale...
+    flipped = field.model_copy(deep=True)
+    for o in flipped.obstacles:
+        o.fuel_collision = "pass" if o.fuel_collision == "block" else "block"
+    assert input_hash(Project(field=flipped), t) == h
+    # ...but enabling an obstacle still does
+    toggled = field.model_copy(deep=True)
+    toggled.obstacles[1].enabled = not toggled.obstacles[1].enabled
+    assert input_hash(Project(field=toggled), t) != h
+
+
 def test_subprocess_job_mode_solves_and_cancels(tmp_path):
     """The Windows job mode (child `solve-job` process, no multiprocessing), forced on any OS."""
     import os

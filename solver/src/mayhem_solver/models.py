@@ -109,6 +109,12 @@ class Obstacle(Model):
     radius: float = 0.5
     margin: float = Field(0.0, description="Extra clearance around this obstacle [m]")
     enabled: bool = True
+    fuel_collision: Literal["paths", "block", "pass"] = Field(
+        "paths",
+        description="App fuel sim only: 'paths' = fuel bounces off it when enabled, 'block' = always "
+                    "(e.g. a bump robots drive over), 'pass' = never (e.g. an overhead trench). "
+                    "Not part of the input hash.",
+    )
 
 
 class Decoration(Model):

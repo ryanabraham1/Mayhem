@@ -15,9 +15,13 @@ export interface RobotConfig {
   motor: Motor; batteryVoltage: number; cogHeight: number; intake: Intake;
 }
 
+/** How an obstacle treats the fuel sim: like paths do (when enabled), always block, or never. */
+export type FuelCollision = "paths" | "block" | "pass";
 export interface Obstacle {
   id: string; name: string; kind: "polygon" | "circle"; points: Vec2[]; center: Vec2; radius: number;
   margin: number; enabled: boolean;
+  /** fuel sim only; absent in older files (= "paths") */
+  fuelCollision?: FuelCollision;
 }
 export type DecorationStyle =
   | "blueZone" | "redZone" | "tape" | "blueTape" | "redTape" | "fuel" | "structure" | "blue" | "red";

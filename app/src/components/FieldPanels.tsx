@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Copy, FlipHorizontal2, Trash2 } from "lucide-react";
 import { useStore } from "../store";
 import { centroid, flipPoint, uid } from "../model";
-import type { Field, Obstacle } from "../types";
+import type { Field, FuelCollision, Obstacle } from "../types";
 import { Card, Check, NumberField, Seg, SelectField, TextField } from "./ui";
 
 export function ObstacleEditor({ o, field }: { o: Obstacle; field: Field }) {
@@ -50,6 +50,14 @@ export function ObstacleEditor({ o, field }: { o: Obstacle; field: Field }) {
           </div>
         )}
         <Check label="Enabled (paths must avoid it)" checked={o.enabled} onChange={(v) => set((x) => { x.enabled = v; })} />
+        <SelectField<FuelCollision> label="Fuel sim" value={o.fuelCollision ?? "paths"}
+          onChange={(v) => a.updateProject((p) => { const x = p.field.obstacles.find((y) => y.id === o.id); if (x) x.fuelCollision = v; }, { affectsSolve: false })}
+          options={[
+            { value: "paths", label: o.enabled ? "Same as paths (blocks fuel)" : "Same as paths (fuel passes)" },
+            { value: "block", label: "Blocks fuel" },
+            { value: "pass", label: "Fuel passes through" },
+          ]} />
+        <div className="note">Only affects the fuel sim. E.g. a bump robots drive over but fuel can't roll across: leave it disabled and pick <b>Blocks fuel</b>.</div>
       </div>
     </Card>
   );

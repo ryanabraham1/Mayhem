@@ -88,7 +88,9 @@ def input_hash(project: Project, traj: Trajectory) -> str:
         robot.pop("intake", None)  # paths that never extend it don't go stale when it changes
     payload = {
         "robot": robot,
-        "field": project.field.dump(),
+        # fuel_collision only affects the app's fuel sim, so it never makes a path stale.
+        "field": project.field.model_dump(by_alias=True, mode="json",
+                                          exclude={"obstacles": {"__all__": {"fuel_collision"}}}),
         # Pose refs are hashed through their resolved values: moving a pose variable marks the
         # paths that use it stale, and files without refs keep their old hashes.
         "traj": traj.model_dump(by_alias=True, mode="json",

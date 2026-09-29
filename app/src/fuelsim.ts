@@ -6,7 +6,7 @@
 // The whole run is simulated once and recorded, so scrubbing is just a lookup.
 
 import { DEFAULT_INTAKE, flipPoint, intakeCorners, sampleAt, totalTime, uid } from "./model";
-import type { FuelSimConfig, Field, RobotConfig, SimRobot, TrajectoryOutput, Vec2 } from "./types";
+import type { FuelSimConfig, Field, Obstacle, RobotConfig, SimRobot, TrajectoryOutput, Vec2 } from "./types";
 
 export const DEFAULT_FUEL_SIM: FuelSimConfig = { intakeRate: 10, capacity: 0, robots: [] };
 
@@ -75,11 +75,14 @@ export function fuelStart(field: Field): { pts: Vec2[]; radius: number } {
   return { pts: balls.map((d) => [d.center[0], d.center[1]] as Vec2), radius: balls[0]?.radius ?? 0.075 };
 }
 
-/** Obstacles the balls bounce off (enabled ones only, matching what the paths avoid). */
+/** Whether fuel bounces off an obstacle: by default only when paths avoid it too. */
+export const blocksFuel = (o: Obstacle) => (o.fuelCollision ?? "paths") === "paths" ? o.enabled : o.fuelCollision === "block";
+
+/** Obstacles the balls bounce off. */
 function walls(field: Field): Wall[] {
   const out: Wall[] = [];
   for (const o of field.obstacles) {
-    if (!o.enabled) continue;
+    if (!blocksFuel(o)) continue;
     let p = o.points;
     if (o.kind === "circle") {
       p = [];

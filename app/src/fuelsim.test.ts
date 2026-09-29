@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import rebuilt from "../../solver/src/mayhem_solver/fields/rebuilt-2026.json";
-import { fuelAt, fuelStart, intakenBy, newSimRobot, SETTLE_TIME, simRobotEnd, simRobotPose, simRobotTrack, simulateFuel } from "./fuelsim";
+import { blocksFuel, fuelAt, fuelStart, intakenBy, newSimRobot, SETTLE_TIME, simRobotEnd, simRobotPose, simRobotTrack, simulateFuel } from "./fuelsim";
 import type { Field, RobotConfig, Sample, SimRobot, TrajectoryOutput } from "./types";
 
 const field = rebuilt as unknown as Field;
@@ -128,5 +128,28 @@ describe("fuel sim", () => {
     expect(opp.points[0][0]).toBeCloseTo(field.length - ally.points[0][0]);
     expect(opp.points[0][1]).toBeCloseTo(field.width - ally.points[0][1]);
     expect(newSimRobot(field, "blue", [ally]).points).not.toEqual(ally.points); // second ally gets another lane
+  });
+
+  it("lets obstacles block fuel without blocking paths, and the reverse", () => {
+    const o = field.obstacles.find((x) => x.name === "Red Bump (right)")!;
+    expect(o.enabled).toBe(false); // robots drive over it...
+    expect(blocksFuel(o)).toBe(true); // ...but fuel can't roll across (preset)
+    expect(blocksFuel({ ...o, fuelCollision: "paths" })).toBe(false);
+    expect(blocksFuel({ ...o, enabled: true, fuelCollision: "pass" })).toBe(false);
+
+    // plow the upper pile toward the red bump at speed
+    const onBump = (f: Field) => {
+      const sim = simulateFuel(f, robot, straight(6, 10.6, y, 4, false), { intakeRate: 0, capacity: 0, robots: [] })!;
+      const end = fuelAt(sim, sim.duration);
+      let n = 0;
+      for (let i = 0; i < sim.n; i++) {
+        const [x, yy] = [end[2 * i], end[2 * i + 1]];
+        if (x > 11.3532 + 0.08 && x < 12.4792 && yy > 4.6286 && yy < 6.4849) n++;
+      }
+      return n;
+    };
+    expect(onBump(field)).toBe(0);
+    const passable = { ...field, obstacles: field.obstacles.map((x) => (x.name.includes("Bump") ? { ...x, fuelCollision: "pass" as const } : x)) };
+    expect(onBump(passable)).toBeGreaterThan(0);
   });
 });

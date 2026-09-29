@@ -779,6 +779,17 @@
           "default": true,
           "title": "Enabled",
           "type": "boolean"
+        },
+        "fuelCollision": {
+          "default": "paths",
+          "description": "App fuel sim only: 'paths' = fuel bounces off it when enabled, 'block' = always (e.g. a bump robots drive over), 'pass' = never (e.g. an overhead trench). Not part of the input hash.",
+          "enum": [
+            "paths",
+            "block",
+            "pass"
+          ],
+          "title": "Fuelcollision",
+          "type": "string"
         }
       },
       "required": [
