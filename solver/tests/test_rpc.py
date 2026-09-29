@@ -2,10 +2,39 @@ import json
 import subprocess
 import sys
 import time
+import threading
 
-from mayhem_solver.models import Trajectory
+from mayhem_solver.models import Constraint, PointAt, Project, Scope, Trajectory
 
 from .conftest import wp
+
+
+def test_job_forwards_infeasible_progress():
+    from mayhem_solver.rpc import Job
+
+    traj = Trajectory(name="warning", waypoints=[wp(0, 7, 2, heading_mode="free", stop=True),
+                                                  wp(1, 10, 2, heading_mode="free", stop=True)])
+    scope = Scope(kind="range", **{"from": 0, "to": 1})
+    traj.constraints = [Constraint(id="up", scope=scope, data=PointAt(x=8.5, y=7, tolerance=0.05)),
+                        Constraint(id="down", scope=scope, data=PointAt(x=8.5, y=-3, tolerance=0.05))]
+    got = []
+    done = threading.Event()
+
+    def notify(method, params):
+        got.append((method, params))
+        if method == "solveDone":
+            done.set()
+
+    job = Job("test-job", traj.name, Project().dump(), traj.dump(), notify)
+    try:
+        assert done.wait(20)
+        warnings = [p for m, p in got if m == "solveProgress" and p.get("type") == "infeasible"]
+        assert warnings and warnings[0]["issues"]
+        assert warnings[0]["jobId"] == "test-job"
+        json.dumps(warnings[0], allow_nan=False)
+    finally:
+        job.cancel()
+        job.wait(5)
 
 
 def test_stdio_roundtrip(tmp_path):

@@ -4,7 +4,7 @@ import { FieldCanvas } from "./FieldCanvas";
 import { ConstraintEditor, MarkerEditor, PoseVariableEditor, WaypointEditor } from "./Inspector";
 import { FieldSettingsPanel, ObstacleEditor } from "./FieldPanels";
 import { SimRobotEditor } from "./FuelSimPanel";
-import type { Trajectory } from "../types";
+import type { Issue, Trajectory } from "../types";
 import { CONSTRAINT_LABELS } from "../model";
 
 const HINTS: Record<string, string> = {
@@ -15,6 +15,15 @@ const HINTS: Record<string, string> = {
   polygon: "Click corners · click the first corner, double-click or press Enter to finish · Esc cancels",
   circle: "Drag from the center to set the radius",
 };
+
+function IssueRow({ issue, onSelect }: { issue: Issue; onSelect: (issue: Issue) => void }) {
+  const Icon = issue.severity === "error" ? OctagonAlert : issue.severity === "warning" ? AlertTriangle : Info;
+  return <div className="issue" onClick={() => onSelect(issue)}>
+    <Icon size={15} style={{ flex: "none", marginTop: 2,
+      color: issue.severity === "error" ? "var(--red)" : "var(--amber)" }} />
+    <div>{issue.message}{issue.t != null && <span className="mono muted" style={{ fontSize: 11 }}> · t≈{issue.t.toFixed(2)}s</span>}</div>
+  </div>;
+}
 
 export function Stage() {
   const view = useStore((s) => s.view);
@@ -50,7 +59,8 @@ export function Stage() {
     }
   }
 
-  const issues = view === "paths" ? solve?.issues ?? [] : [];
+  const warning = view === "paths" && solve?.status === "solving" && !!solve.warnings?.length;
+  const issues = view === "paths" ? (warning ? solve?.warnings ?? [] : solve?.issues ?? []) : [];
   return (
     <div className="stage">
       {view === "paths" && !traj ? (
@@ -68,21 +78,19 @@ export function Stage() {
       {issues.length > 0 && (
         <div className="float issues">
           <div className="card-head">
-            <div className="card-title" style={{ color: "var(--red)" }}><OctagonAlert size={16} /> Generation failed</div>
-            <button className="btn ghost icon sm" onClick={() => useStore.setState((s) => { if (s.selectedTraj && s.solves[s.selectedTraj]) s.solves[s.selectedTraj].issues = []; })}><X size={14} /></button>
+            <div className="card-title" style={{ color: warning ? "var(--amber)" : "var(--red)" }}>
+              {warning ? <AlertTriangle size={16} /> : <OctagonAlert size={16} />}
+              {warning ? "Likely unsolvable" : "Generation failed"}
+            </div>
+            {!warning && <button className="btn ghost icon sm" onClick={() => useStore.setState((s) => { if (s.selectedTraj && s.solves[s.selectedTraj]) s.solves[s.selectedTraj].issues = []; })}><X size={14} /></button>}
           </div>
-          {issues.map((is, i) => {
-            const Icon = is.severity === "error" ? OctagonAlert : is.severity === "warning" ? AlertTriangle : Info;
-            return (
-              <div key={i} className="issue" onClick={() => {
-                if (is.waypoint != null) a.select({ kind: "waypoint", index: is.waypoint });
-                if (is.t != null) a.setPlayback({ t: is.t, playing: false });
-              }}>
-                <Icon size={15} style={{ flex: "none", marginTop: 2, color: is.severity === "error" ? "var(--red)" : "var(--amber)" }} />
-                <div>{is.message}{is.t != null && <span className="mono muted" style={{ fontSize: 11 }}> · t≈{is.t.toFixed(2)}s</span>}</div>
-              </div>
-            );
-          })}
+          {warning && <div className="muted" style={{ padding: "0 12px 8px" }}>Mayhem is checking the remaining routes.</div>}
+          {issues.map((is, i) => <IssueRow key={i} issue={is} onSelect={(issue) => {
+            if (issue.waypoint != null) a.select({ kind: "waypoint", index: issue.waypoint });
+            if (issue.t != null) a.setPlayback({ t: issue.t, playing: false });
+          }} />)}
+          {warning && <button className="btn danger sm" style={{ margin: "8px 12px 12px" }}
+            onClick={() => { if (a.selectedTraj) a.stopWithWarnings(a.selectedTraj); }}>Stop</button>}
         </div>
       )}
     </div>

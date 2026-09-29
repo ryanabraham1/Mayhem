@@ -58,6 +58,7 @@ Drag a pose waypoint's round knob to set its heading (hold ⇧ to snap). Select 
 Press **Generate** (⌘↵). The solver tries several routes around obstacles in parallel and keeps the fastest. The path is colored by speed and fades when you edit inputs, until you regenerate.
 
 If generation fails, a panel lists what's wrong (e.g. "Waypoint 3 heading conflicts with point-at constraint") and a red pin marks the spot. Click an issue to jump there.
+If the solver finds a likely conflict while checking other routes, an amber **Likely unsolvable** panel appears early. Click an issue to inspect its location, or click **Stop** in that panel to end generation and keep the diagnosis visible.
 
 While paths are generating, click **Cancel generation** in the top bar to stop running solves and clear any paths waiting in a **Generate all** batch. Previously generated paths remain available.
 

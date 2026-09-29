@@ -427,6 +427,7 @@ class Attempt:
     slacks: list = field(default_factory=list)
     probe: Optional[OCPResult] = None  # converged elastic probe that proved a hard violation
     infeasible: bool = False
+    route_independent: bool = False
 
 
 # IPOPT statuses that suggest the hard problem has no feasible point near the guess
@@ -436,6 +437,8 @@ INFEASIBLE_STATUSES = {"Infeasible_Problem_Detected", "Restoration_Failed"}
 # violations for time, which says nothing about feasibility.
 DECISIVE_SLACK = {"user": 1e-2, "heading": 1e-2, "stop": 1e-2, "waypoint": 1e-2,
                   "obstacle": 0.05, "wall": 0.05, "keepin": 0.05}
+ROUTE_INDEPENDENT = {"user", "stop", "waypoint"}
+EARLY_STOP_GRACE = 5.0
 
 
 def hard_violations(slacks) -> list[tuple[str, str, float]]:
@@ -446,6 +449,20 @@ def hard_violations(slacks) -> list[tuple[str, str, float]]:
             agg[label] = (cat, total)
     bad = [(lab, cat, tot) for lab, (cat, tot) in agg.items() if tot > DECISIVE_SLACK.get(cat, math.inf)]
     return sorted(bad, key=lambda v: -v[2])
+
+
+def route_independent(bad, traj: Trajectory) -> bool:
+    """Only fixed-scope user constraints can prove a conflict on every route."""
+    constraints = {c.id: c for c in traj.constraints}
+    for label, cat, _ in bad:
+        if cat not in ROUTE_INDEPENDENT:
+            return False
+        if cat == "user":
+            match = re.fullmatch(r"Constraint '[^']+' \((.+)\)", label)
+            con = constraints.get(match.group(1)) if match else None
+            if con is None or con.scope.kind == "zone" or isinstance(con.data, (PointAt, StraightLine)):
+                return False
+    return bool(bad)
 
 
 class Solver:
@@ -620,20 +637,29 @@ class Solver:
 
         # 1. direct
         res = self.run_ocp(guess, "hard", "direct")
+        direct_status = res.status
         if (a := finish(res)):
             return a
         best_fail = res
 
-        # 1b. IPOPT says infeasible: an elastic probe tells a real conflict (stop now and let the
-        # caller report it) from a bad guess (its solution is then a feasible warm start).
-        if res.status in INFEASIBLE_STATUSES and self._time_left() > 2:
-            probe = self.run_ocp(guess, "elastic", "elastic-probe", time_cap=min(8.0, 0.3 * self._time_left()))
+        # 1b. A failed hard solve may already contain a clear, actionable conflict.
+        # A converged direct solve rejected by polish is a geometry issue, so skip its probe.
+        if direct_status not in SUCCESS and self._time_left() > 2:
+            cap = (min(8.0, 0.3 * self._time_left()) if direct_status in INFEASIBLE_STATUSES
+                   else min(5.0, 0.2 * self._time_left()))
+            probe = self.run_ocp(guess, "elastic", "elastic-probe", time_cap=cap)
             if probe.status in SUCCESS and np.all(np.isfinite(probe.solution.x)):
                 bad = hard_violations(probe.slacks)
                 if bad:
+                    independent = route_independent(bad, self.traj)
+                    if self.progress:
+                        self.progress({"type": "infeasible", "candidate": self.candidate,
+                                       "routeIndependent": independent,
+                                       "issues": [i.dump() for i in slack_issues(self.traj, probe.solution, probe.slacks)]})
                     self.log.append("elastic probe: " + ", ".join(lab for lab, _, _ in bad[:3])
                                     + " cannot be met; stopping")
-                    return Attempt(False, best_fail.solution, self.iters, self.log, probe=probe, infeasible=True)
+                    return Attempt(False, best_fail.solution, self.iters, self.log, probe=probe,
+                                   infeasible=True, route_independent=independent)
                 if max((t for _, _, t, _ in probe.slacks), default=0.0) < 1e-3:
                     res = self.run_ocp(probe.solution, "hard", "elastic->hard")
                     if (a := finish(res)):
@@ -728,7 +754,9 @@ def _solve_candidate(project_json: dict, traj_json: dict, routes, cand: int, bud
     guess = build_guess(traj, routes, solver.dt, pa) if pa else guess0
     att = solver.ladder(guess)
     out = {"ok": att.ok, "sol": att.sol, "iters": att.iters, "log": att.log, "candidate": cand,
-           "infeasible": att.infeasible}
+           "infeasible": att.infeasible, "routeIndependent": att.route_independent}
+    if att.probe is not None:
+        out["bad_labels"] = [lab for lab, _, _ in hard_violations(att.probe.slacks)]
     if att.probe is not None:
         out["probe_sol"], out["probe_slacks"] = att.probe.solution, att.probe.slacks
     return out
@@ -757,19 +785,40 @@ def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = N
                   "routes": [[[list(p) for p in seg] for seg in c] for c in cands]})
 
     pj, tj = project.dump(), traj.model_dump(by_alias=True, mode="json", exclude={"output"})
-    deadline = time.monotonic() + traj.settings.time_limit
+    final_deadline = t_start + traj.settings.time_limit
+    diag_reserve = min(8.0, 0.15 * traj.settings.time_limit)
+    deadline = final_deadline - diag_reserve
     results = []
+    early_stop_label = None
     if parallel and len(cands) > 1:
-        results = _run_parallel(pj, tj, cands, deadline, progress)
+        results, early_stop_label = _run_parallel(pj, tj, cands, deadline, progress)
     else:
+        first_labels: set[str] = set()
         for i, c in enumerate(cands):
-            results.append(_solve_candidate(pj, tj, c, i, deadline - time.monotonic(),
-                                            None if progress is None else _Direct(progress)))
+            budget = deadline - time.monotonic()
+            if first_labels:
+                budget = min(budget, EARLY_STOP_GRACE)
+            if budget <= 0:
+                break
+            r = _solve_candidate(pj, tj, c, i, budget, None if progress is None else _Direct(progress))
+            results.append(r)
+            if r["ok"]:
+                continue
+            if r.get("infeasible") and r.get("routeIndependent"):
+                labels = set(r.get("bad_labels", []))
+                agreed = first_labels & labels
+                if agreed:
+                    early_stop_label = sorted(agreed)[0]
+                    break
+                if not first_labels:
+                    first_labels = labels
 
     results = [r for r in results if r.get("sol") is not None] or results
     good = [r for r in results if r["ok"]]
     total_iters = sum(r["iters"] for r in results)
     attempts = [f"candidate {r['candidate']}: {line}" for r in results for line in r["log"]]
+    if early_stop_label:
+        attempts.append(f"stopped early: {early_stop_label} cannot be met on any route")
     if good:
         best = min(good, key=lambda r: r["sol"].total_time)
         stats = SolveStats(success=True, total_time=best["sol"].total_time,
@@ -779,7 +828,7 @@ def solve(project: Project, traj: Trajectory, progress: Optional[ProgressFn] = N
         return SolveResult(True, out, issues)
 
     # diagnose with an elastic solve on the most promising candidate
-    issues += diagnose(project, traj, results)
+    issues += diagnose(project, traj, results, final_deadline)
     preview = None
     if results and results[0].get("sol") is not None:
         s = results[0]["sol"]
@@ -795,7 +844,7 @@ def _candidate_entry(pj, tj, routes, cand, budget, queue):
     queue.put({"type": "_result", "result": res})
 
 
-def _run_parallel(pj, tj, cands, deadline, progress) -> list[dict]:
+def _run_parallel(pj, tj, cands, deadline, progress) -> tuple[list[dict], Optional[str]]:
     """One daemon process per candidate; progress and results share a queue.
 
     `deadline` is on the monotonic clock (see _solve_candidate).
@@ -811,10 +860,12 @@ def _run_parallel(pj, tj, cands, deadline, progress) -> list[dict]:
     for pr in procs:
         pr.start()
     results: dict[int, dict] = {}
-    hard_deadline = deadline + 30
+    effective_deadline = deadline
+    first_labels: set[str] = set()
+    early_stop_label = None
     try:
         # (checked every message: progress arrives every 0.1 s per candidate, so the queue is rarely idle)
-        while len(results) < len(procs) and time.monotonic() <= hard_deadline:
+        while len(results) < len(procs) and time.monotonic() <= effective_deadline:
             try:
                 msg = q.get(timeout=0.2)
             except queue_mod.Empty:
@@ -826,6 +877,15 @@ def _run_parallel(pj, tj, cands, deadline, progress) -> list[dict]:
             if msg.get("type") == "_result":
                 r = msg["result"]
                 results[r["candidate"]] = r
+                if r.get("infeasible") and r.get("routeIndependent"):
+                    labels = set(r.get("bad_labels", []))
+                    agreed = first_labels & labels
+                    if agreed:
+                        early_stop_label = sorted(agreed)[0]
+                        break
+                    if not first_labels:
+                        first_labels = labels
+                        effective_deadline = min(effective_deadline, time.monotonic() + EARLY_STOP_GRACE)
             elif progress:
                 progress(msg)
     finally:
@@ -836,7 +896,8 @@ def _run_parallel(pj, tj, cands, deadline, progress) -> list[dict]:
         if i not in results:
             results[i] = {"ok": False, "sol": None, "iters": 0,
                           "log": ["did not finish within the time limit"], "candidate": i}
-    return [r for _, r in sorted(results.items()) if r["sol"] is not None] or list(results.values())
+    return ([r for _, r in sorted(results.items()) if r["sol"] is not None] or list(results.values()),
+            early_stop_label)
 
 
 class _Direct:
@@ -849,7 +910,7 @@ class _Direct:
         self.fn(msg)
 
 
-def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Issue]:
+def diagnose(project: Project, traj: Trajectory, results: list[dict], deadline: float) -> list[Issue]:
     issues: list[Issue] = []
     if not results:
         return [Issue(severity="error", message="No candidate routes could be generated.")]
@@ -861,13 +922,26 @@ def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Is
         best = min(probes, key=lambda r: sum(t for _, _, t, _ in r["probe_slacks"]))
         dsol, dslacks = best["probe_sol"], best["probe_slacks"]
     else:
-        solver = Solver(project, traj, None, 0, time.monotonic() + max(10.0, traj.settings.time_limit / 3))
+        if deadline - time.monotonic() <= 0.2:
+            return [Issue(severity="error", message="The solver reached the time limit before diagnosis finished.")]
+        solver = Solver(project, traj, None, 0, deadline)
         sol = results[0].get("sol")
         if sol is None or not np.all(np.isfinite(sol.x)):
             cands = candidate_routes(traj, solver.dt, solver.world, 1)
             sol = build_guess(traj, cands[0], solver.dt)
-        res = solver.run_ocp(sol, "elastic", "diagnose")
+        res = solver.run_ocp(sol, "elastic", "diagnose", time_cap=max(0.1, deadline - time.monotonic()))
         dsol, dslacks = res.solution, res.slacks
+    issues = slack_issues(traj, dsol, dslacks)
+    if not issues:
+        issues.append(Issue(severity="error",
+                            message="The solver did not converge, but no single constraint looks infeasible. "
+                                    "Try adding a guide waypoint or increasing the time limit."))
+    return issues
+
+
+def slack_issues(traj: Trajectory, dsol: Solution, dslacks) -> list[Issue]:
+    """Turn elastic slack into ranked, JSON-safe field issues."""
+    issues: list[Issue] = []
     times = dsol.times()
     agg: dict[str, tuple[float, int, str]] = {}
     for label, cat, total, k in dslacks:
@@ -878,9 +952,9 @@ def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Is
             agg[label] = (total, k, cat)
     ranked = sorted(agg.items(), key=lambda kv: -kv[1][0])
     for label, (total, k, cat) in ranked[:6]:
-        t = float(times[k]) if 0 <= k < len(times) else None
-        x = float(dsol.x[k]) if 0 <= k < len(times) else None
-        y = float(dsol.y[k]) if 0 <= k < len(times) else None
+        t = float(times[k]) if 0 <= k < len(times) and math.isfinite(times[k]) else None
+        x = float(dsol.x[k]) if 0 <= k < len(dsol.x) and math.isfinite(dsol.x[k]) else None
+        y = float(dsol.y[k]) if 0 <= k < len(dsol.y) and math.isfinite(dsol.y[k]) else None
         waypoint = (int(match.group(1)) - 1) if (match := re.match(r"Waypoint (\d+)", label)) else None
         if waypoint is None and cat in ("obstacle", "wall", "keepin") and x is not None and y is not None:
             waypoint = min(range(len(traj.waypoints)),
@@ -902,10 +976,6 @@ def diagnose(project: Project, traj: Trajectory, results: list[dict]) -> list[Is
         issues.append(Issue(severity="error", message=f"{label} is infeasible (violation {total:.3g}): {hint}.",
                             waypoint=waypoint,
                             t=t, x=x, y=y))
-    if not ranked:
-        issues.append(Issue(severity="error",
-                            message="The solver did not converge, but no single constraint looks infeasible. "
-                                    "Try adding a guide waypoint or increasing the time limit."))
     return issues
 
 

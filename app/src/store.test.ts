@@ -36,6 +36,42 @@ beforeEach(() => {
 });
 
 describe("generation cancellation", () => {
+  it("keeps an infeasibility event that arrives before the job ID", async () => {
+    let reply!: (value: { jobId: string }) => void;
+    vi.mocked(backend.call).mockImplementation((method) => method === "solve"
+      ? new Promise((resolve) => { reply = resolve; })
+      : Promise.resolve(true));
+    const pending = useStore.getState().solve("A");
+    listeners.get("solveProgress")?.({ name: "A", jobId: "early-job", type: "infeasible",
+      issues: [{ severity: "error", message: "Early conflict" }] });
+    reply({ jobId: "early-job" });
+    await pending;
+    expect(useStore.getState().solves.A.warnings?.[0].message).toBe("Early conflict");
+  });
+
+  it("streams distinct warnings, replaces them on completion, and preserves them on panel Stop", async () => {
+    vi.mocked(backend.call).mockResolvedValue({ jobId: "warning-job" });
+    await useStore.getState().solve("A");
+    const issue = { severity: "error", message: "Constraint is infeasible", waypoint: 1 };
+    const progress = { name: "A", jobId: "warning-job", type: "infeasible", issues: [issue, issue] };
+    listeners.get("solveProgress")?.(progress);
+    listeners.get("solveProgress")?.(progress);
+    expect(useStore.getState().solves.A.warnings).toEqual([issue]);
+
+    listeners.get("solveDone")?.({ name: "A", jobId: "warning-job", success: false,
+      issues: [{ severity: "error", message: "Final issue" }] });
+    expect(useStore.getState().solves.A.warnings).toBeUndefined();
+    expect(useStore.getState().solves.A.issues[0].message).toBe("Final issue");
+
+    await useStore.getState().solve("A");
+    listeners.get("solveProgress")?.(progress);
+    useStore.getState().stopWithWarnings("A");
+    expect(backend.call).toHaveBeenCalledWith("cancel", { jobId: "warning-job" });
+    expect(useStore.getState().solves.A).toMatchObject({ status: "failed", issues: [issue] });
+    listeners.get("solveDone")?.({ name: "A", jobId: "warning-job", success: false,
+      cancelled: true, issues: [{ severity: "info", message: "Cancelled." }] });
+    expect(useStore.getState().solves.A.issues).toEqual([issue]);
+  });
   it("finishes when the solver result arrives before its job ID", async () => {
     let reply!: (value: { jobId: string }) => void;
     vi.mocked(backend.call).mockImplementation((method) => method === "solve"

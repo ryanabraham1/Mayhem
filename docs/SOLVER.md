@@ -5,6 +5,9 @@ point is `pipeline.solve(project, trajectory, progress=None, parallel=True)`. Th
 app sends the same project and trajectory through the solver's JSON-RPC `solve` method;
 the solver streams `solveProgress` events and returns `solveDone` with either a verified
 trajectory or issues tied to the field and, where possible, a waypoint.
+An early conflict arrives as `solveProgress` with `{jobId, name, type: "infeasible",
+candidate, routeIndependent, issues}`. Each issue uses the same shape as final `solveDone`
+issues, so the app can show it while other routes are still being checked.
 
 ## Optimization model
 
@@ -72,20 +75,35 @@ time limit:
 4. Relaxed drivetrain limits, then nominal limits.
 5. Segment-wise solves stitched into a joint warm start.
 
-If IPOPT reports the direct solve infeasible (`Infeasible_Problem_Detected` or
-`Restoration_Failed`), an elastic probe runs next from the same guess (capped at 8 s). If it
-converges with a clear violation (slack above 0.01 on a user, heading, stop or waypoint
-constraint, or above 5 cm on an obstacle, wall or keep-in), the candidate stops there and
-its probe becomes the diagnosis, so no second elastic solve runs. If the probe needs no
+If the direct hard solve does not converge, an elastic probe runs next from the same guess.
+Known infeasible statuses (`Infeasible_Problem_Detected` or `Restoration_Failed`) get a cap
+of 8 s or 30% of the remaining candidate time, whichever is less. Other non-success
+statuses get 5 s or 20%. A converged direct solve rejected by the swept or zone check
+does not trigger this probe. If the probe converges with a clear violation (slack above
+0.01 on a user, heading, stop or waypoint constraint, or above 5 cm on an obstacle, wall
+or keep-in), the candidate stops there and streams an `infeasible` warning. Its probe
+becomes the diagnosis, so no second elastic solve runs. If the probe needs no
 slack, its solution warm-starts a hard solve. Otherwise the ladder continues. In elastic
 solves, moving a fixed waypoint costs 10 times as much as other slack, so the report blames
 the conflicting constraint instead of moving the robot (for example parking it on a
 point-at target).
 
 Candidates run in separate processes by default. The fastest solution that passes the
-swept check and all zone memberships is exported. If no candidate succeeds, the
+swept check and all zone memberships is exported. A warning never overrides a successful
+candidate. `ROUTE_INDEPENDENT` covers stop and waypoint violations, plus user constraints
+with waypoint or range scope that do not depend on position. Zone, point-at, and
+straight-line conflicts remain route-dependent. The first route-independent proof gives
+other candidates a 5 s grace period; a second candidate with the same violated label ends
+the search immediately. If no candidate succeeds, the
 closest-to-feasible probe, or a new elastic solve, measures constraint slack and ranks
-actionable issues. Simple input errors are rejected before optimization:
+actionable issues.
+
+The solver reserves up to 8 s (15% of the configured time limit) for a final elastic
+diagnosis when no candidate supplied a usable probe. That diagnosis shares the original
+deadline, so it cannot start a fresh 10 s budget after candidate time expires. Usually a
+probe already exists and the reserved time is unused.
+
+Simple input errors are rejected before optimization:
 - missing waypoints
 - out-of-field or obstacle-overlapping fixed poses
 - fixed headings that cannot satisfy a point-at target
@@ -106,7 +124,8 @@ the robot, is always tried. The optimizer only refines the route it is given, so
 isn't offered is never found. The remaining candidates are the any-heading roadmap's k
 homotopy-distinct routes, as before. The candidate set is therefore a superset of the
 any-heading-only one, and adding candidate 0 can only make the best path faster. All
-candidates run to completion, and the fastest verified path wins.
+candidates normally run to completion, and the fastest verified path wins. A matching
+route-independent conflict can stop the remaining candidates early as described above.
 
 Before this, the inscribed-circle roadmap was only used when the any-heading one found no
 route at all. With a 10 cm margin on the REBUILT trench wall, every candidate went over the

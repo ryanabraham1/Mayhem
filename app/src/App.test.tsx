@@ -109,4 +109,17 @@ describe("App", () => {
     fireEvent.click(screen.getByText("Hits the hub"));
     expect(useStore.getState().selection).toEqual({ kind: "waypoint", index: 1 });
   });
+
+  it("shows an early warning and keeps it when Stop is clicked", () => {
+    openProject();
+    useStore.setState({ solves: { Auto: { status: "solving", jobId: "job", issues: [],
+      warnings: [{ severity: "error", message: "Constraint cannot be met", waypoint: 1 }] } } });
+    render(<App />);
+    expect(screen.getByText("Likely unsolvable")).toBeTruthy();
+    fireEvent.click(screen.getByText("Constraint cannot be met"));
+    expect(useStore.getState().selection).toEqual({ kind: "waypoint", index: 1 });
+    fireEvent.click(screen.getByText("Stop", { selector: ".float.issues button" }));
+    expect(screen.getByText("Generation failed")).toBeTruthy();
+    expect(useStore.getState().solves.Auto.issues[0].message).toBe("Constraint cannot be met");
+  });
 });

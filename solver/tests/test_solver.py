@@ -1,4 +1,6 @@
 import math
+import json
+import time
 
 import numpy as np
 import pytest
@@ -10,7 +12,7 @@ from mayhem_solver.drivetrain import build_drivetrain
 from mayhem_solver.guess import Trap
 from mayhem_solver.models import (Constraint, KeepOut, Marker, MaxAcceleration, MaxAngularVelocity, MaxVelocity, Obstacle,
                                   PointAt, Project, RoughTerrain, Scope, StraightLine, Tolerance, Trajectory)
-from mayhem_solver.pipeline import Solver, make_world, solve
+from mayhem_solver.pipeline import Solver, make_world, route_independent, solve
 
 from .conftest import wp
 
@@ -78,6 +80,104 @@ def test_infeasible_heading_is_diagnosed(project):
     r = solve(project, t, parallel=False)
     assert not r.success
     assert any("heading" in i.message.lower() or "pointAt" in i.message for i in r.issues)
+
+
+def test_infeasible_probe_streams_json_issues_before_return(project):
+    t = Trajectory(name="conflict", waypoints=[wp(0, 7, 2, heading_mode="free", stop=True),
+                                                wp(1, 10, 2, heading_mode="free", stop=True)])
+    t.constraints = [Constraint(id="north", scope=Scope(kind="range", **{"from": 0, "to": 1}),
+                                data=PointAt(x=8.5, y=7, tolerance=0.05)),
+                     Constraint(id="south", scope=Scope(kind="range", **{"from": 0, "to": 1}),
+                                data=PointAt(x=8.5, y=-3, tolerance=0.05))]
+    events = []
+    r = solve(project, t, progress=lambda e: events.append((time.monotonic(), e)), parallel=False)
+    finished = time.monotonic()
+    assert not r.success
+    warnings = [(when, e) for when, e in events if e["type"] == "infeasible"]
+    assert warnings and warnings[0][0] < finished
+    assert warnings[0][1]["issues"]
+    json.dumps(warnings[0][1], allow_nan=False)
+    assert not warnings[0][1]["routeIndependent"]
+
+
+def test_route_independence_respects_scope_and_position(project):
+    t = Trajectory(name="scope", waypoints=[wp(0, 2, 3), wp(1, 8, 3)])
+    t.constraints = [Constraint(id="range-speed", scope=Scope(kind="range", **{"from": 0, "to": 1}),
+                                data=MaxVelocity(value=1)),
+                     Constraint(id="zone-speed", scope=Scope(kind="zone", region=[(3, 2), (4, 2), (4, 4)]),
+                                data=MaxVelocity(value=1)),
+                     Constraint(id="aim", scope=Scope(kind="range", **{"from": 0, "to": 1}),
+                                data=PointAt(x=5, y=6))]
+    assert route_independent([("Constraint 'maxVelocity' (range-speed)", "user", 1)], t)
+    assert not route_independent([("Constraint 'maxVelocity' (zone-speed)", "user", 1)], t)
+    assert not route_independent([("Constraint 'pointAt' (aim)", "user", 1)], t)
+    assert not route_independent([("Waypoint 2 heading", "heading", 1)], t)
+
+
+def test_sequential_stops_after_two_matching_route_independent_proofs(project, monkeypatch):
+    from mayhem_solver import pipeline
+
+    t = Trajectory(name="early", waypoints=[wp(0, 2, 3), wp(1, 8, 3)])
+    t.settings.time_limit = 60
+    monkeypatch.setattr(pipeline, "candidate_routes", lambda *_: [[], [], []])
+    called = []
+
+    def candidate(*args):
+        i = args[3]
+        called.append(i)
+        return {"ok": False, "sol": None, "iters": 0, "log": [], "candidate": i,
+                "infeasible": True, "routeIndependent": True,
+                "bad_labels": ["Constraint 'maxVelocity' (limit)"],
+                "probe_sol": None}
+
+    monkeypatch.setattr(pipeline, "_solve_candidate", candidate)
+    monkeypatch.setattr(pipeline, "diagnose", lambda *_: [pipeline.Issue(severity="error", message="limit")])
+    r = solve(project, t, parallel=False)
+    assert not r.success
+    assert called == [0, 1]
+
+
+def test_parallel_stops_on_agreeing_proofs_but_not_geometry(monkeypatch):
+    import multiprocessing as mp
+    import queue
+    from mayhem_solver.pipeline import _run_parallel
+
+    results = []
+
+    class FakeProcess:
+        def __init__(self, target, args, daemon):
+            self.candidate = args[3]
+            self.q = args[-1]
+            self.exitcode = None
+
+        def start(self):
+            self.q.put({"type": "_result", "result": results[self.candidate]})
+
+        def is_alive(self):
+            return True
+
+        def terminate(self):
+            pass
+
+    class Context:
+        Process = FakeProcess
+
+        @staticmethod
+        def Queue():
+            return queue.Queue()
+
+    monkeypatch.setattr(mp, "get_context", lambda _: Context)
+    label = "Constraint 'maxVelocity' (limit)"
+    results[:] = [{"ok": False, "sol": object(), "candidate": i, "infeasible": True,
+                   "routeIndependent": True, "bad_labels": [label]} for i in range(3)]
+    got, stopped = _run_parallel({}, {}, [[], [], []], time.monotonic() + 60, None)
+    assert stopped == label
+    assert len(got) == 2
+
+    results[:] = [{**r, "routeIndependent": False} for r in results]
+    got, stopped = _run_parallel({}, {}, [[], [], []], time.monotonic() + 60, None)
+    assert stopped is None
+    assert len(got) == 3
 
 
 def test_tolerance_guide_splits_markers(project):

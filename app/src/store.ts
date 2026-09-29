@@ -37,6 +37,8 @@ export interface SolveState {
   previews?: Record<number, [number, number, number][]>;
   candidates?: Vec2[][][];
   issues: Issue[];
+  /** Constraint conflicts reported while generation is still running. */
+  warnings?: Issue[];
   startedAt?: number;
   lastSeconds?: number;
 }
@@ -113,6 +115,7 @@ interface Actions {
   solve(name: string): Promise<void>;
   solveAll(names?: string[]): Promise<void>;
   cancelSolve(name: string): void;
+  stopWithWarnings(name: string): void;
   cancelGeneration(): void;
   syncDeployFolder(): Promise<void>;
   setPlayback(p: Partial<State["playback"]>): void;
@@ -181,6 +184,7 @@ export const useStore = create<State & Actions>()(
     let nextSolveRequest = 0;
     let activeBatch: { cancelled: boolean } | null = null;
     const earlyDone = new Map<number, any[]>();
+    const earlyProgress = new Map<number, any[]>();
     const snapshot = (): Snapshot | null => {
       const s = get();
       return s.project ? { project: s.project, trajectories: s.trajectories, order: s.order } : null;
@@ -274,6 +278,7 @@ export const useStore = create<State & Actions>()(
         const cur = s.solves[name];
         cur.status = p.success ? "ok" : "failed";
         cur.issues = p.issues ?? [];
+        cur.warnings = undefined;
         cur.lastSeconds = cur.startedAt ? (Date.now() - cur.startedAt) / 1000 : undefined;
         cur.preview = p.success ? undefined : p.preview ?? cur.preview;
         cur.candidates = undefined;
@@ -355,7 +360,13 @@ export const useStore = create<State & Actions>()(
           const name = p.name as string;
           set((s) => {
             const st = s.solves[name];
-            if (!st || st.status !== "solving" || st.jobId !== p.jobId) return;
+            if (!st || st.status !== "solving") return;
+            if (!st.jobId) {
+              if (st.requestId !== undefined) earlyProgress.set(st.requestId,
+                [...(earlyProgress.get(st.requestId) ?? []), p]);
+              return;
+            }
+            if (st.jobId !== p.jobId) return;
             if (p.type === "stage") st.stage = p.stage;
             if (p.type === "iteration") {
               st.iteration = p.iteration;
@@ -363,6 +374,15 @@ export const useStore = create<State & Actions>()(
               st.previews = { ...(st.previews ?? {}), [p.candidate ?? 0]: p.path };
             }
             if (p.type === "candidates") st.candidates = p.routes;
+            if (p.type === "infeasible") {
+              const seen = new Set((st.warnings ?? []).map((w) => w.message));
+              const additions = (p.issues as Issue[]).filter((w) => {
+                if (seen.has(w.message)) return false;
+                seen.add(w.message);
+                return true;
+              });
+              st.warnings = [...(st.warnings ?? []), ...additions];
+            }
           });
         });
         backend.on("solveDone", (p: any) => {
@@ -389,6 +409,7 @@ export const useStore = create<State & Actions>()(
         const res = await backend.call<{ dir: string; project: Project; trajectories: any[] }>("openProject", { dir });
         get().cancelGeneration();
         earlyDone.clear();
+        earlyProgress.clear();
         const trajectories: Record<string, Trajectory> = {};
         const order: string[] = [];
         for (const t of res.trajectories) {
@@ -433,6 +454,7 @@ export const useStore = create<State & Actions>()(
       closeProject() {
         get().cancelGeneration();
         earlyDone.clear();
+        earlyProgress.clear();
         set((s) => {
           s.dir = null;
           s.project = null;
@@ -704,14 +726,30 @@ export const useStore = create<State & Actions>()(
           const { jobId } = await backend.call<{ jobId: string }>("solve", { project, trajectory: inputs });
           if (get().solves[name]?.requestId !== requestId || get().solves[name]?.status !== "solving") {
             earlyDone.delete(requestId);
+            earlyProgress.delete(requestId);
             void backend.call("cancel", { jobId }).catch(() => {});
             return;
           }
           set((s) => {
             s.solves[name].jobId = jobId;
           });
+          for (const p of earlyProgress.get(requestId) ?? []) {
+            if (p.jobId === jobId) {
+              // The RPC response can arrive after an early probe notification.
+              const st = get().solves[name];
+              if (st?.status === "solving" && p.type === "infeasible") {
+                set((s) => {
+                  const seen = new Set((s.solves[name].warnings ?? []).map((w) => w.message));
+                  s.solves[name].warnings = [...(s.solves[name].warnings ?? []),
+                    ...(p.issues as Issue[]).filter((w) => !seen.has(w.message))];
+                });
+              }
+            }
+          }
+          earlyProgress.delete(requestId);
           const done = earlyDone.get(requestId)?.find((p) => p.jobId === jobId);
           earlyDone.delete(requestId);
+          earlyProgress.delete(requestId);
           if (done) finishSolve(done);
         } catch (e: any) {
           earlyDone.delete(requestId);
@@ -757,9 +795,22 @@ export const useStore = create<State & Actions>()(
         const st = get().solves[name];
         if (st?.status !== "solving") return;
         if (st.requestId !== undefined) earlyDone.delete(st.requestId);
+        if (st.requestId !== undefined) earlyProgress.delete(st.requestId);
         if (st?.jobId) backend.call("cancel", { jobId: st.jobId }).catch(() => {});
         set((s) => {
           s.solves[name] = { status: "idle", issues: [] };
+        });
+      },
+
+      stopWithWarnings(name) {
+        const st = get().solves[name];
+        if (st?.status !== "solving" || !st.warnings?.length) return;
+        if (st.requestId !== undefined) earlyDone.delete(st.requestId);
+        if (st.requestId !== undefined) earlyProgress.delete(st.requestId);
+        if (st.jobId) backend.call("cancel", { jobId: st.jobId }).catch(() => {});
+        set((s) => {
+          s.solves[name] = { status: "failed", issues: [...st.warnings!],
+            lastSeconds: st.startedAt ? (Date.now() - st.startedAt) / 1000 : undefined };
         });
       },
 
