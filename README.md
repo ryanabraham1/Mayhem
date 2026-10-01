@@ -2,6 +2,8 @@
 
 Time-optimal swerve trajectory planning for FRC (2026 REBUILT), with on-robot bump recovery.
 
+**Documentation: <https://ryanabraham1.github.io/Mayhem/>**
+
 ## Download the desktop app
 
 Get the latest installer from [GitHub Releases](https://github.com/ryanabraham1/Mayhem/releases/latest):

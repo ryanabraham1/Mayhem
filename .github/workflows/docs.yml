@@ -1,0 +1,65 @@
+name: Docs
+
+# Builds the VitePress site in site/. Pull requests only check that it builds; a push to main
+# publishes it to the root of the gh-pages branch, alongside the hosted MayhemLib files.
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "scripts/publish-docs.sh", ".github/workflows/docs.yml"]
+  pull_request:
+    paths: ["site/**", "scripts/publish-docs.sh", ".github/workflows/docs.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PNPM_VERSION: "11"
+  NODE_VERSION: "24"
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: site
+      - run: pnpm build
+        working-directory: site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: site/.vitepress/dist
+
+  publish:
+    name: Publish to GitHub Pages
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Shares the release workflow's group so two pushes to gh-pages never race.
+    concurrency:
+      group: mayhemlib-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: docs-site
+          path: dist
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PAGES_REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            scripts/publish-docs.sh dist

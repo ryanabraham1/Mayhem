@@ -20,6 +20,13 @@
       "runtimeArgs": ["--directory", "solver", "run", "mayhem-solver", "serve", "--ws", "8765"],
       "port": 8765,
       "autoPort": false
+    },
+    {
+      "name": "docs",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "site", "dev", "--port", "5193"],
+      "port": 5193,
+      "autoPort": false
     }
   ]
 }

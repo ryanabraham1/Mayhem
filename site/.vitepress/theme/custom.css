@@ -1,0 +1,158 @@
+/* Matches the desktop app's purple, card-based look (app/src/styles.css tokens). */
+:root {
+  --vp-font-family-base: "Outfit", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --vp-font-family-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --vp-c-brand-1: #5a2fd6;
+  --vp-c-brand-2: #6b3fe6;
+  --vp-c-brand-3: #6b3fe6;
+  --vp-c-brand-soft: rgba(107, 63, 230, 0.12);
+
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-alt: #f5f4f9;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: #f6f4fb;
+  --vp-c-divider: #e9e7f0;
+  --vp-c-gutter: #e9e7f0;
+  --vp-c-text-1: #1b1a22;
+  --vp-c-text-2: #55516a;
+  --vp-c-text-3: #8a8699;
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #8f63ff 20%, #5a2fd6 80%);
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, #8f63ff 40%, #5a2fd6 60%);
+  --vp-home-hero-image-filter: blur(56px);
+
+  --vp-button-brand-bg: #6b3fe6;
+  --vp-button-brand-hover-bg: #5a2fd6;
+  --vp-button-brand-active-bg: #5427cf;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-alt-bg: #f0ebff;
+  --vp-button-alt-text: #5427cf;
+  --vp-button-alt-hover-bg: #e2d8ff;
+  --vp-button-alt-hover-text: #5427cf;
+
+  --vp-custom-block-tip-bg: #e6f6ee;
+  --vp-custom-block-tip-border: transparent;
+  --vp-custom-block-warning-bg: #fff5e3;
+  --vp-custom-block-warning-border: transparent;
+  --vp-custom-block-danger-bg: #fdeded;
+  --vp-custom-block-danger-border: transparent;
+  --vp-custom-block-info-bg: #f0ebff;
+  --vp-custom-block-info-border: transparent;
+}
+
+.dark {
+  --vp-c-brand-1: #a584ff;
+  --vp-c-brand-2: #8f63ff;
+  --vp-c-brand-3: #6b3fe6;
+  --vp-c-brand-soft: rgba(143, 99, 255, 0.18);
+
+  --vp-c-bg: #111016;
+  --vp-c-bg-alt: #0d0c11;
+  --vp-c-bg-elv: #17161d;
+  --vp-c-bg-soft: #17161d;
+  --vp-c-divider: #2a2834;
+  --vp-c-gutter: #0d0c11;
+  --vp-c-text-1: #efedf7;
+  --vp-c-text-2: #b3afc4;
+  --vp-c-text-3: #7f7b92;
+
+  --vp-button-brand-bg: #6b3fe6;
+  --vp-button-alt-bg: #201e28;
+  --vp-button-alt-text: #d6c9ff;
+  --vp-button-alt-hover-bg: #2a2834;
+  --vp-button-alt-hover-text: #ffffff;
+
+  --vp-custom-block-tip-bg: rgba(20, 138, 87, 0.16);
+  --vp-custom-block-warning-bg: rgba(194, 120, 6, 0.18);
+  --vp-custom-block-danger-bg: rgba(209, 58, 58, 0.18);
+  --vp-custom-block-info-bg: rgba(143, 99, 255, 0.16);
+}
+
+/* Headings, like the app: bold geometric sans, tight tracking. */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3 {
+  letter-spacing: -0.015em;
+}
+.vp-doc h2 {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 44px;
+}
+
+/* Cards: soft 1px border, ~14px radius. */
+.vp-doc table,
+.vp-doc div[class*="language-"],
+.vp-doc .custom-block,
+.vp-doc img {
+  border-radius: 14px;
+}
+.vp-doc img {
+  border: 1px solid var(--vp-c-divider);
+  box-shadow: 0 6px 24px -12px rgba(60, 30, 140, 0.25);
+}
+.vp-doc table {
+  display: table;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--vp-c-divider);
+  overflow: hidden;
+}
+.vp-doc tr {
+  background: transparent;
+  border-top: 0;
+}
+.vp-doc th,
+.vp-doc td {
+  border: 0;
+  border-top: 1px solid var(--vp-c-divider);
+}
+.vp-doc thead th {
+  border-top: 0;
+  background: var(--vp-c-bg-soft);
+  font-family: var(--vp-font-family-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vp-c-brand-1);
+}
+.vp-doc tr:nth-child(2n) {
+  background: transparent;
+}
+
+/* Uppercase, letter-spaced section labels in the sidebar. */
+.VPSidebarItem.level-0 > .item .text {
+  font-family: var(--vp-font-family-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--vp-c-brand-1);
+}
+
+.vp-doc a {
+  text-underline-offset: 3px;
+}
+.vp-doc kbd {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.85em;
+  padding: 1px 6px;
+  border: 1px solid var(--vp-c-divider);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--vp-c-bg-soft);
+}
+
+.VPHero .image-src {
+  max-width: 100%;
+}
+.VPHero .VPImage.image-src {
+  border-radius: 14px;
+  border: 1px solid var(--vp-c-divider);
+  box-shadow: 0 20px 60px -24px rgba(60, 30, 140, 0.45);
+}

@@ -269,3 +269,16 @@ different host into the generated JSON (and update the URLs in the workflow's re
 `MayhemLib.json` for machines without internet. From a checkout,
 `cd lib && ./gradlew installVendordep -ProbotProject=/path/to/robot` publishes into that same
 directory and writes the JSON, which is handy while developing the library.
+
+## Documentation site
+
+The docs at `https://ryanabraham1.github.io/Mayhem/` are a [VitePress](https://vitepress.dev) project in `site/` (pages are Markdown, screenshots are in `site/public/img/`).
+
+```sh
+cd site && pnpm install && pnpm dev     # live preview at http://localhost:5173/Mayhem/
+cd site && pnpm build                   # static output in site/.vitepress/dist
+```
+
+`.github/workflows/docs.yml` builds the site on pull requests that touch `site/` and, on a push to `main`, publishes it with `scripts/publish-docs.sh`. The script replaces everything at the root of the `gh-pages` branch except `maven/` and `MayhemLib.json`, which `scripts/publish-pages.sh` owns (see "Hosting MayhemLib"), and the two workflows share the `mayhemlib-pages` concurrency group so pushes to the branch never race. The docs and the MayhemLib files live on the same Pages site, so no extra Pages setup is needed once the branch is serving.
+
+`site/` repeats material from `docs/USER_GUIDE.md` and `lib/README.md`; update both when behavior changes.
