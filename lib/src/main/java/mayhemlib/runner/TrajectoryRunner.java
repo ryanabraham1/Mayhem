@@ -8,22 +8,26 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import edu.wpi.first.math.geometry.Translation2d;
 import mayhemlib.follow.DriveCommand;
 import mayhemlib.follow.FollowerConfig;
 import mayhemlib.follow.HolonomicFollower;
 import mayhemlib.recovery.Bridge;
 import mayhemlib.recovery.BridgePlanner;
+import mayhemlib.recovery.BeachDetector;
 import mayhemlib.recovery.BridgeRefiner;
 import mayhemlib.recovery.CollisionDetector;
 import mayhemlib.recovery.RecoveryConfig;
+import mayhemlib.recovery.UnbeachConfig;
 import mayhemlib.trajectory.MayhemTrajectory;
+import mayhemlib.trajectory.RecoveryData;
 import mayhemlib.trajectory.TerrainSpan;
 import mayhemlib.trajectory.TrajectoryEvent;
 import mayhemlib.trajectory.TrajectorySample;
 
 /**
  * Runs one trajectory: feedforward + saturated feedback, time dilation, bump detection and bridge
- * recovery, rough-terrain handling, and event markers. Framework-free (no WPILib command dependencies) so it is fully unit
+ * recovery, auto unbeach, rough-terrain handling, and event markers. Framework-free (no WPILib command dependencies) so it is fully unit
  * testable; {@link mayhemlib.auto.AutoFactory} wraps it in commands.
  *
  * <p>Call {@link #start} once, then {@link #update} every loop with the latest vision-fused pose.
@@ -34,6 +38,8 @@ public final class TrajectoryRunner {
     IDLE,
     FOLLOWING,
     BRIDGING,
+    /** Driving off a pile of fuel the robot is stuck on; the trajectory clock is paused. */
+    UNBEACHING,
     SETTLING,
     FINISHED
   }
@@ -81,6 +87,16 @@ public final class TrajectoryRunner {
   private TerrainSpan terrain;
   private double terrainExitTime = Double.NEGATIVE_INFINITY;
 
+  private UnbeachConfig unbeachConfig = new UnbeachConfig().disabled();
+  private BeachDetector beach = new BeachDetector(unbeachConfig);
+  private double pitchDeg = Double.NaN;
+  private double rollDeg = Double.NaN;
+  private double unbeachStart;
+  private double unbeachRetargetAt;
+  private double unbeachCooldownUntil = Double.NEGATIVE_INFINITY;
+  private Translation2d unbeachTarget;
+  private int unbeachCount;
+
   public TrajectoryRunner(MayhemTrajectory traj, FollowerConfig fc, RecoveryConfig rc,
       EventListener listener, BridgeRefiner refiner) {
     this.traj = traj;
@@ -100,6 +116,17 @@ public final class TrajectoryRunner {
     this(traj, fc, rc, listener, null);
   }
 
+  /**
+   * Turns on auto unbeach: while the IMU reports the robot tilted on a pile of fuel, the runner
+   * pauses the trajectory, drives toward a point downhill of the tilt, and resumes once flat.
+   * Feed pitch and roll through {@link #update(double, Pose2d, ChassisSpeeds, double, double, double)}.
+   */
+  public TrajectoryRunner withUnbeach(UnbeachConfig config) {
+    unbeachConfig = config == null ? new UnbeachConfig().disabled() : config;
+    beach = new BeachDetector(unbeachConfig);
+    return this;
+  }
+
   // --------------------------------------------------------------------------- lifecycle
 
   public void start(double now) {
@@ -111,6 +138,9 @@ public final class TrajectoryRunner {
     terrain = null;
     terrainExitTime = Double.NEGATIVE_INFINITY;
     detector.reset();
+    beach.reset();
+    unbeachTarget = null;
+    unbeachCooldownUntil = Double.NEGATIVE_INFINITY;
     java.util.Arrays.fill(fired, false);
     java.util.Arrays.fill(zoneEnded, false);
     pendingAtJoin.clear();
@@ -135,6 +165,18 @@ public final class TrajectoryRunner {
    * @param accelG horizontal acceleration magnitude in g (NaN if not available)
    */
   public DriveCommand update(double now, Pose2d pose, ChassisSpeeds fieldSpeeds, double accelG) {
+    return update(now, pose, fieldSpeeds, accelG, Double.NaN, Double.NaN);
+  }
+
+  /**
+   * Like {@link #update(double, Pose2d, ChassisSpeeds, double)} with the IMU's pitch and roll for
+   * auto unbeach, in degrees and the CTRE Pigeon 2 convention (positive pitch is nose down,
+   * positive roll is left side up). NaN disables unbeach detection for this loop.
+   */
+  public DriveCommand update(double now, Pose2d pose, ChassisSpeeds fieldSpeeds, double accelG,
+      double pitchDegrees, double rollDegrees) {
+    pitchDeg = pitchDegrees;
+    rollDeg = rollDegrees;
     double dt = Math.max(0, Math.min(now - lastNow, 0.1));
     lastNow = now;
     lastNowForBoost = now;
@@ -145,6 +187,8 @@ public final class TrajectoryRunner {
         return DriveCommand.stop(nMod);
       case BRIDGING:
         return updateBridging(now, dt, pose, fieldSpeeds, accelG);
+      case UNBEACHING:
+        return updateUnbeaching(now, dt, pose, fieldSpeeds, accelG);
       case SETTLING:
         return updateSettling(now, pose, fieldSpeeds, accelG);
       case FOLLOWING:
@@ -164,11 +208,15 @@ public final class TrajectoryRunner {
     }
     terrain = span;
     if (span != null) {
+      beach.reset(); // a marked bump tilts the robot on purpose
       return updateTerrain(dt, span, ref, pose, v);
     }
     boolean grace = now - terrainExitTime <= rc.terrainGraceSeconds;
     if (grace) {
       detector.reset();
+      beach.reset();
+    } else if (checkBeached(now, pose)) {
+      return updateUnbeaching(now, 0, pose, v, accelG);
     } else if (rc.enabled && detector.update(now, posError, headingError, accelG, accelG(ref))
         && tryPlan(now, pose, v)) {
       return updateBridging(now, 0, pose, v, accelG);
@@ -233,6 +281,15 @@ public final class TrajectoryRunner {
   }
 
   private DriveCommand updateBridging(double now, double dt, Pose2d pose, ChassisSpeeds v, double accelG) {
+    if (checkBeached(now, pose)) {
+      // stuck on fuel mid-bridge: a straight bridge cannot help, so drop it and unbeach first
+      bridge = null;
+      if (refineFuture != null) {
+        refineFuture.cancel(true);
+        refineFuture = null;
+      }
+      return updateUnbeaching(now, 0, pose, v, accelG);
+    }
     tau += dt;
     // swap in a refined bridge at the hand-off time if it arrived in time
     if (refineFuture != null && refineFuture.isDone() && tau >= REFINE_HANDOFF) {
@@ -290,6 +347,77 @@ public final class TrajectoryRunner {
       }
     }
     return cmd;
+  }
+
+  // --------------------------------------------------------------------------- unbeach
+
+  /** Starts an unbeach if the IMU says the robot is beached; the runner is then UNBEACHING. */
+  private boolean checkBeached(double now, Pose2d pose) {
+    if (!unbeachConfig.enabled || now < unbeachCooldownUntil
+        || !beach.update(now, pitchDeg, rollDeg)) {
+      return false;
+    }
+    unbeachCount++;
+    unbeachStart = now;
+    unbeachTarget = null;
+    unbeachRetargetAt = now;
+    state = State.UNBEACHING;
+    return true;
+  }
+
+  /**
+   * Drives toward a point on the downhill side of the tilt until the robot is flat again. The
+   * trajectory clock is paused; afterwards normal following (and bump recovery, if the robot ended
+   * up far from the path) takes over.
+   */
+  private DriveCommand updateUnbeaching(double now, double dt, Pose2d pose, ChassisSpeeds v, double accelG) {
+    measure(reference, pose);
+    UnbeachConfig uc = unbeachConfig;
+    boolean flat = !beach.update(now, pitchDeg, rollDeg);
+    if (flat || now - unbeachStart >= uc.maxSeconds) {
+      state = State.FOLLOWING;
+      unbeachTarget = null;
+      unbeachCooldownUntil = now + uc.cooldownSeconds;
+      beach.reset();
+      detector.reset();
+      rate = 0;
+      return follower.calculate(reference, pose, v, 0);
+    }
+    Translation2d here = pose.getTranslation();
+    boolean reached = unbeachTarget != null && here.getDistance(unbeachTarget) <= uc.reachTolerance;
+    if (unbeachTarget == null || reached || now >= unbeachRetargetAt) {
+      Translation2d dir = BeachDetector.downhill(pitchDeg, rollDeg, pose.getRotation());
+      if (dir.getNorm() > 0) {
+        unbeachTarget = clampToField(here.plus(dir.times(uc.escapeDistance)));
+        unbeachRetargetAt = now + uc.retargetSeconds;
+      }
+    }
+    rate = 0;
+    int nMod = follower.config().modules;
+    if (unbeachTarget == null) {
+      return DriveCommand.stop(nMod);
+    }
+    Translation2d delta = unbeachTarget.minus(here);
+    double dist = delta.getNorm();
+    if (dist < 1e-6) {
+      return DriveCommand.stop(nMod);
+    }
+    double speed = Math.max(uc.minEscapeSpeed, Math.min(uc.escapeSpeed, uc.escapeKp * dist));
+    // hold heading: only translate off the pile
+    return new DriveCommand(
+        new ChassisSpeeds(delta.getX() / dist * speed, delta.getY() / dist * speed, 0),
+        new double[nMod], new double[nMod]);
+  }
+
+  private Translation2d clampToField(Translation2d p) {
+    RecoveryData rd = traj.recovery();
+    if (rd == null || rd.fieldLength <= 0 || rd.fieldWidth <= 0) {
+      return p;
+    }
+    double m = unbeachConfig.fieldMargin;
+    return new Translation2d(
+        Math.max(m, Math.min(rd.fieldLength - m, p.getX())),
+        Math.max(m, Math.min(rd.fieldWidth - m, p.getY())));
   }
 
   // --------------------------------------------------------------------------- recovery
@@ -461,6 +589,26 @@ public final class TrajectoryRunner {
   /** The state the follower is currently tracking (trajectory or bridge). */
   public TrajectorySample reference() {
     return reference;
+  }
+
+  /** True while driving off a pile of fuel; the trajectory clock is paused. */
+  public boolean isUnbeaching() {
+    return state == State.UNBEACHING;
+  }
+
+  /** The point being driven toward while unbeaching. */
+  public Optional<Translation2d> unbeachTarget() {
+    return state == State.UNBEACHING ? Optional.ofNullable(unbeachTarget) : Optional.empty();
+  }
+
+  /** Number of unbeach maneuvers started during the current run. */
+  public int unbeachCount() {
+    return unbeachCount;
+  }
+
+  /** Robot tilt from vertical at the last update that had an IMU reading [deg], NaN without one. */
+  public double tiltDegrees() {
+    return BeachDetector.tiltDegrees(pitchDeg, rollDeg);
   }
 
   public Optional<Bridge> bridge() {

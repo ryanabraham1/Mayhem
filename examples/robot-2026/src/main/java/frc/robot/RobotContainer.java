@@ -34,6 +34,7 @@ import mayhemlib.auto.AutoRoutine;
 import mayhemlib.auto.AutoTrajectory;
 import mayhemlib.ctre.CtreSwerve;
 import mayhemlib.sim.BumpInjector;
+import mayhemlib.sim.FuelPileInjector;
 
 public class RobotContainer {
     private double MaxSpeed = 1.0 * TunerConstants.kSpeedAt12Volts.in(MetersPerSecond); // kSpeedAt12Volts desired top speed
@@ -69,6 +70,9 @@ public class RobotContainer {
         autoFactory = CtreSwerve.autoFactory(drivetrain)
             // Publishes reference pose, bridge path and follower state under /Mayhem in NetworkTables.
             .withTelemetry(true)
+            // If the Pigeon 2 says the robot is high-centered on fuel during an auto, pause the path, drive
+            // off the pile, then carry on. CtreSwerve already feeds it the Pigeon's pitch and roll.
+            .withUnbeach()
             .withVisionBoost(boost ->
                 drivetrain.setVisionMeasurementStdDevs(boost ? kVisionStdDevsAfterHit : kVisionStdDevs))
             // Trajectories are authored on the blue side and flipped for red using the field's symmetry
@@ -188,6 +192,21 @@ public class RobotContainer {
     }
 
     /**
+     * Simulation only: a pile of fuel that beaches the robot when it drives into it. The robot's pose
+     * is held until it backs off, and the simulated Pigeon 2 reports a 12 degree tilt meanwhile.
+     */
+    public FuelPileInjector simFuelPile(Translation2d center, double radius) {
+        return new FuelPileInjector(
+            () -> drivetrain.getState().Pose, drivetrain::resetPose,
+            (pitch, roll) -> {
+                var imu = drivetrain.getPigeon2().getSimState();
+                imu.setPitch(Degrees.of(pitch));
+                imu.setRoll(Degrees.of(roll));
+            },
+            center, radius, 12);
+    }
+
+    /**
      * Simulation only: knock the robot around to watch bump recovery at your desk. A bump shifts the
      * pose estimate, which is what the vision-fused estimator reports after a real hit.
      */
@@ -201,6 +220,12 @@ public class RobotContainer {
                 0.6,   // max translation [m]
                 0.5,   // max rotation [rad]
                 42));  // seed, for repeatable runs
+        // A pile of fuel on the Straight path at (9.0, 6.25): the robot gets stuck on it and the Pigeon
+        // reports the tilt, so you can watch auto unbeach back off and carry on.
+        SmartDashboard.putBoolean("Sim/Fuel pile on Straight", false);
+        new Trigger(() -> SmartDashboard.getBoolean("Sim/Fuel pile on Straight", false))
+            .and(RobotModeTriggers.autonomous())
+            .whileTrue(simFuelPile(new Translation2d(9.0, 6.25), 0.3).command());
         // A dashboard button for a single 0.6 m sideways shove.
         SmartDashboard.putData("Sim/Bump left", BumpInjector.bump(
             () -> drivetrain.getState().Pose, drivetrain::resetPose,

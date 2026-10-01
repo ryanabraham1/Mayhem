@@ -51,6 +51,59 @@ Draw a [rough-terrain polygon](/app/constraints#rough-terrain) in the app over e
 
 `withVisionBoost` rises after the zone so the pose estimator can correct drift. Markers remain attached to trajectory time. `AutoTrajectory.onRoughTerrain()` exposes the active zone as a trigger, and `/Mayhem/onRoughTerrain` reports it through [telemetry](/lib/telemetry).
 
+## Auto unbeach
+
+Fuel can high-center the robot: it climbs a pile and its belly ends up resting on the balls, wheels
+spinning. Auto unbeach uses the IMU to notice, backs the robot off the pile, and then continues the
+auto.
+
+```java
+AutoFactory autoFactory = CtreSwerve.autoFactory(drivetrain)   // wires the drivetrain's Pigeon 2
+    .withUnbeach();                                            // opt in; or withUnbeach(new UnbeachConfig()...)
+```
+
+How it works:
+
+1. **Detect.** Tilt is the angle between the robot's up axis and vertical, from the Pigeon 2's pitch
+   and roll. Tilt of at least `tiltThresholdDegrees` for `detectSeconds` counts as beached. It is
+   not checked on [rough-terrain zones](#rough-terrain-zones), where tilting is expected, so draw a
+   zone over every real bump.
+2. **Escape.** The trajectory clock pauses. The robot drives toward a point `escapeDistance` away
+   in the downhill direction (the way the robot's up axis leans, so nose-up means backward), at up
+   to `escapeSpeed`, holding its heading. The point is kept `fieldMargin` inside the field walls.
+   It is re-picked from the current tilt every `retargetSeconds`, or when reached while still tilted.
+3. **Resume.** After the tilt stays under `flatThresholdDegrees` for `flatSeconds`, the trajectory
+   continues from where the clock paused. If the escape left the robot far from the path, normal
+   [time dilation and bridge recovery](/lib/recovery) bring it back. If it is still tilted after
+   `maxSeconds`, the runner gives up and resumes anyway, and waits `cooldownSeconds` before trying again.
+
+Like bridges, the escape has **no obstacle avoidance**. It works inside a trajectory (following or
+bridging); it does not run between trajectories or while a trajectory is settling at its end.
+
+Pitch and roll must follow the CTRE Pigeon 2 convention (positive pitch is nose down, positive roll
+is left side up), and the Pigeon's mount pose in Tuner X must be correct. With a different IMU,
+pass your own suppliers (in degrees) to `withTiltSensor(pitch, roll)`.
+
+`traj.unbeaching()` is a trigger that is true during the escape, for example to stop a spinning
+intake: `traj.unbeaching().whileTrue(intake.stopCommand())`.
+
+`UnbeachConfig` fields (public, SI units, tilt in degrees):
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `enabled` | `true` | Master switch. |
+| `tiltThresholdDegrees` | 8 | Tilt at or above which the robot may be beached. |
+| `detectSeconds` | 0.2 s | How long the tilt must persist. |
+| `flatThresholdDegrees` / `flatSeconds` | 4 / 0.15 s | Tilt at or below which the robot is flat, and how long it must stay so, before the auto resumes. |
+| `escapeDistance` | 1.0 m | Distance of the escape point from the robot. |
+| `escapeSpeed` / `minEscapeSpeed` | 2.0 / 0.8 m/s | Fastest and slowest speed toward the escape point. |
+| `escapeKp` | 4.0 | Gain on distance to the escape point [(m/s)/m]. |
+| `reachTolerance` | 0.1 m | Distance at which the escape point counts as reached. |
+| `retargetSeconds` | 0.75 s | How often a new escape point is chosen while still beached. |
+| `maxSeconds` | 2.5 s | Give up and resume the auto after this long. |
+| `cooldownSeconds` | 0.75 s | Wait after an unbeach before another can start. |
+| `fieldMargin` | 0.4 m | Keep escape points this far inside the field walls. |
+
 ## Optional: `SleipnirBridgeRefiner`
 
 `withRefiner(new SleipnirBridgeRefiner())` adds a second planning stage on a background thread. It solves a small minimum-time problem with Sleipnir, the optimizer behind Choreo. The robot starts driving the coarse bridge immediately. If the refined bridge arrives within about 0.12 s and is faster, it replaces the coarse one. It is still collision-checked before use.

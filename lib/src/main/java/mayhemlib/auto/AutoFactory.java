@@ -16,6 +16,7 @@ import mayhemlib.follow.DriveCommand;
 import mayhemlib.follow.FollowerConfig;
 import mayhemlib.recovery.BridgeRefiner;
 import mayhemlib.recovery.RecoveryConfig;
+import mayhemlib.recovery.UnbeachConfig;
 import mayhemlib.telemetry.MayhemTelemetry;
 import mayhemlib.trajectory.MayhemTrajectory;
 import mayhemlib.trajectory.TrajectoryLoader;
@@ -47,6 +48,9 @@ public final class AutoFactory {
   final Subsystem driveSubsystem;
   BooleanSupplier useRedAlliance;
   DoubleSupplier accelG = () -> Double.NaN;
+  DoubleSupplier pitchDegrees = () -> Double.NaN;
+  DoubleSupplier rollDegrees = () -> Double.NaN;
+  UnbeachConfig unbeachConfig;
   Consumer<Boolean> visionBoost = b -> {};
   FollowerConfig followerConfig = new FollowerConfig();
   RecoveryConfig recoveryConfig = new RecoveryConfig();
@@ -153,6 +157,33 @@ public final class AutoFactory {
   /** Horizontal acceleration magnitude in g (e.g. from a Pigeon 2) for collision detection. */
   public AutoFactory withAccelerometer(DoubleSupplier accelG) {
     this.accelG = accelG;
+    return this;
+  }
+
+  /**
+   * IMU pitch and roll in degrees, for {@link #withUnbeach}. Uses the CTRE Pigeon 2 convention:
+   * positive pitch is nose down, positive roll is left side up. {@link mayhemlib.ctre.CtreSwerve}
+   * sets this from the drivetrain's Pigeon 2 for you.
+   */
+  public AutoFactory withTiltSensor(DoubleSupplier pitchDegrees, DoubleSupplier rollDegrees) {
+    this.pitchDegrees = pitchDegrees;
+    this.rollDegrees = rollDegrees;
+    return this;
+  }
+
+  /**
+   * Turns on auto unbeach with default tuning. If the robot gets beached on fuel (tilted past the
+   * threshold, outside rough-terrain zones), the trajectory pauses, the robot drives toward a point
+   * downhill of the tilt, and the rest of the auto resumes once it is flat. Needs a tilt sensor, see
+   * {@link #withTiltSensor}.
+   */
+  public AutoFactory withUnbeach() {
+    return withUnbeach(new UnbeachConfig());
+  }
+
+  /** Like {@link #withUnbeach()} with custom tuning; pass {@code null} to turn it off. */
+  public AutoFactory withUnbeach(UnbeachConfig cfg) {
+    this.unbeachConfig = cfg;
     return this;
   }
 

@@ -26,6 +26,10 @@ public final class MayhemTelemetry {
   private final DoublePublisher planMs;
   private final DoublePublisher bridges;
   private final BooleanPublisher terrain;
+  private final BooleanPublisher unbeaching;
+  private final DoublePublisher tilt;
+  private final DoublePublisher unbeaches;
+  private final StructArrayPublisher<Pose2d> unbeachTarget;
 
   public MayhemTelemetry(String root) {
     NetworkTable t = NetworkTableInstance.getDefault().getTable(root);
@@ -40,6 +44,10 @@ public final class MayhemTelemetry {
     planMs = t.getDoubleTopic("lastPlanMs").publish();
     bridges = t.getDoubleTopic("bridgesPlanned").publish();
     terrain = t.getBooleanTopic("onRoughTerrain").publish();
+    unbeaching = t.getBooleanTopic("unbeaching").publish();
+    tilt = t.getDoubleTopic("tiltDegrees").publish();
+    unbeaches = t.getDoubleTopic("unbeachesStarted").publish();
+    unbeachTarget = t.getStructArrayTopic("unbeachTarget", Pose2d.struct).publish();
   }
 
   public void startTrajectory(MayhemTrajectory traj) {
@@ -62,12 +70,20 @@ public final class MayhemTelemetry {
     planMs.set(r.lastPlanSeconds() * 1000);
     bridges.set(r.bridgesPlanned());
     terrain.set(r.onRoughTerrain());
+    unbeaching.set(r.isUnbeaching());
+    tilt.set(r.tiltDegrees());
+    unbeaches.set(r.unbeachCount());
+    unbeachTarget.set(r.unbeachTarget()
+        .map(p -> new Pose2d[] {new Pose2d(p, edu.wpi.first.math.geometry.Rotation2d.kZero)})
+        .orElse(new Pose2d[0]));
     bridge.set(r.bridge().map(b -> b.poses(30)).orElse(new Pose2d[0]));
   }
 
   public void stop() {
     state.set("IDLE");
     terrain.set(false);
+    unbeaching.set(false);
+    unbeachTarget.set(new Pose2d[0]);
     bridge.set(new Pose2d[0]);
   }
 }

@@ -5,6 +5,7 @@ import com.ctre.phoenix6.swerve.SwerveDrivetrain;
 import com.ctre.phoenix6.swerve.SwerveModule;
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
+import edu.wpi.first.units.Units;
 import edu.wpi.first.wpilibj2.command.Subsystem;
 import mayhemlib.auto.AutoFactory;
 import mayhemlib.follow.DriveCommand;
@@ -45,6 +46,9 @@ public final class CtreSwerve {
             subsystem)
         .withAccelerometer(() -> Math.hypot(
             pigeon.getAccelerationX().getValueAsDouble(),
-            pigeon.getAccelerationY().getValueAsDouble()));
+            pigeon.getAccelerationY().getValueAsDouble()))
+        .withTiltSensor(
+            () -> pigeon.getPitch().getValue().in(Units.Degrees),
+            () -> pigeon.getRoll().getValue().in(Units.Degrees));
   }
 }

@@ -15,6 +15,8 @@ Create one factory per drivetrain. The `bind` and `with*` methods return `this`.
 | `withFollowerConfig(FollowerConfig)` | Follower gains and limits. See [Tuning](/lib/tuning). |
 | `withRecoveryConfig(RecoveryConfig)` | Hit detection and recovery knobs. See [Bump recovery](/lib/recovery). |
 | `withAccelerometer(DoubleSupplier g)` | Horizontal acceleration in g, used for collision detection. `NaN` disables the spike check. |
+| `withTiltSensor(DoubleSupplier pitchDeg, DoubleSupplier rollDeg)` | IMU pitch and roll for auto unbeach (CTRE Pigeon 2 convention). `CtreSwerve` sets it for you. |
+| `withUnbeach()`, `withUnbeach(UnbeachConfig)` | Turns on auto unbeach. See [Auto unbeach](/lib/recovery#auto-unbeach). |
 | `withVisionBoost(Consumer<Boolean>)` | Called with `true` for `visionBoostSeconds` after a detected hit or after leaving rough terrain, and with `false` otherwise. |
 | `withAllianceFlip(BooleanSupplier)` | Overrides alliance detection: return true to run the red-alliance version. |
 | `withRefiner(BridgeRefiner)` | Optional background bridge optimizer, for example `SleipnirBridgeRefiner`. |
@@ -50,6 +52,7 @@ A routine owns an event loop that `cmd()` polls, so triggers made from it (and f
 | `atPose(event, tolM, tolRad)`, `atTranslation(event, tolM)` | `Trigger`: while the robot is near where that marker sits on the path. `Pose2d`/`Translation2d` overloads take blue-alliance coordinates. |
 | `recovering()` | `Trigger`: true while the robot follows a recovery bridge. MayhemLib only. |
 | `intakeExtended()` | `Trigger`: true while the plan has the intake out. See [Constraints](/app/constraints#intake-extended). |
+| `unbeaching()` | `Trigger`: true while auto unbeach drives the robot off a pile of fuel. MayhemLib only. |
 | `onRoughTerrain()` | `Trigger`: true while the reference is inside a rough-terrain zone. |
 | `getInitialPose()`, `getFinalPose()` | Alliance-correct poses, resolved when called. |
 | `getRawTrajectory()` | The underlying `MayhemTrajectory`, as authored (blue). |

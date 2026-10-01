@@ -163,7 +163,7 @@ var autoFactory = new AutoFactory(
 | `routine.trajectory("name")`, `routine.trajectory("name", split)` | Same. Loads `deploy/mayhem/<name>.mtraj`. |
 | `traj.atTime("event")` | Same. Also stays true for the whole duration of a zone marker. |
 | `SwerveSample` + your own PID in the controller | Built in. Tune with `withFollowerConfig(...)`. |
-| — | `traj.recovering()`, `withRecoveryConfig(...)`, `withVisionBoost(...)`, `withTelemetry(true)` |
+| — | `traj.recovering()`, `traj.unbeaching()`, `withRecoveryConfig(...)`, `withUnbeach()`, `withVisionBoost(...)`, `withTelemetry(true)` |
 
 ---
 
@@ -184,6 +184,8 @@ Create one factory per drivetrain. The `bind` and `with*` methods return `this`.
 | `withFollowerConfig(FollowerConfig)` | Follower gains and limits (see [Tuning](#tuning-the-follower)). |
 | `withRecoveryConfig(RecoveryConfig)` | Hit detection and recovery knobs (see [Recovery](#bump-recovery)). |
 | `withAccelerometer(DoubleSupplier g)` | Horizontal acceleration in g, used for collision detection. `NaN` disables the spike check. |
+| `withTiltSensor(DoubleSupplier pitchDeg, DoubleSupplier rollDeg)` | IMU pitch and roll for auto unbeach (CTRE Pigeon 2 convention). `CtreSwerve` sets it for you. |
+| `withUnbeach()`, `withUnbeach(UnbeachConfig)` | Turns on auto unbeach (see [Auto unbeach](#auto-unbeach)). |
 | `withVisionBoost(Consumer<Boolean>)` | Called with `true` for `visionBoostSeconds` after a detected hit or after leaving rough terrain, and with `false` otherwise. |
 | `withAllianceFlip(BooleanSupplier)` | Overrides alliance detection: return true to run the red-alliance version. |
 | `withRefiner(BridgeRefiner)` | Optional background bridge optimizer, for example `SleipnirBridgeRefiner`. |
@@ -219,6 +221,7 @@ trajectories) only react while it runs. Bind the first step to `active()`.
 | `atTime(String event)` | `Trigger`: true for one cycle when an instant marker fires, or for the whole duration of a zone marker. |
 | `atPose(event, tolM, tolRad)`, `atTranslation(event, tolM)` | `Trigger`: while the robot is near where that marker sits on the path. `Pose2d`/`Translation2d` overloads take blue-alliance coordinates. |
 | `recovering()` | `Trigger`: true while the robot follows a recovery bridge. MayhemLib only. |
+| `unbeaching()` | `Trigger`: true while auto unbeach drives the robot off a pile of fuel. MayhemLib only. |
 | `getInitialPose()`, `getFinalPose()` | Alliance-correct poses, resolved when called. |
 | `getRawTrajectory()` | The underlying `MayhemTrajectory`, as authored (blue). |
 
@@ -361,6 +364,59 @@ jumped-over window follows its policy, which you set in the app:
 A zone whose end falls inside the jumped window is closed at the join. Markers flagged **must-hit**
 bound the join window, so they are never jumped over.
 
+### Auto unbeach
+
+Fuel can high-center the robot: it climbs a pile and its belly ends up resting on the balls, wheels
+spinning. Auto unbeach uses the IMU to notice, backs the robot off the pile, and then continues the
+auto.
+
+```java
+AutoFactory autoFactory = CtreSwerve.autoFactory(drivetrain)   // wires the drivetrain's Pigeon 2
+    .withUnbeach();                                            // opt in; or withUnbeach(new UnbeachConfig()...)
+```
+
+How it works:
+
+1. **Detect.** Tilt is the angle between the robot's up axis and vertical, from the Pigeon 2's pitch
+   and roll. Tilt of at least `tiltThresholdDegrees` for `detectSeconds` counts as beached. It is
+   not checked on [rough-terrain zones](#rough-terrain-zones), where tilting is expected, so draw a
+   zone over every real bump.
+2. **Escape.** The trajectory clock pauses. The robot drives toward a point `escapeDistance` away
+   in the downhill direction (the way the robot's up axis leans, so nose-up means backward), at up
+   to `escapeSpeed`, holding its heading. The point is kept `fieldMargin` inside the field walls.
+   It is re-picked from the current tilt every `retargetSeconds`, or when reached while still tilted.
+3. **Resume.** After the tilt stays under `flatThresholdDegrees` for `flatSeconds`, the trajectory
+   continues from where the clock paused. If the escape left the robot far from the path, normal
+   [time dilation and bridge recovery](#bump-recovery) bring it back. If it is still tilted after
+   `maxSeconds`, the runner gives up and resumes anyway, and waits `cooldownSeconds` before trying again.
+
+Like bridges, the escape has **no obstacle avoidance**. It works inside a trajectory (following or
+bridging); it does not run between trajectories or while a trajectory is settling at its end.
+
+Pitch and roll must follow the CTRE Pigeon 2 convention (positive pitch is nose down, positive roll
+is left side up), and the Pigeon's mount pose in Tuner X must be correct. With a different IMU,
+pass your own suppliers (in degrees) to `withTiltSensor(pitch, roll)`.
+
+`traj.unbeaching()` is a trigger that is true during the escape, for example to stop a spinning
+intake: `traj.unbeaching().whileTrue(intake.stopCommand())`.
+
+`UnbeachConfig` fields (public, SI units, tilt in degrees):
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `enabled` | `true` | Master switch. |
+| `tiltThresholdDegrees` | 8 | Tilt at or above which the robot may be beached. |
+| `detectSeconds` | 0.2 s | How long the tilt must persist. |
+| `flatThresholdDegrees` / `flatSeconds` | 4 / 0.15 s | Tilt at or below which the robot is flat, and how long it must stay so, before the auto resumes. |
+| `escapeDistance` | 1.0 m | Distance of the escape point from the robot. |
+| `escapeSpeed` / `minEscapeSpeed` | 2.0 / 0.8 m/s | Fastest and slowest speed toward the escape point. |
+| `escapeKp` | 4.0 | Gain on distance to the escape point [(m/s)/m]. |
+| `reachTolerance` | 0.1 m | Distance at which the escape point counts as reached. |
+| `retargetSeconds` | 0.75 s | How often a new escape point is chosen while still beached. |
+| `maxSeconds` | 2.5 s | Give up and resume the auto after this long. |
+| `cooldownSeconds` | 0.75 s | Wait after an unbeach before another can start. |
+| `fieldMargin` | 0.4 m | Keep escape points this far inside the field walls. |
+
 ### Telemetry
 
 `withTelemetry(true)` publishes these topics. NetworkTables DataLog captures them too.
@@ -370,7 +426,7 @@ bound the join window, so they are never jumped over.
 | `/Mayhem/trajectory` | `Pose2d[]` (struct) | The active trajectory, downsampled to about 150 poses. |
 | `/Mayhem/reference` | `Pose2d` (struct) | The pose the follower is tracking right now, on the trajectory or on a bridge. |
 | `/Mayhem/bridge` | `Pose2d[]` (struct) | The current recovery bridge. Empty when there is none. |
-| `/Mayhem/state` | string | `FOLLOWING`, `BRIDGING`, `SETTLING`, `FINISHED`, or `IDLE`. |
+| `/Mayhem/state` | string | `FOLLOWING`, `BRIDGING`, `UNBEACHING`, `SETTLING`, `FINISHED`, or `IDLE`. |
 | `/Mayhem/name` | string | Trajectory name. Segments appear as `Name[i]`. |
 | `/Mayhem/time` | double | Trajectory clock [s]. |
 | `/Mayhem/clockRate` | double | Time-dilation rate, from 0 to 1. |
@@ -378,6 +434,10 @@ bound the join window, so they are never jumped over.
 | `/Mayhem/lastPlanMs` | double | Duration of the last bridge plan [ms]. |
 | `/Mayhem/bridgesPlanned` | double | Bridges planned during the current run. |
 | `/Mayhem/onRoughTerrain` | boolean | Reference is inside a rough-terrain zone. |
+| `/Mayhem/unbeaching` | boolean | Auto unbeach is driving the robot off a pile of fuel. |
+| `/Mayhem/tiltDegrees` | double | Robot tilt from vertical [deg]; NaN without an IMU. |
+| `/Mayhem/unbeachesStarted` | double | Unbeach maneuvers started during the current run. |
+| `/Mayhem/unbeachTarget` | `Pose2d[]` (struct) | The point being driven toward while unbeaching. Empty otherwise. |
 
 In AdvantageScope, drag `trajectory`, `reference`, and `bridge` onto a 2D field next to your robot pose.
 
@@ -403,6 +463,29 @@ if (RobotBase.isSimulation()) {
 ```
 
 `BumpInjector.apply(...)` and `applyRobotRelative(...)` are pure pose helpers for your own tests.
+
+### Simulated fuel piles (`mayhemlib.sim.FuelPileInjector`)
+
+To watch [auto unbeach](#auto-unbeach) at a desk, drop a pile of fuel on the path. The first time the
+robot drives into it, the pose is held in place (wheels spinning), the simulated Pigeon 2 reports a
+tilt, and only motion back down the slope is allowed. Once the robot has backed off, the pile is gone.
+
+```java
+if (RobotBase.isSimulation()) {
+  FuelPileInjector pile = new FuelPileInjector(
+      () -> drivetrain.getState().Pose, drivetrain::resetPose,
+      (pitch, roll) -> {
+        var imu = drivetrain.getPigeon2().getSimState();
+        imu.setPitch(Degrees.of(pitch));
+        imu.setRoll(Degrees.of(roll));
+      },
+      new Translation2d(9.0, 6.25), 0.3, 12);   // center, radius [m], tilt [deg]
+  pile.command().schedule();
+}
+```
+
+The example robot project has a `Sim/Fuel pile on Straight` dashboard toggle, and its `AutoSimTest`
+runs the Straight path through a pile with unbeach off (stays stuck) and on (backs off, finishes).
 
 ### Optional: `SleipnirBridgeRefiner`
 

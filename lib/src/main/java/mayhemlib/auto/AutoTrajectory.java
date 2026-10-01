@@ -44,6 +44,7 @@ public final class AutoTrajectory {
   private Command activeCmd;
   private boolean isActive;
   private boolean recovering;
+  private boolean unbeaching;
   private boolean onTerrain;
   private boolean intakeOut;
   private boolean hasFinished;
@@ -112,7 +113,8 @@ public final class AutoTrajectory {
       @Override
       public void initialize() {
         running = resolved();
-        runner = new TrajectoryRunner(running, f.followerConfig, f.recoveryConfig, new Listener(), f.refiner);
+        runner = new TrajectoryRunner(running, f.followerConfig, f.recoveryConfig, new Listener(), f.refiner)
+            .withUnbeach(f.unbeachConfig);
         activeCmd = this;
         isActive = true;
         time = 0;
@@ -126,7 +128,8 @@ public final class AutoTrajectory {
       @Override
       public void execute() {
         double now = Timer.getFPGATimestamp();
-        DriveCommand dc = runner.update(now, f.pose.get(), f.fieldSpeeds.get(), f.accelG.getAsDouble());
+        DriveCommand dc = runner.update(now, f.pose.get(), f.fieldSpeeds.get(), f.accelG.getAsDouble(),
+            f.pitchDegrees.getAsDouble(), f.rollDegrees.getAsDouble());
         f.output.accept(dc);
         double prev = time;
         time = runner.trajectoryTime();
@@ -136,6 +139,7 @@ public final class AutoTrajectory {
           }
         }
         recovering = runner.isRecovering();
+        unbeaching = runner.isUnbeaching();
         onTerrain = runner.onRoughTerrain();
         intakeOut = runner.intakeExtended();
         f.visionBoost.accept(runner.visionBoostActive());
@@ -165,6 +169,7 @@ public final class AutoTrajectory {
         zoneActive.clear();
         isActive = false;
         recovering = false;
+        unbeaching = false;
         onTerrain = false;
         intakeOut = false;
         activeCmd = null;
@@ -292,6 +297,15 @@ public final class AutoTrajectory {
   /** MayhemLib extra: true while bump recovery is driving a bridge back onto the path. */
   public Trigger recovering() {
     return routine.observe(() -> recovering);
+  }
+
+  /**
+   * MayhemLib extra: true while auto unbeach is driving the robot off a pile of fuel (see
+   * {@link AutoFactory#withUnbeach()}). The trajectory is paused meanwhile, so use it to, for
+   * example, stop the intake or hopper.
+   */
+  public Trigger unbeaching() {
+    return routine.observe(() -> unbeaching);
   }
 
   /** MayhemLib extra: true while the reference is on a rough-terrain zone (e.g. the bump). */
