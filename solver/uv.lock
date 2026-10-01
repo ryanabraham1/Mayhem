@@ -71,7 +71,7 @@ wheels = [
 
 [[package]]
 name = "mayhem-solver"
-version = "0.7.3"
+version = "0.7.6"
 source = { editable = "." }
 dependencies = [
     { name = "casadi" },

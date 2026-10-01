@@ -18,6 +18,7 @@ import sys
 import threading
 import traceback
 import uuid
+from functools import wraps
 from importlib import resources
 from pathlib import Path
 from typing import Callable
@@ -216,6 +217,31 @@ def _safe_name(name: str) -> str:
     return clean
 
 
+_file_lock = threading.RLock()
+
+
+def _serialized_files(fn):
+    @wraps(fn)
+    def locked(*args, **kwargs):
+        with _file_lock:
+            return fn(*args, **kwargs)
+    return locked
+
+
+def _trajectory_path(directory: Path, name: str, *, owner: str | None = None) -> Path:
+    """Never overwrite or delete a different path that sanitizes to the same filename."""
+    path = directory / (_safe_name(name) + TRAJ_EXT)
+    key = path.name.casefold()
+    for existing in directory.glob("*" + TRAJ_EXT):
+        if existing.name.casefold() != key:
+            continue
+        stored_name = json.loads(existing.read_text(encoding="utf-8")).get("name")
+        if stored_name != (name if owner is None else owner):
+            raise FileExistsError(f"Filename for {name!r} is already used by {stored_name!r}; choose another name")
+        return existing
+    return path
+
+
 class Server:
     def __init__(self, send: Callable[[dict], None]):
         self._send = send
@@ -296,43 +322,57 @@ class Server:
         (Path(dir).expanduser() / PROJECT_FILE).write_text(json.dumps(proj.dump(), indent=2), encoding="utf-8")
         return True
 
+    @_serialized_files
     def m_saveTrajectory(self, dir: str, trajectory: dict):
         traj = Trajectory.model_validate(trajectory)
-        path = Path(dir).expanduser() / (_safe_name(traj.name) + TRAJ_EXT)
+        path = _trajectory_path(Path(dir).expanduser(), traj.name)
         path.write_text(json.dumps(traj.model_dump(by_alias=True, mode="json"), indent=1), encoding="utf-8")
         return str(path)
 
+    @_serialized_files
     def m_deleteTrajectory(self, dir: str, name: str):
-        path = Path(dir).expanduser() / (_safe_name(name) + TRAJ_EXT)
+        path = _trajectory_path(Path(dir).expanduser(), name)
         if path.exists():
             path.unlink()
         return True
 
+    @_serialized_files
     def m_renameTrajectory(self, dir: str, old: str, new: str):
         d = Path(dir).expanduser()
-        src = d / (_safe_name(old) + TRAJ_EXT)
-        dst = d / (_safe_name(new) + TRAJ_EXT)
-        if dst.exists():
+        src = _trajectory_path(d, old)
+        same_file = _safe_name(old).casefold() == _safe_name(new).casefold()
+        dst = _trajectory_path(d, new, owner=old if same_file else new)
+        if dst.exists() and not same_file:
             raise FileExistsError(f"A trajectory named {new!r} already exists")
         if src.exists():
             data = json.loads(src.read_text(encoding="utf-8"))
             data["name"] = new
             dst.write_text(json.dumps(data, indent=1), encoding="utf-8")
-            src.unlink()
+            if src != dst:
+                src.unlink()
         return True
 
+    @_serialized_files
     def m_deploy(self, dir: str, project: dict, trajectories: list[dict]):
         """Copy solved trajectories into the robot project's deploy dir."""
         proj = Project.model_validate(project)
         target = Path(proj.deploy_dir).expanduser() if proj.deploy_dir else Path(dir).expanduser()
         target.mkdir(parents=True, exist_ok=True)
-        written, skipped = [], []
+        written, skipped, pending = [], [], []
+        filenames = {}
         for tj in trajectories:
             traj = Trajectory.model_validate(tj)
             if traj.output is None:
                 skipped.append(traj.name)
                 continue
-            path = target / (_safe_name(traj.name) + TRAJ_EXT)
+            path = _trajectory_path(target, traj.name)
+            key = path.name.casefold()
+            if key in filenames and filenames[key] != traj.name:
+                raise FileExistsError(f"Paths {filenames[key]!r} and {traj.name!r} use the same filename")
+            filenames[key] = traj.name
+            pending.append((path, traj))
+        # Validate the whole batch before changing any files.
+        for path, traj in pending:
             path.write_text(json.dumps(traj.model_dump(by_alias=True, mode="json"), separators=(",", ":")), encoding="utf-8")
             written.append(str(path))
         return {"dir": str(target), "written": written, "skipped": skipped}

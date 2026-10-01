@@ -14,7 +14,7 @@ vi.mock("./backend", () => ({
 }));
 
 import { backend } from "./backend";
-import { RECENTS_KEY, recentProjects, useStore } from "./store";
+import { flushSaves, RECENTS_KEY, recentProjects, useStore } from "./store";
 import { makeProject, makeTraj } from "./test/fixtures";
 
 const path = (name: string) => ({
@@ -209,6 +209,89 @@ describe("undo and redo keep files on disk in sync", () => {
     useStore.getState().redo();
     expect(useStore.getState().trajectories.A.waypoints[0].x).toBe(5);
     expect(useStore.getState().future).toHaveLength(0);
+  });
+});
+
+describe("generation stays consistent with edited inputs", () => {
+  const output = { inputHash: "original", samples: [], waypointTimes: [], splits: [], events: [],
+    recovery: { obstacles: [], roadmapNodes: [], roadmapEdges: [], mustHitTimes: [] },
+    stats: { success: true, totalTime: 1, solveSeconds: 1, iterations: 1, candidate: 0, attempts: [] } };
+  const done = () => listeners.get("solveDone")?.({name: "A", jobId: "job", success: true, output});
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(backend.call).mockImplementation((m) => Promise.resolve(m === "solve" ? {jobId: "job"} : true));
+    useStore.setState({dir: "/proj", project: makeProject({deployDir: "/deploy"}),
+      trajectories: {A: {...makeTraj("A"), output}}, order: ["A"], selectedTraj: "A",
+      solves: {}, stale: {}, past: [], future: []});
+  });
+  afterEach(async () => { await flushSaves(); vi.useRealTimers(); });
+
+  it("does not deploy old output after editing a generated path", async () => {
+    useStore.getState().updateTraj("A", t => {t.waypoints[0].x = 7;});
+    await flushSaves();
+    expect(useStore.getState().stale.A).toBe(true);
+    expect(vi.mocked(backend.call).mock.calls.some(([m]) => m === "deploy")).toBe(false);
+    expect(useStore.getState().toasts.at(-1)?.text).toContain("regenerate");
+  });
+
+  it("ignores completion after a waypoint edit during generation", async () => {
+    await useStore.getState().solve("A");
+    useStore.getState().updateTraj("A", t => {t.waypoints[0].x = 7;});
+    done();
+    expect(backend.call).toHaveBeenCalledWith("cancel", {jobId: "job"});
+    expect(useStore.getState().solves.A.status).toBe("idle");
+    expect(useStore.getState().stale.A).toBe(true);
+  });
+
+  it("cancels a pending solve response after a robot edit", async () => {
+    let reply!: (v: {jobId: string}) => void;
+    vi.mocked(backend.call).mockImplementation(m => m === "solve"
+      ? new Promise(resolve => {reply = resolve;}) : Promise.resolve(true));
+    const pending = useStore.getState().solve("A");
+    useStore.getState().updateProject(p => {p.robot.mass = 70;});
+    reply({jobId: "job"});
+    await pending;
+    done();
+    expect(backend.call).toHaveBeenCalledWith("cancel", {jobId: "job"});
+    expect(useStore.getState().stale.A).toBe(true);
+  });
+
+  it("blocks deployment if robot inputs change during an in-flight save", async () => {
+    let saved!: (v: boolean) => void;
+    vi.mocked(backend.call).mockImplementation(m => m === "saveTrajectory"
+      ? new Promise(resolve => {saved = resolve;}) : Promise.resolve(m === "solve" ? {jobId: "job"} : true));
+    await useStore.getState().solve("A");
+    done();
+    const pending = flushSaves();
+    useStore.getState().updateProject(p => {p.robot.mass = 70;});
+    saved(true);
+    await pending;
+    expect(vi.mocked(backend.call).mock.calls.some(([m]) => m === "deploy")).toBe(false);
+  });
+
+  it("still deploys a completed solve with unchanged inputs", async () => {
+    await useStore.getState().solve("A");
+    done();
+    await flushSaves();
+    expect(backend.call).toHaveBeenCalledWith("deploy", expect.objectContaining({trajectories: [useStore.getState().trajectories.A]}));
+  });
+
+  it("cancels a running path when renamed and allows generation under the new name", async () => {
+    await useStore.getState().solve("A");
+    await useStore.getState().renameTrajectory("A", "B");
+    done();
+    expect(useStore.getState().solves.B.status).toBe("idle");
+    expect(useStore.getState().stale.B).toBe(true);
+    await useStore.getState().solve("B");
+    expect(useStore.getState().solves.B.status).toBe("solving");
+  });
+
+  it("does not collide sanitized filenames when creating or renaming", async () => {
+    useStore.setState({trajectories: {"A/B": makeTraj("A/B"), C: makeTraj("C")}, order: ["A/B", "C"]});
+    expect(useStore.getState().addTrajectory("A_B")).toBe("A_B 2");
+    await useStore.getState().renameTrajectory("C", "a_b");
+    expect(useStore.getState().trajectories.C).toBeDefined();
+    expect(vi.mocked(backend.call).mock.calls.some(([m]) => m === "renameTrajectory")).toBe(false);
   });
 });
 

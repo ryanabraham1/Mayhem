@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'mayhemlib'
-version = project.findProperty('mayhemVersion') ?: '2026.4.0'
+version = project.findProperty('mayhemVersion') ?: '2026.4.1'
 
 def wpilibVersion = '2026.2.2'
 def phoenixVersion = '26.3.0'

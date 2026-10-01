@@ -23,6 +23,27 @@ import org.junit.jupiter.api.Test;
 
 class SegmentFlipTest {
   @Test
+  void zonesContinueAcrossSplitsAndFireOnRestart() {
+    MayhemTrajectory base = synthetic(FieldSymmetry.ROTATIONAL);
+    TrajectoryEvent zone = new TrajectoryEvent("intake", "intake", 0.5, 1.5,
+        TrajectoryEvent.RecoveryPolicy.FIRE_AT_JOIN, false);
+    MayhemTrajectory split = new MayhemTrajectory("split", base.samples(), List.of(zone),
+        new int[] {10}, new double[] {0, 1, 2}, base.recovery(), "", false);
+    TrajectoryEvent first = split.segment(0).events().get(0);
+    MayhemTrajectory secondSegment = split.segment(1);
+    TrajectoryEvent second = secondSegment.events().get(0);
+    assertEquals(0.5, first.t, 1e-9);
+    assertEquals(1.0, first.endT, 1e-9);
+    assertEquals(0.0, second.t, 1e-9);
+    assertEquals(0.5, second.endT, 1e-9);
+    List<TrajectoryEvent> fired = new ArrayList<>();
+    var runner = new mayhemlib.runner.TrajectoryRunner(secondSegment, new FollowerConfig(),
+        new mayhemlib.recovery.RecoveryConfig(), fired::add);
+    runner.start(0);
+    assertEquals(List.of(second), fired);
+  }
+
+  @Test
   void segmentsRebaseEventsAndMustHitTimes() {
     MayhemTrajectory t = Fixtures.load("HubCycle");
     double split = t.segment(0).totalTime();

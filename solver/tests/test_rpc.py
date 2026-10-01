@@ -3,10 +3,83 @@ import subprocess
 import sys
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
 
 from mayhem_solver.models import Constraint, PointAt, Project, Scope, Trajectory
 
 from .conftest import wp
+
+
+@pytest.mark.parametrize("first,second", [("A/B", "A_B"), ("Auto", "auto"), (".Auto.", "Auto")])
+def test_filename_collisions_preserve_existing_file(tmp_path, first, second):
+    from mayhem_solver.rpc import Server
+
+    server = Server(lambda _: None)
+    server.m_saveTrajectory(str(tmp_path), Trajectory(name=first).dump())
+    original = next(tmp_path.glob("*.mtraj")).read_bytes()
+    for operation in [lambda: server.m_saveTrajectory(str(tmp_path), Trajectory(name=second).dump()),
+                      lambda: server.m_deleteTrajectory(str(tmp_path), second)]:
+        with pytest.raises(FileExistsError, match="already used"):
+            operation()
+        assert next(tmp_path.glob("*.mtraj")).read_bytes() == original
+    # The original remains editable and deletable.
+    server.m_saveTrajectory(str(tmp_path), Trajectory(name=first, folder="Updated").dump())
+    server.m_deleteTrajectory(str(tmp_path), first)
+    assert not list(tmp_path.glob("*.mtraj"))
+
+
+def test_concurrent_colliding_saves_across_connections(tmp_path):
+    def save(name):
+        from mayhem_solver.rpc import Server
+        try:
+            Server(lambda _: None).m_saveTrajectory(str(tmp_path), Trajectory(name=name).dump())
+            return True
+        except FileExistsError:
+            return False
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(save, ["A/B", "A_B"]))
+    assert sorted(results) == [False, True]
+    assert len(list(tmp_path.glob("*.mtraj"))) == 1
+
+
+def test_rename_collision_and_same_filename_rename(tmp_path):
+    from mayhem_solver.rpc import Server
+    server = Server(lambda _: None)
+    for name in ["A/B", "C"]:
+        server.m_saveTrajectory(str(tmp_path), Trajectory(name=name).dump())
+    with pytest.raises(FileExistsError):
+        server.m_renameTrajectory(str(tmp_path), "C", "A_B")
+    assert json.loads((tmp_path / "C.mtraj").read_text())["name"] == "C"
+    server.m_renameTrajectory(str(tmp_path), "A/B", "A_B")
+    assert json.loads((tmp_path / "A_B.mtraj").read_text())["name"] == "A_B"
+
+
+def test_deploy_preflights_filename_collisions(tmp_path):
+    from mayhem_solver.models import TrajectoryOutput
+    from mayhem_solver.rpc import Server
+    output = TrajectoryOutput.model_validate({
+        "inputHash": "test", "samples": [], "waypointTimes": [], "splits": [], "events": [],
+        "recovery": {"bumper": [], "obstacles": [], "fieldLength": 16, "fieldWidth": 8,
+                     "symmetry": "rotational", "roadmapNodes": [], "roadmapEdges": [], "mustHitTimes": [],
+                     "limits": {"maxVelocity": 3, "maxAcceleration": 4,
+                                "maxAngularVelocity": 5, "maxAngularAcceleration": 6}},
+        "stats": {"success": True, "totalTime": 1, "solveSeconds": 1, "iterations": 1, "candidate": 0},
+    })
+    server = Server(lambda _: None)
+    project = Project(deploy_dir=str(tmp_path)).dump()
+    def solved(name):
+        return Trajectory(name=name, output=output).dump()
+    with pytest.raises(FileExistsError):
+        server.m_deploy(str(tmp_path), project, [solved("A/B"), solved("A_B")])
+    assert not list(tmp_path.glob("*.mtraj"))
+    server.m_deploy(str(tmp_path), project, [solved("A/B")])
+    original = (tmp_path / "A_B.mtraj").read_bytes()
+    with pytest.raises(FileExistsError):
+        server.m_deploy(str(tmp_path), project, [solved("Other"), solved("A_B")])
+    assert not (tmp_path / "Other.mtraj").exists()
+    assert (tmp_path / "A_B.mtraj").read_bytes() == original
 
 
 def test_job_forwards_infeasible_progress():

@@ -159,6 +159,9 @@ export function sameDir(a: string, b: string | null | undefined) {
 
 export const RECENTS_KEY = "mayhem.recentProjects";
 
+// Match the solver's filename sanitization, including case-insensitive filesystems.
+const trajectoryFileKey = (name: string) => name.replace(/[<>:"/\\|?*]/g, "_").trim().replace(/^\.+|\.+$/g, "").toLowerCase();
+
 export function recentProjects(): string[] {
   try {
     const list: unknown = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]");
@@ -212,9 +215,13 @@ export const useStore = create<State & Actions>()(
       const t = trajectories[name];
       if (!dir || !project || !t) return;
       const target = trimDir(project.deployDir);
-      const mirror = !!t.output && !stale[name] && !!target && !sameDir(target, dir);
+      const eligible = !!t.output && !stale[name] && !!target && !sameDir(target, dir);
       scheduleSave(`t:${dir}:${name}`, async () => {
         await backend.call("saveTrajectory", { dir, trajectory: t });
+        // Inputs can change while the save is queued or its RPC is in flight.
+        const current = get();
+        const mirror = eligible && sameDir(dir, current.dir) && current.project === project
+          && current.trajectories[name] === t && !current.stale[name];
         if (mirror) {
           try {
             await backend.call("deploy", { dir, project, trajectories: [t] });
@@ -247,12 +254,14 @@ export const useStore = create<State & Actions>()(
     };
 
     const recomputeStale = async () => {
-      const { project, trajectories } = get();
+      const { dir, project, trajectories } = get();
       if (!project) return;
       for (const [name, t] of Object.entries(trajectories)) {
         if (!t.output) continue;
         try {
           const h = await backend.call<string>("inputHash", { project, trajectory: t });
+          const current = get();
+          if (current.dir !== dir || current.project !== project || current.trajectories[name] !== t) continue;
           set((s) => {
             s.stale[name] = h !== t.output?.inputHash;
           });
@@ -299,7 +308,7 @@ export const useStore = create<State & Actions>()(
       if (!target || !cur) return;
       // Paths the snapshot doesn't have (undone adds, the new name of an undone rename) lose their files.
       const removed = cur.order.filter((n) => !target.trajectories[n]);
-      removed.forEach((n) => get().cancelSolve(n));
+      get().cancelGeneration();
       set((s) => {
         s[from].pop();
         s[to].push(cur);
@@ -315,7 +324,7 @@ export const useStore = create<State & Actions>()(
         if (dir) backend.call("deleteTrajectory", { dir, name: n }).catch(() => {});
         removeDeployed(n);
       }
-      get().order.forEach((n) => saveTraj(n));
+      get().order.forEach((n) => { markStale(n); saveTraj(n); });
       saveProject();
       void recomputeStale();
     };
@@ -516,6 +525,7 @@ export const useStore = create<State & Actions>()(
 
       updateProject(fn, opts) {
         if (!get().project) return;
+        if (opts?.affectsSolve !== false) get().cancelGeneration();
         if (opts?.history !== false) get().checkpoint();
         set((s) => {
           if (s.project) fn(s.project);
@@ -529,20 +539,23 @@ export const useStore = create<State & Actions>()(
 
       updateTraj(name, fn, opts) {
         if (!get().trajectories[name]) return;
+        get().cancelSolve(name);
         if (opts?.history !== false) get().checkpoint();
         set((s) => {
           const t = s.trajectories[name];
           if (t) fn(t);
         });
-        saveTraj(name);
         markStale(name);
+        saveTraj(name);
       },
 
       addTrajectory(name, folder) {
-        const existing = new Set(get().order);
+        const existing = new Set(get().order.map(trajectoryFileKey));
         let n = name ?? "New Path";
         let i = 2;
-        while (existing.has(n)) n = `${name ?? "New Path"} ${i++}`;
+        if (!trajectoryFileKey(n)) n = "New Path";
+        const base = n;
+        while (existing.has(trajectoryFileKey(n))) n = `${base} ${i++}`;
         get().checkpoint();
         set((s) => {
           s.trajectories[n] = newTrajectory(n);
@@ -589,6 +602,7 @@ export const useStore = create<State & Actions>()(
       },
 
       deleteTrajectory(name) {
+        get().cancelSolve(name);
         const { dir } = get();
         const saveKey = `t:${dir}:${name}`;
         cancelSave(saveKey);
@@ -606,13 +620,20 @@ export const useStore = create<State & Actions>()(
       async renameTrajectory(oldName, newName) {
         newName = newName.trim();
         if (!newName || newName === oldName) return;
-        if (get().trajectories[newName]) {
-          get().toast("error", `A path named "${newName}" already exists`);
+        if (!trajectoryFileKey(newName)) {
+          get().toast("error", "Invalid path name");
           return;
         }
+        if (get().order.some((n) => n !== oldName && trajectoryFileKey(n) === trajectoryFileKey(newName))) {
+          get().toast("error", `A path using the filename for "${newName}" already exists`);
+          return;
+        }
+        get().cancelSolve(oldName);
         const { dir } = get();
         const saveKey = `t:${dir}:${oldName}`;
+        const pendingSave = saveTimers.get(saveKey);
         cancelSave(saveKey);
+        await pendingSave?.run();
         if (dir) await backend.call("renameTrajectory", { dir, old: oldName, new: newName });
         removeDeployed(oldName);
         get().checkpoint();
@@ -621,7 +642,7 @@ export const useStore = create<State & Actions>()(
           delete s.trajectories[oldName];
           t.name = newName;
           s.trajectories[newName] = t;
-          s.stale[newName] = !!s.stale[oldName];
+          s.stale[newName] = !!t.output;
           delete s.stale[oldName];
           s.order = s.order.map((n) => (n === oldName ? newName : n));
           if (s.selectedTraj === oldName) s.selectedTraj = newName;

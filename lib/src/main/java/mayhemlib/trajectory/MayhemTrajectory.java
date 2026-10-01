@@ -202,6 +202,12 @@ public final class MayhemTrajectory {
     List<TrajectoryEvent> ev = new ArrayList<>();
     boolean last = i == splits.length;
     for (TrajectoryEvent e : events) {
+      // A zone belongs to every segment it overlaps, even if its start was in an earlier one.
+      if (e.isZone() && e.endT > e.t && e.t < t1 - 1e-9 && e.endT > t0 + 1e-9) {
+        ev.add(new TrajectoryEvent(e.name, e.command, Math.max(e.t, t0) - t0,
+            Math.min(e.endT, t1) - t0, e.policy, e.mustHit));
+        continue;
+      }
       if (e.t >= t0 - 1e-9 && (e.t < t1 - 1e-9 || (last && e.t <= t1 + 1e-9))) {
         TrajectoryEvent s = e.shifted(-t0);
         if (s.isZone() && s.endT > t1 - t0) {
