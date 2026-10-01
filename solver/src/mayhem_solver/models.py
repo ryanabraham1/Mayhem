@@ -100,6 +100,22 @@ class RobotConfig(Model):
 # ---------------------------------------------------------------------------
 
 
+class ObstacleTerrain(Model):
+    """Marks a field obstacle as rough terrain that every path drives over (e.g. the bump).
+
+    Same behavior as a per-path roughTerrain constraint: it does not slow the plan down, and the
+    time the robot center spends inside the shape is exported so MayhemLib expects the robot to
+    fall behind there. Usually the obstacle is also disabled so paths may cross it.
+    """
+
+    expected_speed: float = Field(
+        0.7, gt=0, le=1, description="Fraction of the planned speed the robot is expected to keep"
+    )
+    feedback_scale: float = Field(
+        0.3, ge=0, le=1, description="On-robot feedback strength while on the terrain (1 = normal)"
+    )
+
+
 class Obstacle(Model):
     id: str
     name: str = "Obstacle"
@@ -114,6 +130,11 @@ class Obstacle(Model):
         description="App fuel sim only: 'paths' = fuel bounces off it when enabled, 'block' = always "
                     "(e.g. a bump robots drive over), 'pass' = never (e.g. an overhead trench). "
                     "Not part of the input hash.",
+    )
+    terrain: Optional[ObstacleTerrain] = Field(
+        None,
+        description="Set to make this obstacle rough terrain on every path (see ObstacleTerrain). "
+                    "Absent = plain obstacle; omitted from the input hash then, so older files stay current.",
     )
 
 

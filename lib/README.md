@@ -323,7 +323,8 @@ intake clear of obstacles and walls, and the exported file marks that time.
 bind your deploy command to it, e.g. `traj.intakeExtended().whileTrue(intake.deploy())`. During a
 bridge it stays true if the plan has the intake out anywhere between the hit and the join.
 
-**Rough-terrain zones.** Draw a rough-terrain polygon in the app over each bump. The solver marks
+**Rough-terrain zones.** Mark each bump as rough terrain in the app's Field mode (the REBUILT preset already does, and it
+applies to every path), or draw a zone on a single path. The solver marks
 the covered trajectory time without reducing planned speed. In the zone, the runner keeps the
 planned feedforward command, softens feedback, and advances trajectory time according to the
 robot's along-track progress. It skips hit detection and replanning there and for a short grace
@@ -379,8 +380,8 @@ How it works:
 
 1. **Detect.** Tilt is the angle between the robot's up axis and vertical, from the Pigeon 2's pitch
    and roll. Tilt of at least `tiltThresholdDegrees` for `detectSeconds` counts as beached. It is
-   not checked on [rough-terrain zones](#rough-terrain-zones), where tilting is expected, so draw a
-   zone over every real bump.
+   not checked on [rough-terrain zones](#rough-terrain-zones), where tilting is expected, so mark
+   every real bump as rough terrain.
 2. **Escape.** The trajectory clock pauses. The robot drives toward a point `escapeDistance` away
    in the downhill direction (the way the robot's up axis leans, so nose-up means backward), at up
    to `escapeSpeed`, holding its heading. The point is kept `fieldMargin` inside the field walls.

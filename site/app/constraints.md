@@ -27,7 +27,12 @@ traj.intakeExtended().whileTrue(intake.deploy());
 
 ## Rough terrain
 
-Draw a rough-terrain polygon over each bump. The solver keeps its planned speed; the exported path marks the covered samples for the robot library.
+Rough terrain can come from two places, and both end up in the exported path:
+
+- **The field (recommended for bumps).** In [Field mode](/app/field), select an obstacle and turn on **Rough terrain on every path**. Every path that crosses it gets a span automatically, so it persists across all your paths. The REBUILT preset already marks its four bumps this way. Editing it marks existing paths out of date; regenerate them to refresh their spans.
+- **A single path.** Draw a rough-terrain polygon with the constraint tool for terrain that only matters to one path.
+
+The solver keeps its planned speed; the exported path marks the covered samples for the robot library. Where a field zone and a path zone overlap, the spans merge and the lower speed fraction and correction strength win. A span covers the time the robot *center* is inside the shape (plus 5 cm), so draw it over the part of the bump the robot center crosses.
 
 On the robot, MayhemLib pauses collision detection and replanning in the zone, slows the path clock to follow the robot's progress, and softens feedback. After leaving the zone, it temporarily raises the vision-trust signal. Event markers continue to fire as trajectory time advances. See [Bump recovery](/lib/recovery#rough-terrain-zones).
 

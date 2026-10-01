@@ -65,7 +65,11 @@
    "radius": 0.5,
    "margin": 0.0,
    "enabled": false,
-   "fuelCollision": "block"
+   "fuelCollision": "block",
+   "terrain": {
+    "expectedSpeed": 0.7,
+    "feedbackScale": 0.3
+   }
   },
   {
    "id": "bump-blue-r",
@@ -96,7 +100,11 @@
    "radius": 0.5,
    "margin": 0.0,
    "enabled": false,
-   "fuelCollision": "block"
+   "fuelCollision": "block",
+   "terrain": {
+    "expectedSpeed": 0.7,
+    "feedbackScale": 0.3
+   }
   },
   {
    "id": "trenchwall-blue-l",
@@ -307,7 +315,11 @@
    "radius": 0.5,
    "margin": 0.0,
    "enabled": false,
-   "fuelCollision": "block"
+   "fuelCollision": "block",
+   "terrain": {
+    "expectedSpeed": 0.7,
+    "feedbackScale": 0.3
+   }
   },
   {
    "id": "bump-red-r",
@@ -338,7 +350,11 @@
    "radius": 0.5,
    "margin": 0.0,
    "enabled": false,
-   "fuelCollision": "block"
+   "fuelCollision": "block",
+   "terrain": {
+    "expectedSpeed": 0.7,
+    "feedbackScale": 0.3
+   }
   },
   {
    "id": "trenchwall-red-l",
@@ -5645,5 +5661,5 @@
    "width": 0.05
   }
  ],
- "notes": "Geometry from the 2026 field drawings (via Choreo's field image). Bumps and the overhead trench openings are drivable for most robots, so they are disabled by default; enable the trenches if your robot is taller than 22.25 in. Edit anything to match your venue."
+ "notes": "Geometry from the 2026 field drawings (via Choreo's field image). Bumps and the overhead trench openings are drivable for most robots, so they are disabled by default (the bumps are also rough terrain on every path); enable the trenches if your robot is taller than 22.25 in. Edit anything to match your venue."
 }

@@ -50,6 +50,26 @@ export function ObstacleEditor({ o, field }: { o: Obstacle; field: Field }) {
           </div>
         )}
         <Check label="Enabled (paths must avoid it)" checked={o.enabled} onChange={(v) => set((x) => { x.enabled = v; })} />
+        <Check label="Rough terrain on every path" checked={!!o.terrain}
+          onChange={(v) => set((x) => {
+            if (v) { x.terrain = { expectedSpeed: 0.7, feedbackScale: 0.3 }; x.enabled = false; } // terrain is driven over
+            else delete x.terrain;
+          })} />
+        {o.terrain && (
+          <>
+            <div className="note">
+              Every path gets a rough-terrain span wherever the robot center crosses this shape, so you don't draw a zone per path.
+              The solver keeps its planned speed; on the robot, collision recovery pauses, the path clock follows progress, and correction softens.
+              {o.enabled && <> <b>Enabled</b> is on, so paths avoid this shape and never cross it; turn it off to drive over it.</>}
+            </div>
+            <NumberField label="Expected speed fraction" value={o.terrain.expectedSpeed} min={0.01} max={1} step={0.05}
+              hint="For estimated delay only; does not cap planned speed."
+              onChange={(v) => set((x) => { if (x.terrain) x.terrain.expectedSpeed = v; })} />
+            <NumberField label="Correction strength" value={o.terrain.feedbackScale} min={0} max={1} step={0.05}
+              hint="0 = no correction on the terrain; 1 = normal correction."
+              onChange={(v) => set((x) => { if (x.terrain) x.terrain.feedbackScale = v; })} />
+          </>
+        )}
         <SelectField<FuelCollision> label="Fuel sim" value={o.fuelCollision ?? "paths"}
           onChange={(v) => a.updateProject((p) => { const x = p.field.obstacles.find((y) => y.id === o.id); if (x) x.fuelCollision = v; }, { affectsSolve: false })}
           options={[

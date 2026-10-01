@@ -33,7 +33,7 @@ Switch to **Field** in the top bar. Every obstacle here applies to all paths.
 - **Polygon** (P): click corners; click the first corner, double-click or press Enter to finish.
 - **Circle** (C): drag from the center.
 - Select an obstacle to drag it, drag its corners, double-click an edge to add a corner, or ⇧-click a corner to remove it.
-- Checkboxes in the sidebar enable or disable obstacles. The REBUILT bumps and the overhead trench openings start disabled, since most robots drive over or under them. Enable the trenches if your robot is taller than 22.25 in.
+- Checkboxes in the sidebar enable or disable obstacles. The REBUILT bumps and the overhead trench openings start disabled, since most robots drive over or under them. The bumps are also marked **Rough terrain on every path** (see below), so every path that crosses one gets a rough-terrain span without drawing a zone. Enable the trenches if your robot is taller than 22.25 in.
 - **Copy to other alliance** (flip icon in the obstacle panel) mirrors an obstacle using the field symmetry.
 - **Clearance margin** is extra space the robot keeps from that obstacle.
 
@@ -72,7 +72,7 @@ While paths are generating, click **Cancel generation** in the top bar to stop r
 | Straight line | The robot drives on the straight line between the two waypoints (±tolerance) |
 | Point at | The robot faces a target (drag the crosshair; it starts at the hub) |
 | Keep in / Keep out region | Draw a polygon instead of picking waypoints |
-| Rough terrain | Draw a polygon over a bump. The solver keeps its planned speed; the exported path marks the covered samples for the robot library. |
+| Rough terrain | Draw a polygon over a bump on this path. To cover every path, select the obstacle in **Field** mode and turn on **Rough terrain on every path** instead (the REBUILT bumps already are). The solver keeps its planned speed; the exported path marks the covered samples for the robot library. |
 | Intake extended | The intake (Settings → Robot) is out between the two waypoints, or in a zone. The solver keeps the intake clear of obstacles and walls there as well as the bumpers. The field shows the intake on those waypoints and highlights that stretch of the path in amber. On the robot, bind your deploy command to `AutoTrajectory.intakeExtended()`. |
 
 Selecting a constraint highlights the part of the path it covers. In its panel you can change the limit, move it to other waypoints, or make a velocity limit apply **in a zone** (a drawn region) instead.

@@ -12,7 +12,8 @@ from mayhem_solver.drivetrain import build_drivetrain
 from mayhem_solver.guess import Trap
 from mayhem_solver.models import (Constraint, KeepOut, Marker, MaxAcceleration, MaxAngularVelocity, MaxVelocity, Obstacle,
                                   PointAt, Project, RoughTerrain, Scope, StraightLine, Tolerance, Trajectory)
-from mayhem_solver.pipeline import Solver, make_world, route_independent, solve
+from mayhem_solver.models import ObstacleTerrain
+from mayhem_solver.pipeline import Solver, input_hash, make_world, route_independent, solve
 
 from .conftest import wp
 
@@ -284,6 +285,88 @@ def test_rough_terrain_keeps_speed_and_exports_spans(project):
     assert x_at(span.t) > 5.0 and x_at(span.end_t) < 7.0
     assert span.feedback_scale == 0.25 and span.expected_speed == 0.6
     assert span.expected_delay == pytest.approx((span.end_t - span.t) * (1 / 0.6 - 1))
+
+
+BUMP = [(5.5, 3), (6.5, 3), (6.5, 5), (5.5, 5)]
+
+
+def bump_obstacle(**terrain):
+    """A field bump: drivable (disabled obstacle) and marked as rough terrain."""
+    return Obstacle(id="bump", name="Bump", points=BUMP, enabled=False, terrain=ObstacleTerrain(**terrain))
+
+
+def test_field_terrain_exports_the_same_span_as_a_path_zone(project):
+    """Rough terrain set on a field obstacle applies to every path with no constraint on it."""
+    wps = [wp(0, 2, 4, stop=True), wp(1, 10, 4, stop=True)]
+    by_constraint = solve(project, Trajectory(name="c", waypoints=wps, constraints=[
+        Constraint(id="bump", scope=Scope(kind="zone", region=BUMP),
+                   data=RoughTerrain(expected_speed=0.6, feedback_scale=0.25))]), parallel=False)
+    project.field.obstacles = [bump_obstacle(expected_speed=0.6, feedback_scale=0.25)]
+    plain = Trajectory(name="p", waypoints=wps)
+    by_field = solve(project, plain, parallel=False)
+    other = solve(project, Trajectory(name="q", waypoints=[wp(0, 2, 4, stop=True), wp(1, 9, 4, stop=True)]),
+                  parallel=False)
+    assert by_constraint.success and by_field.success and other.success
+    assert plain.constraints == [], "no per-path constraint needed"
+    assert len(by_field.output.terrain) == 1
+    f, c = by_field.output.terrain[0], by_constraint.output.terrain[0]
+    assert (f.t, f.end_t) == pytest.approx((c.t, c.end_t), abs=0.02)
+    assert (f.expected_speed, f.feedback_scale) == (0.6, 0.25)
+    assert len(other.output.terrain) == 1, "a second path over the same bump gets it too"
+    # a plan that never touches the bump has no span
+    away = solve(project, Trajectory(name="a", waypoints=[wp(0, 2, 7, stop=True), wp(1, 10, 7, stop=True)]),
+                 parallel=False)
+    assert away.success and away.output.terrain == []
+
+
+def test_field_terrain_is_a_drivable_disabled_obstacle_but_not_when_enabled(project):
+    """Disabled = paths cross it (the bump); enabled = paths avoid it, so no span."""
+    wps = [wp(0, 2, 4, stop=True), wp(1, 10, 4, stop=True)]
+    o = bump_obstacle()
+    project.field.obstacles = [o]
+    assert len(solve(project, Trajectory(name="d", waypoints=wps), parallel=False).output.terrain) == 1
+    o.enabled = True
+    r = solve(project, Trajectory(name="e", waypoints=wps), parallel=False)
+    assert r.success and r.output.terrain == []
+
+
+def test_overlapping_field_and_path_terrain_merge_into_the_cautious_span(project):
+    wps = [wp(0, 2, 4, stop=True), wp(1, 10, 4, stop=True)]
+    project.field.obstacles = [bump_obstacle(expected_speed=0.8, feedback_scale=0.5)]
+    t = Trajectory(name="m", waypoints=wps, constraints=[
+        Constraint(id="z", scope=Scope(kind="zone", region=[(6.0, 3), (7.0, 3), (7.0, 5), (6.0, 5)]),
+                   data=RoughTerrain(expected_speed=0.5, feedback_scale=0.1))])
+    r = solve(project, t, parallel=False)
+    assert r.success and len(r.output.terrain) == 1
+    span = r.output.terrain[0]
+    assert (span.expected_speed, span.feedback_scale) == (0.5, 0.1)
+    assert span.expected_delay == pytest.approx((span.end_t - span.t) * (1 / 0.5 - 1))
+
+
+def test_terrain_on_obstacles_only_changes_the_hash_when_set(project):
+    """Old files have no terrain: their hashes must not change. Setting or editing it makes paths stale."""
+    wps = [wp(0, 2, 4, stop=True), wp(1, 10, 4, stop=True)]
+    t = Trajectory(name="h", waypoints=wps)
+    project.field.obstacles = [Obstacle(id="o", name="O", points=BUMP, enabled=False)]
+    # the hash as it was computed before obstacles could carry terrain
+    import hashlib
+    legacy = hashlib.sha256(json.dumps({
+        "robot": {k: v for k, v in project.robot.dump().items() if k != "intake"},
+        "field": project.field.model_dump(by_alias=True, mode="json",
+                                          exclude={"obstacles": {"__all__": {"fuel_collision", "terrain"}}}),
+        "traj": t.model_dump(by_alias=True, mode="json",
+                             exclude={"output": True, "folder": True, "waypoints": {"__all__": {"pose_ref"}}}),
+    }, sort_keys=True).encode()).hexdigest()[:16]
+    plain = input_hash(project, t)
+    assert plain == legacy
+    project.field.obstacles[0].terrain = ObstacleTerrain()
+    with_terrain = input_hash(project, t)
+    assert with_terrain != plain
+    project.field.obstacles[0].terrain = ObstacleTerrain(expected_speed=0.5)
+    edited = input_hash(project, t)
+    assert edited != with_terrain
+    project.field.obstacles[0].fuel_collision = "block"  # fuel sim only
+    assert input_hash(project, t) == edited
 
 
 def _direct_solve(project, t):

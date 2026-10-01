@@ -790,12 +790,47 @@
           ],
           "title": "Fuelcollision",
           "type": "string"
+        },
+        "terrain": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObstacleTerrain"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set to make this obstacle rough terrain on every path (see ObstacleTerrain). Absent = plain obstacle; omitted from the input hash then, so older files stay current."
         }
       },
       "required": [
         "id"
       ],
       "title": "Obstacle",
+      "type": "object"
+    },
+    "ObstacleTerrain": {
+      "description": "Marks a field obstacle as rough terrain that every path drives over (e.g. the bump).\n\nSame behavior as a per-path roughTerrain constraint: it does not slow the plan down, and the\ntime the robot center spends inside the shape is exported so MayhemLib expects the robot to\nfall behind there. Usually the obstacle is also disabled so paths may cross it.",
+      "properties": {
+        "expectedSpeed": {
+          "default": 0.7,
+          "description": "Fraction of the planned speed the robot is expected to keep",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Expectedspeed",
+          "type": "number"
+        },
+        "feedbackScale": {
+          "default": 0.3,
+          "description": "On-robot feedback strength while on the terrain (1 = normal)",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Feedbackscale",
+          "type": "number"
+        }
+      },
+      "title": "ObstacleTerrain",
       "type": "object"
     },
     "PointAt": {

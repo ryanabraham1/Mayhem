@@ -818,12 +818,15 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
             const interactive = mode === "field";
             // with the fuel sim on, fuel-only blockers (e.g. bumps) get an amber outline
             const fuelOnly = fuelOn && !o.enabled && blocksFuel(o);
+            // rough terrain drawn like a path's bump zone: amber, dashed, lightly filled
+            const rough = !!o.terrain && !o.enabled;
             return (
               <g key={o.id} data-h={interactive ? `ob:${o.id}` : undefined} style={{ cursor: interactive && tool === "select" ? "move" : undefined }}>
-                <polygon points={pts(p)} fill={o.enabled ? "url(#hatch)" : "none"}
-                  stroke={sel || o.enabled ? "var(--accent)" : fuelOnly ? "var(--amber)" : "var(--faint)"}
-                  strokeOpacity={o.enabled || sel || fuelOnly ? 0.9 : 0.6} strokeWidth={sel ? 2.5 : fuelOnly ? 1.6 : 1.2}
-                  strokeDasharray={o.enabled ? undefined : "4 4"} vectorEffect="non-scaling-stroke" />
+                <polygon points={pts(p)} fill={o.enabled ? "url(#hatch)" : rough ? "var(--amber)" : "none"}
+                  fillOpacity={rough ? 0.08 : undefined}
+                  stroke={sel || o.enabled ? "var(--accent)" : rough || fuelOnly ? "var(--amber)" : "var(--faint)"}
+                  strokeOpacity={o.enabled || sel || rough || fuelOnly ? 0.9 : 0.6} strokeWidth={sel ? 2.5 : rough || fuelOnly ? 1.6 : 1.2}
+                  strokeDasharray={o.enabled ? undefined : rough ? "6 4" : "4 4"} vectorEffect="non-scaling-stroke" />
                 {mode === "field" && sel && o.kind === "polygon" && o.points.map(([x, y], i) => (
                   <circle key={i} data-h={`vx:${o.id}:${i}`} cx={x} cy={y} r={hr} fill="var(--panel)" stroke="var(--accent)" strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ cursor: "grab" }} />
                 ))}

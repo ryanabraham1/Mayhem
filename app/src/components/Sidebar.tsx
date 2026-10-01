@@ -416,7 +416,7 @@ function ObstacleSection() {
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => a.updateProject((p) => { const x = p.field.obstacles.find((y) => y.id === o.id); if (x) x.enabled = e.target.checked; })} />
           <span className="name">{o.name}</span>
-          <span className="meta">{o.kind === "circle" ? "circle" : `${o.points.length} pts`}</span>
+          <span className="meta">{o.terrain ? "rough · " : ""}{o.kind === "circle" ? "circle" : `${o.points.length} pts`}</span>
         </div>
       ))}
     </div>

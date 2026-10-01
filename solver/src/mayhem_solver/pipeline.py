@@ -32,6 +32,7 @@ from .drivetrain import Drivetrain, build_drivetrain
 from .guess import Solution, build_guess, dense, resample
 from .models import (
     EventOut,
+    Field_,
     IntakeExtended,
     IntakeSpan,
     Issue,
@@ -89,8 +90,10 @@ def input_hash(project: Project, traj: Trajectory) -> str:
     payload = {
         "robot": robot,
         # fuel_collision only affects the app's fuel sim, so it never makes a path stale.
-        "field": project.field.model_dump(by_alias=True, mode="json",
-                                          exclude={"obstacles": {"__all__": {"fuel_collision"}}}),
+        # Obstacles without terrain leave `terrain` out too, so files from before it existed keep their hashes.
+        "field": project.field.model_dump(by_alias=True, mode="json", exclude={"obstacles": {
+            i: ({"fuel_collision"} if o.terrain else {"fuel_collision", "terrain"})
+            for i, o in enumerate(project.field.obstacles)}}),
         # Pose refs are hashed through their resolved values: moving a pose variable marks the
         # paths that use it stale, and files without refs keep their old hashes.
         "traj": traj.model_dump(by_alias=True, mode="json",
@@ -1013,26 +1016,26 @@ def build_output(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.
 
     recovery = build_recovery(project, traj, dt, world, wtimes, events, T)
     return TrajectoryOutput(input_hash=input_hash(project, traj), samples=samples, waypoint_times=wtimes,
-                            splits=splits, events=events, terrain=terrain_spans(traj, sol),
+                            splits=splits, events=events, terrain=terrain_spans(traj, sol, project.field),
                             intake=intake_spans(traj, dt, sol), recovery=recovery, stats=stats)
 
 
-def terrain_spans(traj: Trajectory, sol: Solution) -> list[TerrainSpan]:
-    """Time spans of the solved trajectory covered by rough-terrain constraints.
+def terrain_spans(traj: Trajectory, sol: Solution, fld: Optional[Field_] = None) -> list[TerrainSpan]:
+    """Time spans of the solved trajectory over rough terrain.
 
-    Each run of consecutive covered samples becomes one span; a span is widened by half a sample
-    on each side so a zone the robot only clips still covers the time it is on the terrain.
+    Terrain comes from the path's own roughTerrain constraints and from the field's obstacles that
+    have `terrain` set (which apply to every path). Each run of consecutive covered samples becomes
+    one span; a span is widened by half a sample on each side so a zone the robot only clips still
+    covers the time it is on the terrain. Overlapping spans are merged, keeping the most cautious
+    speed and correction.
     """
     t = sol.times()
     T = float(t[-1])
     spans: list[TerrainSpan] = []
-    for con in traj.constraints:
-        if not con.enabled or not isinstance(con.data, RoughTerrain):
-            continue
-        d = con.data
-        ks = sorted(set(scope_samples(con.scope, sol.Ns, sol)))
+
+    def add(ks, d) -> None:
         runs: list[list[int]] = []
-        for k in ks:
+        for k in sorted(set(ks)):
             if runs and k == runs[-1][-1] + 1:
                 runs[-1].append(k)
             else:
@@ -1047,8 +1050,31 @@ def terrain_spans(traj: Trajectory, sol: Solution) -> list[TerrainSpan]:
             spans.append(TerrainSpan(t=t0, end_t=t1, expected_speed=d.expected_speed,
                                      feedback_scale=d.feedback_scale,
                                      expected_delay=(t1 - t0) * (1 / d.expected_speed - 1)))
-    spans.sort(key=lambda s: s.t)
-    return spans
+
+    for con in traj.constraints:
+        if con.enabled and isinstance(con.data, RoughTerrain):
+            add(scope_samples(con.scope, sol.Ns, sol), con.data)
+    for o in (fld.obstacles if fld else []):
+        poly = geo.obstacle_polygon(o) if o.terrain else None
+        if poly is not None:
+            # same rule as a zone constraint: the robot center within 5 cm of the shape
+            add(np.where(shapely.contains_xy(poly.buffer(0.05), sol.x, sol.y))[0], o.terrain)
+    return merge_terrain_spans(spans)
+
+
+def merge_terrain_spans(spans: list[TerrainSpan]) -> list[TerrainSpan]:
+    """Sorted spans with overlapping ones merged (the lowest speed and correction win)."""
+    out: list[TerrainSpan] = []
+    for s in sorted(spans, key=lambda s: s.t):
+        if out and s.t <= out[-1].end_t:
+            p = out[-1]
+            p.end_t = max(p.end_t, s.end_t)
+            p.expected_speed = min(p.expected_speed, s.expected_speed)
+            p.feedback_scale = min(p.feedback_scale, s.feedback_scale)
+            p.expected_delay = (p.end_t - p.t) * (1 / p.expected_speed - 1)
+        else:
+            out.append(s.model_copy())
+    return out
 
 
 def intake_spans(traj: Trajectory, dt: Drivetrain, sol: Solution) -> list[IntakeSpan]:

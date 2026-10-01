@@ -102,6 +102,30 @@ describe("App", () => {
     expect(useStore.getState().tool).toBe("polygon");
   });
 
+  it("marks a field obstacle as rough terrain for every path", () => {
+    openProject();
+    render(<App />);
+    fireEvent.click(screen.getByText("Field"));
+    fireEvent.click(screen.getByText("Hub"));
+    const obstacle = () => useStore.getState().project!.field.obstacles[0];
+    expect(screen.queryByText("Expected speed fraction")).toBeNull();
+    expect(obstacle().terrain).toBeUndefined();
+
+    fireEvent.click(screen.getByLabelText("Rough terrain on every path"));
+    // terrain is driven over, so paths stop avoiding the shape
+    expect(obstacle().terrain).toEqual({ expectedSpeed: 0.7, feedbackScale: 0.3 });
+    expect(obstacle().enabled).toBe(false);
+    expect(screen.getByText("Expected speed fraction")).toBeTruthy();
+    expect(screen.getByText("Correction strength")).toBeTruthy();
+    expect(screen.getByText("rough · circle")).toBeTruthy();
+    // editing it marks existing paths out of date, like any field change
+    expect(useStore.getState().past.length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByLabelText("Rough terrain on every path"));
+    expect(obstacle().terrain).toBeUndefined();
+    expect(screen.queryByText("Expected speed fraction")).toBeNull();
+  });
+
   it("lists generation issues and jumps to the waypoint when one is clicked", () => {
     openProject();
     useStore.setState({ solves: { Auto: { status: "failed", issues: [{ severity: "error", message: "Hits the hub", waypoint: 1 }] } } });

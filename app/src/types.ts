@@ -22,6 +22,8 @@ export interface Obstacle {
   margin: number; enabled: boolean;
   /** fuel sim only; absent in older files (= "paths") */
   fuelCollision?: FuelCollision;
+  /** rough terrain on every path (e.g. a bump); absent = plain obstacle */
+  terrain?: { expectedSpeed: number; feedbackScale: number } | null;
 }
 export type DecorationStyle =
   | "blueZone" | "redZone" | "tape" | "blueTape" | "redTape" | "fuel" | "structure" | "blue" | "red";

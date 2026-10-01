@@ -47,7 +47,7 @@ During a bridge it stays true if the plan has the intake out anywhere between th
 
 ## Rough-terrain zones
 
-Draw a [rough-terrain polygon](/app/constraints#rough-terrain) in the app over each bump. The solver marks the covered trajectory time without reducing planned speed. In the zone, the runner keeps the planned feedforward command, softens feedback, and advances trajectory time according to the robot's along-track progress. It skips hit detection and replanning there and for a short grace period after exit.
+Mark each bump as [rough terrain](/app/constraints#rough-terrain) in the app's Field mode (the REBUILT preset already does, and it applies to every path), or draw a zone on a single path. The solver marks the covered trajectory time without reducing planned speed. In the zone, the runner keeps the planned feedforward command, softens feedback, and advances trajectory time according to the robot's along-track progress. It skips hit detection and replanning there and for a short grace period after exit.
 
 `withVisionBoost` rises after the zone so the pose estimator can correct drift. Markers remain attached to trajectory time. `AutoTrajectory.onRoughTerrain()` exposes the active zone as a trigger, and `/Mayhem/onRoughTerrain` reports it through [telemetry](/lib/telemetry).
 
@@ -66,8 +66,8 @@ How it works:
 
 1. **Detect.** Tilt is the angle between the robot's up axis and vertical, from the Pigeon 2's pitch
    and roll. Tilt of at least `tiltThresholdDegrees` for `detectSeconds` counts as beached. It is
-   not checked on [rough-terrain zones](#rough-terrain-zones), where tilting is expected, so draw a
-   zone over every real bump.
+   not checked on [rough-terrain zones](#rough-terrain-zones), where tilting is expected, so mark
+   every real bump as rough terrain.
 2. **Escape.** The trajectory clock pauses. The robot drives toward a point `escapeDistance` away
    in the downhill direction (the way the robot's up axis leans, so nose-up means backward), at up
    to `escapeSpeed`, holding its heading. The point is kept `fieldMargin` inside the field walls.
