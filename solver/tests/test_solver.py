@@ -91,14 +91,21 @@ def test_infeasible_probe_streams_json_issues_before_return(project):
                      Constraint(id="south", scope=Scope(kind="range", **{"from": 0, "to": 1}),
                                 data=PointAt(x=8.5, y=-3, tolerance=0.05))]
     events = []
-    r = solve(project, t, progress=lambda e: events.append((time.monotonic(), e)), parallel=False)
-    finished = time.monotonic()
+    returned = False
+
+    def on_progress(event):
+        # Windows' monotonic clock can give adjacent callbacks the same timestamp.
+        # Check actual call order rather than requiring a measurable time gap.
+        assert not returned
+        events.append(event)
+
+    r = solve(project, t, progress=on_progress, parallel=False)
+    returned = True
     assert not r.success
-    warnings = [(when, e) for when, e in events if e["type"] == "infeasible"]
-    assert warnings and warnings[0][0] < finished
-    assert warnings[0][1]["issues"]
-    json.dumps(warnings[0][1], allow_nan=False)
-    assert not warnings[0][1]["routeIndependent"]
+    warnings = [e for e in events if e["type"] == "infeasible"]
+    assert warnings and warnings[0]["issues"]
+    json.dumps(warnings[0], allow_nan=False)
+    assert not warnings[0]["routeIndependent"]
 
 
 def test_route_independence_respects_scope_and_position(project):
