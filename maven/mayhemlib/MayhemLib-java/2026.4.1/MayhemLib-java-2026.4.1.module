@@ -1,0 +1,100 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "mayhemlib",
+    "module": "MayhemLib-java",
+    "version": "2026.4.1",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "9.7.1"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 17,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "MayhemLib-java-2026.4.1.jar",
+          "url": "MayhemLib-java-2026.4.1.jar",
+          "size": 88525,
+          "sha512": "d9ef230901f7c46170e4287444e224e323963400ee418dbbb44d10c9eb741eb443868fbb961034ddedbc78b3cf39950a4384dd887919ee42d31b39677a3a0dfa",
+          "sha256": "7cc68209ef18a521ed6701c3d3c7f06832aefe8f7fc73d9feab9d1e563d6c872",
+          "sha1": "e664c28a40912c4b89cd2d719c70cb2347eaf926",
+          "md5": "b7ce88ed48791a195552f254fa2a40c2"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 17,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "MayhemLib-java-2026.4.1.jar",
+          "url": "MayhemLib-java-2026.4.1.jar",
+          "size": 88525,
+          "sha512": "d9ef230901f7c46170e4287444e224e323963400ee418dbbb44d10c9eb741eb443868fbb961034ddedbc78b3cf39950a4384dd887919ee42d31b39677a3a0dfa",
+          "sha256": "7cc68209ef18a521ed6701c3d3c7f06832aefe8f7fc73d9feab9d1e563d6c872",
+          "sha1": "e664c28a40912c4b89cd2d719c70cb2347eaf926",
+          "md5": "b7ce88ed48791a195552f254fa2a40c2"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "MayhemLib-java-2026.4.1-sources.jar",
+          "url": "MayhemLib-java-2026.4.1-sources.jar",
+          "size": 47490,
+          "sha512": "fa90e2b05ca71bedc6c288180c58a7aaac28320138f991560474666e2c48989cd0663733299693b3826356379d365cf38a2dd8d3e079a17409c23a0356b1623c",
+          "sha256": "5e628818926bf5cc650952b176eb08f954e8c6a91726fe2ef2efd67cad04ebc7",
+          "sha1": "9cfb764f9dc8b1b55b204babeb5828622a14791a",
+          "md5": "187aa562771883f7d2a2dfa5e058734f"
+        }
+      ]
+    },
+    {
+      "name": "javadocElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "javadoc",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "MayhemLib-java-2026.4.1-javadoc.jar",
+          "url": "MayhemLib-java-2026.4.1-javadoc.jar",
+          "size": 240662,
+          "sha512": "28db8f2993f20c8b0909025a9254b423097d9b9c763f3204ab40e89c13227e4fc27d59bef4b3a3a9ea207a95d5da1119eb966cc6a48f7125ff009fd980ba5316",
+          "sha256": "fbda423a32b608106841d74b0143307226b1b5bfd840403c817c26dc20813d6a",
+          "sha1": "822145241d73d15f72ca14bb08b5914a408b2385",
+          "md5": "503793eacb1451c5a4d9ce5efd5cd73b"
+        }
+      ]
+    }
+  ]
+}
