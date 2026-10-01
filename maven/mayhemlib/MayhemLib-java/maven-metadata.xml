@@ -3,11 +3,11 @@
   <groupId>mayhemlib</groupId>
   <artifactId>MayhemLib-java</artifactId>
   <versioning>
-    <latest>2026.3.0</latest>
-    <release>2026.3.0</release>
+    <latest>2026.4.0</latest>
+    <release>2026.4.0</release>
     <versions>
-      <version>2026.3.0</version>
+      <version>2026.4.0</version>
     </versions>
-    <lastUpdated>20261001152740</lastUpdated>
+    <lastUpdated>20261001160531</lastUpdated>
   </versioning>
 </metadata>
