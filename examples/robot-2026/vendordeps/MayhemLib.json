@@ -5,9 +5,9 @@
     "frcYear": "2026",
     "uuid": "e3b1f4c2-6d2a-4c55-9a3e-6d6179686d31",
     "mavenUrls": [
-        
+        "https://ryanabraham1.github.io/Mayhem/maven/"
     ],
-    "jsonUrl": "",
+    "jsonUrl": "https://ryanabraham1.github.io/Mayhem/MayhemLib.json",
     "javaDependencies": [
         {
             "groupId": "mayhemlib",

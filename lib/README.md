@@ -18,41 +18,51 @@ field elements.
 
 ## Installation
 
-### Option A: install into a robot project on this machine (recommended)
+MayhemLib is hosted as a normal vendordep, so you install it the same way as Phoenix 6 or
+PathPlanner.
+
+### Option A: online install (recommended)
+
+In VS Code with the WPILib extension, open the command palette (Ctrl/Cmd+Shift+P), run
+**WPILib: Manage Vendor Libraries**, choose **Install new libraries (online)**, and paste:
+
+```
+https://ryanabraham1.github.io/Mayhem/MayhemLib.json
+```
+
+That writes `vendordeps/MayhemLib.json` into your project. The first Gradle build then downloads
+the library from the hosted maven repository, so it works on every machine with no extra setup.
+Commit the JSON, and teammates and CI get it with the repo.
+
+Without VS Code, download the same file into your project instead:
+
+```bash
+curl -L -o vendordeps/MayhemLib.json https://ryanabraham1.github.io/Mayhem/MayhemLib.json
+```
+
+To update, run **Manage Vendor Libraries**, then **Check for updates (online)**. WPILib compares
+the version in your `vendordeps/MayhemLib.json` with the one hosted at that URL and offers the new one.
+
+Also install the other vendordeps you need (see the table below).
+
+### Option B: offline (from a release)
+
+Download `MayhemLib-maven.zip` and `MayhemLib.json` from the
+[release](https://github.com/ryanabraham1/Mayhem/releases/latest). Unzip the zip into
+`~/wpilib/2026/maven` (Windows: `C:\Users\Public\wpilib\2026\maven`), which GradleRIO always
+searches, and copy `MayhemLib.json` into your project's `vendordeps/`. Every machine that builds
+the robot code needs the unzipped artifact.
+
+### Option C: from a checkout (library development)
 
 ```bash
 cd lib
 ./gradlew installVendordep -ProbotProject=/path/to/your/robot/project
 ```
 
-This command does two things:
-
-1. It publishes the jar, sources, and javadoc to the WPILib install's maven directory,
-   `~/wpilib/2026/maven` (on Windows, `C:\Users\Public\wpilib\2026\maven`). GradleRIO always
-   searches that directory, so you don't need to add a repository.
-2. It writes `vendordeps/MayhemLib.json` into your robot project.
-
-Run it again after you update MayhemLib. Every machine that builds robot code needs the artifact in
-that maven directory, so run the command on each machine or use option B.
-
-To publish without touching a robot project, leave off `-ProbotProject`. To change the version,
-add `-PmayhemVersion=2026.3.0`.
-
-### Option B: share a maven repository
-
-```bash
-cd lib
-./gradlew publishJavaPublicationToLocalRepository            # writes build/repos/releases/
-./gradlew vendordepJson -PmavenUrl=https://example.org/maven/ # writes build/vendordeps/MayhemLib.json
-```
-
-You have two ways to share the result:
-
-- Copy `build/repos/releases/mayhemlib/` into `~/wpilib/2026/maven/` (Windows:
-  `C:\Users\Public\wpilib\2026\maven\`) on every machine.
-- Host `build/repos/releases/` somewhere (GitHub Pages works), then commit the generated
-  `MayhemLib.json`. Its `mavenUrls` points at the hosted repository, so GradleRIO downloads the
-  library the way it does for any other vendordep.
+This publishes the jar to `~/wpilib/2026/maven` and writes `vendordeps/MayhemLib.json` into your
+robot project. Leave off `-ProbotProject` to only publish. To try a different version, add
+`-PmayhemVersion=2026.3.1`. Run it again after each change to the library.
 
 ### Robot project requirements
 
@@ -479,9 +489,9 @@ Tune in this order:
 | --- | --- |
 | `Could not read trajectory .../deploy/mayhem/X.mtraj` | The file isn't in `src/main/deploy/mayhem/`, or the name's case differs (the roboRIO file system is case sensitive). In simulation and tests the deploy directory is `<project>/src/main/deploy`. |
 | `Trajectory 'X' has not been generated yet` | The file has inputs but no solved output. Generate it in the app; saving and deploy-folder copying happen automatically. |
-| `uses format N but this MayhemLib supports up to M` | The app is newer than the library. Update MayhemLib and re-run `installVendordep`. |
+| `uses format N but this MayhemLib supports up to M` | The app is newer than the library. Update MayhemLib (**Manage Vendor Libraries**, then **Check for updates (online)**). |
 | `Trajectory has no field data to flip with` | The file has no recovery payload. Re-export it from a current app version. |
-| Gradle: `Could not resolve mayhemlib:MayhemLib-java` | This machine hasn't run `installVendordep`, or `MayhemLib.json` has no `mavenUrls` for your hosted repository. |
+| Gradle: `Could not resolve mayhemlib:MayhemLib-java` | The machine is offline on first build, or `vendordeps/MayhemLib.json` is an old or hand-edited copy (no `mavenUrls`). Reinstall it with Option A, or use Option B offline. |
 | `NoClassDefFoundError: com/ctre/phoenix6/...` | You use `CtreSwerve` without the Phoenix 6 vendordep. |
 | `NoClassDefFoundError: org/wpilib/math/...` | You use `SleipnirBridgeRefiner` without the SleipnirJava vendordep. |
 | Robot drives the wrong way or mirrored on red | The pose isn't blue-origin, you flipped the path yourself as well, or a `withAllianceFlip` override is wrong. Check `/Mayhem/reference` against the robot pose in AdvantageScope. |

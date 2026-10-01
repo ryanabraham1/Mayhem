@@ -177,8 +177,10 @@ manual dispatch with an existing tag:
    - macOS x64 (`macos-15-intel`, since GitHub retired `macos-13`): `.app` + `.dmg`
    - Linux x64 (`ubuntu-22.04`, for older glibc): `.AppImage` + `.deb`
    - Windows x64 (`windows-latest`): NSIS `-setup.exe`
-3. `mayhemlib` runs `./gradlew build vendordepJson publishJavaPublicationToLocalRepository`
-   and attaches `MayhemLib-maven.zip` and `MayhemLib.json`.
+3. `mayhemlib` runs `./gradlew build vendordepJson publishJavaPublicationToLocalRepository`,
+   attaches `MayhemLib-maven.zip` and `MayhemLib.json` (for offline installs), and, unless the tag is
+   an `-rc`, hosts the maven repo and `MayhemLib.json` on GitHub Pages
+   (`scripts/publish-pages.sh`; see "Hosting MayhemLib" below).
 4. `publish` checks that the installers and MayhemLib files are present, writes the
    auto-update manifest `latest.json` from the uploaded `.sig` files, then publishes the
    release. If a build fails, the release stays a draft so incomplete downloads are not shown
@@ -240,9 +242,30 @@ pointing at its `Mayhem.app.tar.gz` + `.sig`. Then build an "old" version with
 `--config '{"version":"0.0.1","plugins":{"updater":{"endpoints":["http://127.0.0.1:8799/latest.json"],"dangerousInsecureTransportProtocol":true}}}'`
 and launch it.
 
-## MayhemLib from a release
+## Hosting MayhemLib
 
-To use MayhemLib from a release, unzip `MayhemLib-maven.zip` into `~/wpilib/2026/maven` (Windows:
-`C:\Users\Public\wpilib\2026\maven`) and copy
-`MayhemLib.json` into the robot project's `vendordeps/`. Or run
-`cd lib && ./gradlew installVendordep -ProbotProject=/path/to/robot` from a checkout.
+Users install MayhemLib with **Install new libraries (online)** and
+`https://ryanabraham1.github.io/Mayhem/MayhemLib.json`. That URL, and the maven repo the JSON points
+at (`https://ryanabraham1.github.io/Mayhem/maven/`), are served by GitHub Pages from the `gh-pages`
+branch. The release workflow's `mayhemlib` job pushes to that branch with
+`scripts/publish-pages.sh`; nobody edits the branch by hand.
+
+**One-time setup (repo owner).** The branch doesn't exist until the first non-rc release publishes
+it. After that run finishes, open the repo's Settings, Pages, set Source to "Deploy from a branch",
+branch `gh-pages`, folder `/ (root)`. Then check that
+`https://ryanabraham1.github.io/Mayhem/MayhemLib.json` loads.
+
+**Versions.** The version is `version` in `lib/build.gradle` (override with `-PmayhemVersion`). A
+published version is never overwritten, because Gradle caches artifacts by version and an in-place
+change would leave users with stale jars. If a release's version is already hosted, the script logs a
+notice and leaves the branch alone. So when the library changes, bump `version` in `lib/build.gradle`
+before tagging; app-only releases can leave it. WPILib's "Check for updates" offers the new version to
+users from the JSON at `jsonUrl`.
+
+**Forks.** Pass `-PpagesUrl=https://<owner>.github.io/<repo>` to `vendordepJson` to bake a
+different host into the generated JSON (and update the URLs in the workflow's release notes).
+
+**Offline.** The release also carries `MayhemLib-maven.zip` (unzip into `~/wpilib/2026/maven`) and
+`MayhemLib.json` for machines without internet. From a checkout,
+`cd lib && ./gradlew installVendordep -ProbotProject=/path/to/robot` publishes into that same
+directory and writes the JSON, which is handy while developing the library.

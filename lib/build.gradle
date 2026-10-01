@@ -85,11 +85,17 @@ publishing {
 
 def vendordepFile = layout.buildDirectory.file('vendordeps/MayhemLib.json')
 
+// Where the release workflow hosts the maven repo and the vendordep JSON (GitHub Pages, served from
+// the gh-pages branch; see scripts/publish-pages.sh). Override with -PpagesUrl=... for a fork.
+def pagesUrl = (project.findProperty('pagesUrl') ?: 'https://ryanabraham1.github.io/Mayhem').toString().replaceAll('/+$', '')
+
 tasks.register('vendordepJson') {
-    description = 'Generates the MayhemLib vendordep JSON'
-    def mavenUrl = project.findProperty('mavenUrl') ?: ''
+    description = 'Generates the MayhemLib vendordep JSON (hosted maven + jsonUrl by default)'
+    def mavenUrl = (project.findProperty('mavenUrl') ?: "${pagesUrl}/maven/").toString()
+    def jsonUrl = (project.findProperty('jsonUrl') ?: "${pagesUrl}/MayhemLib.json").toString()
     inputs.property('version', version)
     inputs.property('mavenUrl', mavenUrl)
+    inputs.property('jsonUrl', jsonUrl)
     outputs.file(vendordepFile)
     doLast {
         def json = groovy.json.JsonOutput.toJson([
@@ -98,8 +104,8 @@ tasks.register('vendordepJson') {
             version         : version,
             frcYear         : '2026',
             uuid            : 'e3b1f4c2-6d2a-4c55-9a3e-6d6179686d31',
-            mavenUrls       : mavenUrl ? [mavenUrl] : [],
-            jsonUrl         : '',
+            mavenUrls       : [mavenUrl],
+            jsonUrl         : jsonUrl,
             javaDependencies: [[groupId: 'mayhemlib', artifactId: 'MayhemLib-java', version: version]],
             jniDependencies : [],
             cppDependencies : [],

@@ -56,7 +56,7 @@ jobs:
 
           macOS builds are not notarized. After dragging Mayhem.app into Applications, run \`xattr -dr com.apple.quarantine /Applications/Mayhem.app\` if macOS blocks the first launch.
 
-          For MayhemLib, unzip \`MayhemLib-maven.zip\` into \`~/wpilib/2026/maven\` (Windows: \`C:\\Users\\Public\\wpilib\\2026\\maven\`) and copy \`MayhemLib.json\` into your robot project's \`vendordeps/\`." \
+          To add MayhemLib to a robot project, use WPILib's Manage Vendor Libraries, Install new libraries (online), and paste \`https://ryanabraham1.github.io/Mayhem/MayhemLib.json\`. For offline use, unzip \`MayhemLib-maven.zip\` into \`~/wpilib/2026/maven\` (Windows: \`C:\\Users\\Public\\wpilib\\2026\\maven\`) and copy \`MayhemLib.json\` into your robot project's \`vendordeps/\`." \
                    --jq .id)"
           fi
           echo "id=$id" >> "$GITHUB_OUTPUT"
@@ -183,6 +183,10 @@ jobs:
     name: MayhemLib (maven repo + vendordep)
     needs: create-release
     runs-on: ubuntu-latest
+    # Two tags pushed close together must not race on the gh-pages branch.
+    concurrency:
+      group: mayhemlib-pages
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5
         with:
@@ -212,6 +216,18 @@ jobs:
         run: |
           gh release upload "${TAG}" lib/build/MayhemLib-maven.zip lib/build/MayhemLib.json \
             --repo "${GITHUB_REPOSITORY}" --clobber
+
+      # Hosts the maven repo and MayhemLib.json on GitHub Pages (gh-pages branch) so users can
+      # install with "Install new libraries (online)" and get update checks. Release candidates
+      # are not hosted. A version that is already hosted is left untouched (see the script).
+      - name: Host on GitHub Pages
+        if: ${{ !contains(env.TAG, '-rc') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="$(jq -r .version lib/build/vendordeps/MayhemLib.json)"
+          PAGES_REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            scripts/publish-pages.sh lib/build/repos/releases lib/build/vendordeps/MayhemLib.json "$VERSION"
 
   publish:
     name: Publish complete release

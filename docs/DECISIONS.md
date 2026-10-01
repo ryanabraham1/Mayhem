@@ -52,4 +52,4 @@ Editing behaviour: Choreo-style Pose / Translation / Guide tools; new waypoints 
 
 - The repo is public (github.com/ryanabraham1/Mayhem). Pushing a `v*` tag builds and publishes a release via GitHub Actions.
 - The app updates itself from GitHub Releases but installs only when the user clicks (v0.6.0). The updater signing key must stay backed up; see [BUILDING.md](BUILDING.md).
-- Deferred: update checks for the MayhemLib vendordep (needs `jsonUrl` and a hosted Maven repo).
+- MayhemLib is a hosted vendordep: the release workflow publishes its maven repo and `MayhemLib.json` to GitHub Pages (`gh-pages` branch), so users install and update it from one URL. Hosted versions are immutable; bump the lib version to ship library changes.

@@ -19,8 +19,7 @@ On Windows, run the setup program; it installs for your user only, without an ad
 The installer is not code-signed, so if SmartScreen stops it, click **More info**, then **Run anyway**.
 From 0.6.0 on, Mayhem updates itself. It shows a banner when a new release is out and installs
 the update when you click **Install & restart**.
-For the robot library, download `MayhemLib-maven.zip` and `MayhemLib.json` from the same release;
-see [installation instructions](lib/README.md).
+The robot library installs as a vendordep from a hosted URL; see [installation instructions](lib/README.md#installation).
 
 - **Desktop app** (macOS, Windows and Linux): place waypoints on the field. Mayhem computes the fastest path your drivetrain can actually drive: motor torque-speed curves, stator current limits, wheel traction, mass and inertia. It routes around polygon obstacles using the robot's real bumper rectangle.
 - **Robust solver**: CasADi + IPOPT, with parallel route candidates, a continuation ladder, and swept-collision verification. When a path truly can't be made, it tells you which waypoint or constraint is the problem and where.
@@ -53,11 +52,11 @@ MayhemLib's API is modeled on ChoreoLib's `AutoFactory` / `AutoRoutine` / `AutoT
 write a controller. MayhemLib runs feedback, time dilation and bump recovery itself and hands
 your drivetrain field speeds plus per-module force feedforward.
 
-**1. Install the vendordep** into your robot project (or grab `MayhemLib.json` and
-`MayhemLib-maven.zip` from the release; see [lib/README.md](lib/README.md#installation)):
+**1. Install the vendordep.** In VS Code run **WPILib: Manage Vendor Libraries**, then
+**Install new libraries (online)**, and paste this URL (details in [lib/README.md](lib/README.md#installation)):
 
-```bash
-cd lib && ./gradlew installVendordep -ProbotProject=/path/to/robot
+```
+https://ryanabraham1.github.io/Mayhem/MayhemLib.json
 ```
 
 **2. Generate paths in the app.** Save the project in `src/main/deploy/mayhem/`, or set that as its deploy folder in Project settings. Generated paths are saved and copied there automatically as `<Name>.mtraj`.
