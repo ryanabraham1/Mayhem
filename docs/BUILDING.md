@@ -181,7 +181,8 @@ manual dispatch with an existing tag:
    attaches `MayhemLib-maven.zip` and `MayhemLib.json` (for offline installs), and, unless the tag is
    an `-rc`, hosts the maven repo and `MayhemLib.json` on GitHub Pages
    (`scripts/publish-pages.sh`; see "Hosting MayhemLib" below).
-4. `publish` checks that the installers and MayhemLib files are present, writes the
+4. `mcp` runs the solver/MCP tests and attaches the Python wheel and source package.
+5. `publish` checks that the installers and MayhemLib files are present, writes the
    auto-update manifest `latest.json` from the uploaded `.sig` files, then publishes the
    release. If a build fails, the release stays a draft so incomplete downloads are not shown
    as the latest release, and installed apps are not offered it.

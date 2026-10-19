@@ -47,6 +47,13 @@ cd app && pnpm install && pnpm dev
 
 Open http://localhost:5173. To run as a desktop app, build the solver sidecar once and use `pnpm tauri dev`; see [docs/BUILDING.md](docs/BUILDING.md).
 
+## AI agent integration
+
+Mayhem has a local MCP server for discovering and editing saved projects,
+generating trajectories, inspecting solver diagnostics, and copying current paths
+to a robot deploy folder. It uses revision checks and explicit solve/save/deploy
+steps. See [AI agent setup and tool reference](docs/AI_AGENTS.md).
+
 ## Using the paths on the robot (MayhemLib)
 
 MayhemLib's API is modeled on ChoreoLib's `AutoFactory` / `AutoRoutine` / `AutoTrajectory` /

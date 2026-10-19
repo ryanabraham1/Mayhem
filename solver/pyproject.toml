@@ -1,6 +1,6 @@
 [project]
 name = "mayhem-solver"
-version = "0.7.7"
+version = "0.8.0"
 description = "Time-optimal swerve trajectory solver for FRC (Mayhem)"
 authors = [
     { name = "Ryan Abraham", email = "ryan.ryanabraham@gmail.com" }
@@ -17,6 +17,12 @@ dependencies = [
 
 [project.scripts]
 mayhem-solver = "mayhem_solver.cli:main"
+mayhem-mcp = "mayhem_solver.mcp_server:main"
+
+[project.optional-dependencies]
+mcp = [
+    "mcp>=1.28,<2",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.19,<0.13.0"]

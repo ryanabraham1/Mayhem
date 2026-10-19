@@ -229,9 +229,37 @@ jobs:
           PAGES_REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             scripts/publish-pages.sh lib/build/repos/releases lib/build/vendordeps/MayhemLib.json "$VERSION"
 
+  mcp:
+    name: MCP server (Python wheel + source)
+    needs: create-release
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: solver
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: solver/uv.lock
+      - run: uv sync --frozen --extra mcp
+      - run: uv run --frozen --extra mcp pytest -q
+      - run: uv build --out-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mayhem-MCP-${{ env.TAG }}
+          path: solver/dist/*
+      - name: Attach Python packages to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${TAG}" dist/*.whl dist/*.tar.gz --repo "${GITHUB_REPOSITORY}" --clobber
+
   publish:
     name: Publish complete release
-    needs: [create-release, desktop, mayhemlib]
+    needs: [create-release, desktop, mayhemlib, mcp]
     runs-on: ubuntu-latest
     steps:
       - name: Verify assets
@@ -241,7 +269,7 @@ jobs:
           assets="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
           printf '%s\n' "$assets"
           [ "$(printf '%s\n' "$assets" | grep -cE '\.dmg$')" -ge 2 ]
-          for pattern in '\.AppImage$' '\.deb$' '_x64-setup\.exe$' '^MayhemLib-maven\.zip$' '^MayhemLib\.json$'; do
+          for pattern in '\.AppImage$' '\.deb$' '_x64-setup\.exe$' '^MayhemLib-maven\.zip$' '^MayhemLib\.json$' '^mayhem_solver-.*\.whl$' '^mayhem_solver-.*\.tar\.gz$'; do
             printf '%s\n' "$assets" | grep -qE "$pattern"
           done
 
