@@ -18,7 +18,8 @@ def test_mcp_stdio_end_to_end(tmp_path):
     async def scenario():
         params = StdioServerParameters(
             command=sys.executable,
-            args=["-m", "mayhem_solver.mcp_server", "--workspace", str(tmp_path)],
+            args=["-c", "import faulthandler; faulthandler.dump_traceback_later(25, repeat=True); "
+                  "from mayhem_solver.mcp_server import main; main()", "--workspace", str(tmp_path)],
             env={**os.environ, "MAYHEM_JOB_MODE": "subprocess"},
         )
         async with stdio_client(params) as (read, write):
