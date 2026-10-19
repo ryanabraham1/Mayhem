@@ -94,6 +94,7 @@ class SubprocessJob:
 
         self.id, self.name, self.notify = job_id, name, notify
         self.cancelled = False
+        self._process_lock = threading.Lock()
         if getattr(sys, "frozen", False):
             cmd = [sys.executable, "solve-job"]
         else:
@@ -107,7 +108,19 @@ class SubprocessJob:
         self.thread.start()
 
     def _pump(self):
-        done = False
+        try:
+            result = self._read_messages()
+        finally:
+            with self._process_lock:
+                if self.proc.poll() is None:
+                    self.proc.kill()
+                self.proc.wait()
+                self.proc.stdin.close()
+                self.proc.stdout.close()
+        self.notify("solveDone", result)
+
+    def _read_messages(self):
+        result = None
         for line in self.proc.stdout:
             try:
                 msg = json.loads(line)
@@ -116,32 +129,24 @@ class SubprocessJob:
             if msg.get("kind") == "progress":
                 self.notify("solveProgress", {"jobId": self.id, "name": self.name, **msg["payload"]})
             elif msg.get("kind") == "done":
-                self.notify("solveDone", {"jobId": self.id, "name": self.name, **msg["payload"]})
-                done = True
+                result = {"jobId": self.id, "name": self.name, **msg["payload"]}
                 break
         self.proc.wait()
-        if not done:
-            if self.cancelled:
-                self.notify("solveDone", {"jobId": self.id, "name": self.name, "success": False, "cancelled": True,
-                                          "output": None, "preview": None,
-                                          "issues": [{"severity": "info", "message": "Cancelled."}]})
-            else:
-                self.notify("solveDone", {"jobId": self.id, "name": self.name, "success": False,
-                                          "output": None, "preview": None,
-                                          "issues": [{"severity": "error", "message": "Solver process exited unexpectedly."}]})
+        if result is not None:
+            return result
+        return {"jobId": self.id, "name": self.name, "success": False,
+                "cancelled": self.cancelled, "output": None, "preview": None,
+                "issues": [{"severity": "info" if self.cancelled else "error",
+                            "message": "Cancelled." if self.cancelled else "Solver process exited unexpectedly."}]}
 
     def cancel(self):
         self.cancelled = True
-        if self.proc.poll() is None:
-            self.proc.kill()
+        with self._process_lock:
+            if self.proc.poll() is None:
+                self.proc.kill()
 
     def wait(self, timeout: float):
-        import subprocess
-
-        try:
-            self.proc.wait(timeout)
-        except subprocess.TimeoutExpired:
-            pass
+        self.thread.join(timeout)
 
 
 class Job:
@@ -157,11 +162,39 @@ class Job:
         self.proc = ctx.Process(target=_job_entry, args=(project, traj, self.q))
         self.notify = notify
         self.cancelled = False
-        self.proc.start()
+        self._process_lock = threading.Lock()
+        self._closed = False
+        try:
+            self.proc.start()
+        except BaseException:
+            self.q.close()
+            self.q._reader.close()
+            self.q._writer.close()
+            self.proc.close()
+            raise
         self.thread = threading.Thread(target=self._pump, daemon=True)
         self.thread.start()
 
     def _pump(self):
+        try:
+            result = self._read_messages()
+        finally:
+            with self._process_lock:
+                self.proc.join(timeout=5)
+                if self.proc.is_alive():
+                    self.proc.kill()
+                    self.proc.join()
+                self.proc.close()
+                self._closed = True
+                self.q.close()
+                self.q.join_thread()
+                # A receive-only Queue has no feeder finalizer to close its pipe.
+                self.q._reader.close()
+                self.q._writer.close()
+                self.q = None
+        self.notify("solveDone", result)
+
+    def _read_messages(self):
         import queue as queue_mod
 
         while True:
@@ -169,31 +202,25 @@ class Job:
                 kind, payload = self.q.get(timeout=0.25)
             except queue_mod.Empty:
                 if not self.proc.is_alive():
-                    if not self.cancelled:
-                        self.notify("solveDone", {"jobId": self.id, "name": self.name, "success": False,
-                                                  "output": None, "preview": None,
-                                                  "issues": [{"severity": "error",
-                                                              "message": "Solver process exited unexpectedly."}]})
-                    else:
-                        self.notify("solveDone", {"jobId": self.id, "name": self.name, "success": False,
-                                                  "cancelled": True, "output": None, "preview": None,
-                                                  "issues": [{"severity": "info", "message": "Cancelled."}]})
-                    return
+                    return {"jobId": self.id, "name": self.name, "success": False,
+                            "cancelled": self.cancelled, "output": None, "preview": None,
+                            "issues": [{"severity": "info" if self.cancelled else "error",
+                                        "message": "Cancelled." if self.cancelled else
+                                                   "Solver process exited unexpectedly."}]}
                 continue
             if kind == "progress":
                 self.notify("solveProgress", {"jobId": self.id, "name": self.name, **payload})
             else:
-                self.notify("solveDone", {"jobId": self.id, "name": self.name, **payload})
-                self.proc.join(timeout=5)
-                return
+                return {"jobId": self.id, "name": self.name, **payload}
 
     def cancel(self):
         self.cancelled = True
-        if self.proc.is_alive():
-            self.proc.terminate()
+        with self._process_lock:
+            if not self._closed and self.proc.is_alive():
+                self.proc.terminate()
 
     def wait(self, timeout: float):
-        self.proc.join(timeout)
+        self.thread.join(timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -246,8 +273,12 @@ class Server:
     def __init__(self, send: Callable[[dict], None]):
         self._send = send
         self.jobs: dict[str, Job] = {}
+        self._jobs_lock = threading.RLock()
 
     def notify(self, method: str, params: dict):
+        if method == "solveDone":
+            with self._jobs_lock:
+                self.jobs.pop(params["jobId"], None)
         self._send({"method": method, "params": params})
 
     def handle(self, msg: dict):
@@ -403,11 +434,15 @@ class Server:
     def m_solve(self, project: dict, trajectory: dict):
         job_id = uuid.uuid4().hex[:8]
         name = trajectory.get("name", "?")
-        self.jobs[job_id] = Job(job_id, name, project, trajectory, self.notify)
+        # A fast job can finish before its constructor returns. Keep registration
+        # and completion removal ordered so finished jobs cannot remain retained.
+        with self._jobs_lock:
+            self.jobs[job_id] = Job(job_id, name, project, trajectory, self.notify)
         return {"jobId": job_id}
 
     def m_cancel(self, jobId: str):
-        job = self.jobs.get(jobId)
+        with self._jobs_lock:
+            job = self.jobs.get(jobId)
         if job:
             job.cancel()
         return True
@@ -419,7 +454,8 @@ class Server:
         return True
 
     def shutdown(self, wait: bool = False):
-        jobs = list(self.jobs.values())
+        with self._jobs_lock:
+            jobs = list(self.jobs.values())
         for job in jobs:
             job.cancel()
         if wait:

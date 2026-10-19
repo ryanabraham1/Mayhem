@@ -162,9 +162,15 @@ def test_parallel_stops_on_agreeing_proofs_but_not_geometry(monkeypatch):
             self.q.put({"type": "_result", "result": results[self.candidate]})
 
         def is_alive(self):
-            return True
+            return self.exitcode is None
 
         def terminate(self):
+            self.exitcode = -15
+
+        def join(self, timeout=None):
+            pass
+
+        def close(self):
             pass
 
     class Context:
@@ -172,7 +178,13 @@ def test_parallel_stops_on_agreeing_proofs_but_not_geometry(monkeypatch):
 
         @staticmethod
         def Queue():
-            return queue.Queue()
+            from unittest.mock import Mock
+            q = queue.Queue()
+            q.close = Mock()
+            q.join_thread = Mock()
+            q._reader = Mock()
+            q._writer = Mock()
+            return q
 
     monkeypatch.setattr(mp, "get_context", lambda _: Context)
     label = "Constraint 'maxVelocity' (limit)"

@@ -274,3 +274,46 @@ def test_shutdown_exits_and_non_ascii_names_roundtrip(tmp_path):
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+@pytest.mark.parametrize("mode", ["multiprocessing", "subprocess"])
+def test_repeated_jobs_release_handles_and_registry(monkeypatch, mode):
+    """Keep jobs alive deliberately: cleanup must not depend on garbage collection."""
+    from mayhem_solver.rpc import Server
+
+    monkeypatch.setenv("MAYHEM_JOB_MODE", mode)
+    server = Server(lambda _: None)
+    retained = []
+    for i in range(40):
+        result = server.m_solve(Project().dump(), Trajectory(name=f"empty-{i}").dump())
+        with server._jobs_lock:
+            job = server.jobs.get(result["jobId"])
+        # Completion may beat the caller: the registry must still be empty.
+        if job is not None:
+            retained.append(job)
+            job.wait(15)
+            assert not job.thread.is_alive()
+            job.cancel()  # late cancellation after handles were closed is harmless
+        assert result["jobId"] not in server.jobs
+    assert not server.jobs
+    if mode == "multiprocessing":
+        assert all(job.q is None and job._closed for job in retained)
+    else:
+        assert all(job.proc.stdin.closed and job.proc.stdout.closed for job in retained)
+
+
+def test_failed_job_start_closes_queue_and_process(monkeypatch):
+    import multiprocessing as mp
+    from mayhem_solver.rpc import Job
+
+    monkeypatch.setenv("MAYHEM_JOB_MODE", "multiprocessing")
+    ctx = mp.get_context("spawn")
+    queue = ctx.Queue()
+    process = ctx.Process()
+    monkeypatch.setattr(type(ctx), "Queue", lambda *_: queue)
+    monkeypatch.setattr(type(ctx), "Process", lambda *_, **__: process)
+    monkeypatch.setattr(process, "start", lambda: (_ for _ in ()).throw(OSError(24, "Too many open files")))
+    with pytest.raises(OSError):
+        Job("failed", "failed", {}, {}, lambda *_: None)
+    assert queue._reader.closed and queue._writer.closed
+    assert process._closed

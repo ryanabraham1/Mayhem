@@ -860,13 +860,15 @@ def _run_parallel(pj, tj, cands, deadline, progress) -> tuple[list[dict], Option
     budget = deadline - time.monotonic()
     procs = [ctx.Process(target=_candidate_entry, args=(pj, tj, c, i, budget, q), daemon=True)
              for i, c in enumerate(cands)]
-    for pr in procs:
-        pr.start()
+    started = []
     results: dict[int, dict] = {}
     effective_deadline = deadline
     first_labels: set[str] = set()
     early_stop_label = None
     try:
+        for pr in procs:
+            pr.start()
+            started.append(pr)
         # (checked every message: progress arrives every 0.1 s per candidate, so the queue is rarely idle)
         while len(results) < len(procs) and time.monotonic() <= effective_deadline:
             try:
@@ -892,9 +894,20 @@ def _run_parallel(pj, tj, cands, deadline, progress) -> tuple[list[dict], Option
             elif progress:
                 progress(msg)
     finally:
-        for pr in procs:
+        for pr in started:
             if pr.is_alive():
                 pr.terminate()
+        for pr in started:
+            pr.join(timeout=5)
+            if pr.is_alive():
+                pr.kill()
+                pr.join()
+        for pr in procs:
+            pr.close()
+        q.close()
+        q.join_thread()
+        q._reader.close()
+        q._writer.close()
     for i in range(len(procs)):
         if i not in results:
             results[i] = {"ok": False, "sol": None, "iters": 0,
