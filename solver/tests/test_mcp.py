@@ -3,6 +3,8 @@ import asyncio
 import json
 import os
 import sys
+import traceback
+from contextlib import asynccontextmanager
 
 import pytest
 
@@ -20,7 +22,17 @@ def test_mcp_stdio_end_to_end(tmp_path):
             env={**os.environ, "MAYHEM_JOB_MODE": "subprocess"},
         )
         async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as client:
+            @asynccontextmanager
+            async def session():
+                async with ClientSession(read, write) as client:
+                    try:
+                        yield client
+                    except BaseException:
+                        # The SDK's Windows pipe teardown can mask the original error.
+                        traceback.print_exc()
+                        raise
+
+            async with session() as client:
                 initialized = await client.initialize()
                 assert initialized.serverInfo.name == "Mayhem"
                 tools = {t.name: t for t in (await client.list_tools()).tools}
