@@ -34,7 +34,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: solver/uv.lock
       - run: uv sync --frozen --extra mcp
-      - run: uv run --frozen --extra mcp pytest -x -q
+      - run: uv run --frozen --extra mcp pytest -q
 
   sidecar:
     # Freezes the solver with PyInstaller and runs a real solve through the frozen binary,

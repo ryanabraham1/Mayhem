@@ -27,6 +27,10 @@ class PathWaypoint(BaseModel):
 
 
 def create_server(workspace: AgentWorkspace):
+    # Load NumPy/OpenBLAS/CasADi before stdio starts its background stdin reader.
+    # On Windows, their first import inside a tool can deadlock against that read:
+    # https://github.com/modelcontextprotocol/python-sdk/issues/2832
+    from . import pipeline as _pipeline  # noqa: F401
     from mcp.server.fastmcp import FastMCP
     from mcp.types import ToolAnnotations
 
