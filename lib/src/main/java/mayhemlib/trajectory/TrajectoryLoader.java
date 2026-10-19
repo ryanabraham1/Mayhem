@@ -7,6 +7,7 @@ import edu.wpi.first.wpilibj.Filesystem;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,8 @@ public final class TrajectoryLoader {
   public static MayhemTrajectory load(File file) {
     try {
       return parse(Files.readString(file.toPath()));
+    } catch (NoSuchFileException e) {
+      throw new IllegalArgumentException("Trajectory file not found: " + file, e);
     } catch (IOException e) {
       throw new IllegalArgumentException("Could not read trajectory " + file + ": " + e.getMessage(), e);
     }

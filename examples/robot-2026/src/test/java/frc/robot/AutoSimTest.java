@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import mayhemlib.auto.AutoRoutine;
+import mayhemlib.auto.AutoTrajectory;
 import mayhemlib.sim.BumpInjector;
 import mayhemlib.sim.FuelPileInjector;
 import mayhemlib.trajectory.MayhemTrajectory;
@@ -81,6 +82,17 @@ class AutoSimTest {
   private static double distanceToEnd(MayhemTrajectory traj) {
     Pose2d pose = rc.drivetrain.getState().Pose;
     return pose.getTranslation().getDistance(traj.finalPose().getTranslation());
+  }
+
+  @Test
+  void missingTrajectoryWarnsInsteadOfCrashing() throws InterruptedException {
+    AutoRoutine routine = rc.autoFactory.newRoutine("Missing");
+    AutoTrajectory missing = assertDoesNotThrow(() -> routine.trajectory("DoesNotExist"));
+    assertFalse(missing.isLoaded());
+    assertTrue(missing.getInitialPose().isEmpty());
+    AutoTrajectory badSplit = assertDoesNotThrow(() -> routine.trajectory("Straight", 99));
+    assertFalse(badSplit.isLoaded());
+    run(Commands.sequence(missing.resetOdometry(), missing.cmd(), badSplit.cmd()), 1);
   }
 
   @Test

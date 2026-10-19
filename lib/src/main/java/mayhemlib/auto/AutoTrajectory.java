@@ -3,6 +3,7 @@ package mayhemlib.auto;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
@@ -33,7 +34,8 @@ import mayhemlib.trajectory.TrajectoryEvent;
 public final class AutoTrajectory {
   private final AutoFactory f;
   private final AutoRoutine routine;
-  private final MayhemTrajectory base; // blue alliance
+  private final MayhemTrajectory base; // blue alliance; null if the trajectory failed to load
+  private final String name;
 
   private final Map<String, Pulse> markerPulses = new HashMap<>();
   private final Map<String, Boolean> zoneActive = new HashMap<>();
@@ -71,25 +73,45 @@ public final class AutoTrajectory {
     this.f = f;
     this.routine = routine;
     this.base = base;
+    this.name = base.name();
+  }
+
+  /** A placeholder for a trajectory that failed to load: its commands only warn, its triggers never fire. */
+  AutoTrajectory(AutoFactory f, AutoRoutine routine, String missingName) {
+    this.f = f;
+    this.routine = routine;
+    this.base = null;
+    this.name = missingName;
   }
 
   public String name() {
-    return base.name();
+    return name;
   }
 
-  /** The trajectory as authored (blue alliance). */
+  /** The trajectory as authored (blue alliance), or null if it failed to load. */
   public MayhemTrajectory getRawTrajectory() {
     return base;
   }
 
-  /** Alliance-correct start pose, resolved now. */
-  public Optional<Pose2d> getInitialPose() {
-    return Optional.of(resolved().initialPose());
+  /** False if the trajectory failed to load; its commands then do nothing. */
+  public boolean isLoaded() {
+    return base != null;
   }
 
-  /** Alliance-correct end pose, resolved now. */
+  /** Alliance-correct start pose, resolved now; empty if the trajectory failed to load. */
+  public Optional<Pose2d> getInitialPose() {
+    return base == null ? Optional.empty() : Optional.of(resolved().initialPose());
+  }
+
+  /** Alliance-correct end pose, resolved now; empty if the trajectory failed to load. */
   public Optional<Pose2d> getFinalPose() {
-    return Optional.of(resolved().finalPose());
+    return base == null ? Optional.empty() : Optional.of(resolved().finalPose());
+  }
+
+  private Command missingCmd(String what) {
+    return Commands.runOnce(() -> DriverStation.reportWarning(
+        "MayhemLib: skipping " + what + " of trajectory '" + name + "', it failed to load", false))
+        .withName("Mayhem missing " + name);
   }
 
   private MayhemTrajectory resolved() {
@@ -100,6 +122,9 @@ public final class AutoTrajectory {
 
   /** Resets odometry to the alliance-correct start pose (resolved when the command runs). */
   public Command resetOdometry() {
+    if (base == null) {
+      return missingCmd("odometry reset");
+    }
     return Commands.runOnce(() -> f.resetOdometry.accept(resolved().initialPose()))
         .withName("Mayhem reset " + name());
   }
@@ -109,6 +134,9 @@ public final class AutoTrajectory {
    * The alliance is resolved when the command starts.
    */
   public Command cmd() {
+    if (base == null) {
+      return missingCmd("follow");
+    }
     Command c = new Command() {
       @Override
       public void initialize() {
@@ -334,6 +362,9 @@ public final class AutoTrajectory {
 
   private List<Pose2d> eventPoses(String eventName) {
     List<Pose2d> out = new ArrayList<>();
+    if (base == null) {
+      return out;
+    }
     MayhemTrajectory t = running != null ? running : resolved();
     for (TrajectoryEvent e : t.events()) {
       if (e.name.equals(eventName)) {
@@ -344,7 +375,7 @@ public final class AutoTrajectory {
   }
 
   private Pose2d flip(Pose2d blue) {
-    RecoveryData r = base.recovery();
+    RecoveryData r = base == null ? null : base.recovery();
     if (!f.isRed() || r == null) {
       return blue;
     }

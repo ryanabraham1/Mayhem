@@ -1,5 +1,6 @@
 package mayhemlib.auto;
 
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.event.EventLoop;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
@@ -44,14 +45,29 @@ public final class AutoRoutine {
 
   // --------------------------------------------------------------------------- trajectories
 
-  /** Loads {@code deploy/mayhem/<name>.mtraj} as a trajectory of this routine. */
+  /**
+   * Loads {@code deploy/mayhem/<name>.mtraj} as a trajectory of this routine. If it cannot be
+   * loaded (missing, not generated, bad split index), a warning goes to the Driver Station and an
+   * empty trajectory is returned whose commands do nothing and whose triggers never fire.
+   */
   public AutoTrajectory trajectory(String trajectoryName) {
-    return trajectory(AutoFactory.load(trajectoryName, -1));
+    return trajectory(trajectoryName, -1);
   }
 
   /** Split segment {@code splitIndex} of a trajectory, with its own time starting at 0. */
   public AutoTrajectory trajectory(String trajectoryName, int splitIndex) {
-    return trajectory(AutoFactory.load(trajectoryName, splitIndex));
+    MayhemTrajectory loaded;
+    try {
+      loaded = AutoFactory.load(trajectoryName, splitIndex);
+    } catch (RuntimeException e) {
+      String label = splitIndex < 0 ? trajectoryName : trajectoryName + "[" + splitIndex + "]";
+      DriverStation.reportWarning(
+          "MayhemLib: could not load trajectory '" + label + "': " + e.getMessage(), false);
+      AutoTrajectory t = new AutoTrajectory(factory, this, label);
+      trajectories.add(t);
+      return t;
+    }
+    return trajectory(loaded);
   }
 
   /** Wraps an already loaded trajectory (for example from {@code TrajectoryLoader.load(File)}). */
