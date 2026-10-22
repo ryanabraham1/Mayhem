@@ -33,6 +33,7 @@ from .guess import Solution, build_guess, dense, resample
 from .models import (
     EventOut,
     Field_,
+    IgnoreField,
     IntakeExtended,
     IntakeSpan,
     Issue,
@@ -49,8 +50,8 @@ from .models import (
     Trajectory,
     TrajectoryOutput,
 )
-from .ocp import (SUCCESS, OCP, OCPOptions, OCPResult, intake_interval_mask, intake_samples, scope_samples,
-                  select_pairs, user_limit_violations, waypoint_indices)
+from .ocp import (SUCCESS, OCP, OCPOptions, OCPResult, ignored_field_samples, intake_interval_mask, intake_samples,
+                  scope_samples, select_pairs, user_limit_violations, waypoint_indices)
 
 ProgressFn = Callable[[dict], None]
 
@@ -143,6 +144,32 @@ def straight_line_ranges(traj: Trajectory) -> list[tuple[str, StraightLine, int,
     return out
 
 
+@dataclass
+class IgnoredField:
+    """Where enabled ignoreField constraints turn the field off, by waypoint and by segment j -> j+1."""
+
+    obstacle_wps: set[int]
+    wall_wps: set[int]
+    obstacle_segs: set[int]
+
+
+def ignored_field(traj: Trajectory) -> IgnoredField:
+    n = len(traj.waypoints)
+    out = IgnoredField(set(), set(), set())
+    for con in traj.constraints:
+        d, s = con.data, con.scope
+        if not con.enabled or not isinstance(d, IgnoreField) or s.kind == "zone":
+            continue
+        a, b = (s.from_, s.from_) if s.kind == "waypoint" else sorted((s.from_, s.to))
+        a, b = max(a, 0), min(b, n - 1)
+        if d.obstacles:
+            out.obstacle_wps.update(range(a, b + 1))
+            out.obstacle_segs.update(range(a, b))
+        if d.walls:
+            out.wall_wps.update(range(a, b + 1))
+    return out
+
+
 def _free_components(world: geo.World, dt: Drivetrain) -> list:
     """Connected regions the robot center can move through, whatever the heading.
 
@@ -177,7 +204,9 @@ def _intake_waypoints(traj: Trajectory) -> set[int]:
 
 
 def _enclosure_issues(traj: Trajectory, dt: Drivetrain, world: geo.World) -> list[Issue]:
-    """Fixed waypoints in different free-space components can never be joined by a path."""
+    """Fixed waypoints in different free-space components can never be joined by a path
+    (unless an ignoreField range lets the path cross the field's obstacles between them)."""
+    ign = ignored_field(traj).obstacle_segs
     comps = _free_components(world, dt)
     if len(comps) < 2:
         return []
@@ -193,7 +222,7 @@ def _enclosure_issues(traj: Trajectory, dt: Drivetrain, world: geo.World) -> lis
     r = max(dt.inradius - 5e-3, 0.0)
     inner = box(0, 0, world.length, world.width).buffer(-(r + world.wall_margin) - 1e-3, join_style="mitre")
     for (ja, ca_), (jb, cb) in zip(located, located[1:]):
-        if ca_ == cb:
+        if ca_ == cb or ign.intersection(range(ja, jb)):
             continue
         # blame the waypoint in the smaller region: that's the one that is walled in
         j, other, ci = (ja, jb, ca_) if comps[ca_].area <= comps[cb].area else (jb, ja, cb)
@@ -219,6 +248,7 @@ def _enclosure_issues(traj: Trajectory, dt: Drivetrain, world: geo.World) -> lis
 
 def _straight_line_issues(traj: Trajectory, dt: Drivetrain, world: geo.World) -> list[Issue]:
     issues = []
+    ign_segs = ignored_field(traj).obstacle_segs
     wps = traj.waypoints
     n = len(wps)
     for con in traj.constraints:
@@ -240,7 +270,8 @@ def _straight_line_issues(traj: Trajectory, dt: Drivetrain, world: geo.World) ->
             continue
         seg = LineString([(wps[a].x, wps[a].y), (wps[b].x, wps[b].y)])
         swept = seg.buffer(max(dt.inradius - 1e-3, 0.0))
-        for name, poly, _ in world.obstacle_polys:
+        polys = world.obstacle_polys[world.field_polys:] if ign_segs.issuperset(range(a, b)) else world.obstacle_polys
+        for name, poly, _ in polys:
             if swept.intersects(poly):
                 q = shapely.ops.nearest_points(seg, poly)[0]
                 issues.append(Issue(severity="error",
@@ -275,6 +306,7 @@ def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.Worl
         issues.append(Issue(severity="error", message="A trajectory needs at least 2 waypoints."))
         return issues
     intake_wps = _intake_waypoints(traj) if dt.intake_corners else set()
+    ign = ignored_field(traj)
     if uses_intake(traj) and not dt.intake_corners:
         issues.append(Issue(severity="warning",
                             message="This path extends the intake, but the robot's intake extension is 0. "
@@ -287,7 +319,8 @@ def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.Worl
         if wp.translation_mode != "fixed" or wp.heading_mode != "fixed" or wp.tolerance.kind != "none":
             continue
         rob = geo.bumper_polygon(dt.bumper_corners, wp.x, wp.y, wp.heading)
-        for piece in world.pieces:
+        pieces = [p for p in world.pieces if not (p.field and j in ign.obstacle_wps)]
+        for piece in pieces:
             if rob.intersects(piece.poly):
                 issues.append(Issue(
                     severity="error",
@@ -296,15 +329,15 @@ def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.Worl
                     waypoint=j, x=wp.x, y=wp.y))
                 break
         minx, miny, maxx, maxy = rob.bounds
-        if minx < 0 or miny < 0 or maxx > world.length or maxy > world.width:
+        if j not in ign.wall_wps and (minx < 0 or miny < 0 or maxx > world.length or maxy > world.width):
             issues.append(Issue(severity="error", message=f"Waypoint {j + 1}'s bumpers leave the field.",
                                 waypoint=j, x=wp.x, y=wp.y))
             continue
         if j in intake_wps:
             ext = geo.bumper_polygon(dt.intake_corners, wp.x, wp.y, wp.heading)
-            hit = next((p.name for p in world.pieces if ext.intersects(p.poly)), None)
+            hit = next((p.name for p in pieces if ext.intersects(p.poly)), None)
             minx, miny, maxx, maxy = ext.bounds
-            if hit is None and (minx < 0 or miny < 0 or maxx > world.length or maxy > world.width):
+            if hit is None and j not in ign.wall_wps and (minx < 0 or miny < 0 or maxx > world.length or maxy > world.width):
                 hit = "the field wall"
             if hit is not None:
                 where = hit if hit == "the field wall" else f"'{hit}'"
@@ -318,6 +351,9 @@ def validate(project: Project, traj: Trajectory, dt: Drivetrain, world: geo.Worl
         n = len(wps)
         if s.kind in ("waypoint", "range") and not (0 <= s.from_ < n and (s.kind == "waypoint" or 0 <= s.to < n)):
             issues.append(Issue(severity="warning", message=f"Constraint {con.id} refers to a missing waypoint; ignored."))
+        if con.enabled and isinstance(con.data, IgnoreField) and s.kind == "zone":
+            issues.append(Issue(severity="warning",
+                                message=f"Ignore-field constraint {con.id} needs a waypoint or range scope; ignored."))
         if con.enabled and isinstance(con.data, RoughTerrain) and s.kind == "waypoint":
             issues.append(Issue(severity="warning",
                                 message=f"Rough terrain {con.id} is at a single waypoint and covers almost no time; "
@@ -381,12 +417,14 @@ def candidate_routes(traj: Trajectory, dt: Drivetrain, world: geo.World, k: int)
     """
     wps = traj.waypoints
     S = len(wps) - 1
+    ign = ignored_field(traj).obstacle_segs
+    open_world = world.without_field() if ign else world
     shortest: list[list] = []
     per_seg: list[list[list]] = []
     for j in range(S):
         a = (wps[j].x, wps[j].y)
         b = (wps[j + 1].x, wps[j + 1].y)
-        best, routes = segment_routes(world, dt, a, b, k)
+        best, routes = segment_routes(open_world if j in ign else world, dt, a, b, k)
         shortest.append(best)
         per_seg.append(routes)
     # straight-line constraints: when the line is clear, every leg in the range follows it.
@@ -395,9 +433,10 @@ def candidate_routes(traj: Trajectory, dt: Drivetrain, world: geo.World, k: int)
     lines = straight_line_ranges(traj)
     if lines:
         rm = geo.build_roadmap(world, dt.inradius + 0.02)
+        rm_open = geo.build_roadmap(open_world, dt.inradius + 0.02) if ign else rm
         for _, _, a, b in lines:
             p, q = np.array([wps[a].x, wps[a].y]), np.array([wps[b].x, wps[b].y])
-            if not geo._segment_free(rm, tuple(p), tuple(q)):
+            if not geo._segment_free(rm_open if ign.issuperset(range(a, b)) else rm, tuple(p), tuple(q)):
                 continue
             d = q - p
             pts = []
@@ -538,9 +577,13 @@ class Solver:
         mask = intake_interval_mask(self._intake(sol), sol.K)[idx] if self.dt.intake_corners else None
         hits = geo.check_path(self.world, self.dt.bumper_corners, t, x, y, th,
                               intake=self.dt.intake_corners, intake_mask=mask)
+        ign_obs, ign_wall = (intake_interval_mask(ks, sol.K) for ks in ignored_field_samples(self.traj, sol.Ns))
+        out = []
         for h in hits:
             h.index = int(idx[h.index])
-        return hits
+            if not ((h.kind == "field" and ign_obs[h.index]) or (h.kind == "wall" and ign_wall[h.index])):
+                out.append(h)
+        return out
 
     def _zone_missing(self, sol: Solution) -> dict[str, set[int]]:
         """Zone-scoped constraints whose region the solution enters at unconstrained samples."""

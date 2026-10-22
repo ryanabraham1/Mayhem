@@ -54,7 +54,9 @@ export type ConstraintData =
   | { type: "keepOut"; points: Vec2[]; margin: number }
   | { type: "roughTerrain"; expectedSpeed: number; feedbackScale: number }
   | { type: "straightLine"; tolerance: number }
-  | { type: "intakeExtended" };
+  | { type: "intakeExtended" }
+  /** Skip the field's obstacles (and walls if set) between the waypoints; the path's keep-outs still apply. */
+  | { type: "ignoreField"; obstacles: boolean; walls: boolean };
 export type ConstraintType = ConstraintData["type"];
 export interface Constraint { id: string; enabled: boolean; scope: Scope; data: ConstraintData }
 

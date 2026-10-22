@@ -26,7 +26,7 @@ from shapely.geometry import Point, Polygon
 from .drivetrain import G, Drivetrain
 from .geometry import World, bumper_polygons, robot_polygons
 from .guess import Solution
-from .models import (IntakeExtended, KeepIn, MaxAcceleration, MaxAngularVelocity, MaxVelocity, PointAt, RoughTerrain,
+from .models import (IgnoreField, IntakeExtended, KeepIn, MaxAcceleration, MaxAngularVelocity, MaxVelocity, PointAt, RoughTerrain,
                      StraightLine, Trajectory)
 
 SOFT_MODES = {
@@ -189,6 +189,24 @@ def intake_samples(traj: Trajectory, sol: Solution, extra: Optional[dict[str, se
             if con.scope.kind == "zone" and extra:
                 out.update(int(k) for k in extra.get(con.id, ()) if 0 <= k < K)
     return out
+
+
+def ignored_field_samples(traj: Trajectory, Ns: list[int]) -> tuple[set[int], set[int]]:
+    """Samples where an enabled ignoreField constraint turns off (field obstacles, walls).
+
+    The intervals touching them are skipped too (see intake_interval_mask)."""
+    obs: set[int] = set()
+    walls: set[int] = set()
+    for con in traj.constraints:
+        d = con.data
+        if not con.enabled or not isinstance(d, IgnoreField) or con.scope.kind == "zone":
+            continue
+        ks = scope_samples(con.scope, Ns, None)
+        if d.obstacles:
+            obs.update(ks)
+        if d.walls:
+            walls.update(ks)
+    return obs, walls
 
 
 def user_limit_violations(traj: Trajectory, sol: Solution, rel: float = 1e-2) -> list[str]:
@@ -465,9 +483,14 @@ class OCP:
         def wall_exprs(corners):
             return ca.vertcat(*[ca.vertcat(wm - cx, cx - (L - wm), wm - cy, cy - (W - wm)) for cx, cy in corners])
 
-        ki_all = [k for k in all_k if ext_iv[k]]
-        if not os.environ.get("MAYHEM_NOWALL"):
-            self._le(wall_exprs(corner_xy(x, y, c, s)), "Field wall", "wall", all_k)
+        # ignoreField: no field-obstacle / wall checks at these samples or the intervals touching them
+        ign_obs, ign_wall = ignored_field_samples(traj, Ns)
+        ign_obs_iv, ign_wall_iv = intake_interval_mask(ign_obs, K), intake_interval_mask(ign_wall, K)
+        wall_k = [k for k in all_k if k not in ign_wall]
+        ki_all = [k for k in wall_k if ext_iv[k]]
+        if not os.environ.get("MAYHEM_NOWALL") and wall_k:
+            self._le(wall_exprs(corner_xy(X[0, wall_k], X[1, wall_k], X[2, wall_k], X[3, wall_k])),
+                     "Field wall", "wall", wall_k)
             if ki_all:
                 self._le(wall_exprs(corner_xy(X[0, ki_all], X[1, ki_all], X[2, ki_all], X[3, ki_all], intake)),
                          "Field wall (intake)", "wall", ki_all)
@@ -476,7 +499,7 @@ class OCP:
         rad = dt.extended_circumradius if ext else dt.circumradius
         reach = rad + wm + 0.3 + float(np.max(np.hypot(g.vx, g.vy)) * np.max(g.h) if K > 1 else 0.0)
         near = np.minimum.reduce([g.x, L - g.x, g.y, W - g.y]) < reach
-        km_wall = [k for k in range(K - 1) if near[k] or near[k + 1] or k in dense_set]
+        km_wall = [k for k in range(K - 1) if (near[k] or near[k + 1] or k in dense_set) and not ign_wall_iv[k]]
         kd_wall = [k for k in km_wall if k in dense_set]
         for part, lab, keep in ((dt.bumper_corners, "Field wall", None), (intake, "Field wall (intake)", ext_iv)):
             kmw = [k for k in km_wall if keep is None or keep[k]]
@@ -495,7 +518,8 @@ class OCP:
         # The intake is a second convex part with its own planes, on the pairs' samples whose
         # interval has it extended.
         self.pair_vars = []
-        parts = [(o, sorted(set(int(k) for k in ks)), False) for o, ks in pairs.items()]
+        parts = [(o, sorted(set(int(k) for k in ks if not (world.pieces[o].field and k in ign_obs))), False)
+                 for o, ks in pairs.items()]
         if intake:
             parts += [(o, [k for k in ks if ext_iv[k]], True) for o, ks, _ in list(parts)]
         for o, ks, is_intake in parts:
@@ -517,7 +541,7 @@ class OCP:
             all_cols = list(range(len(ks)))
             self._le(sep(corner_xy(X[0, ks], X[1, ks], X[2, ks], X[3, ks], corners), all_cols), label, "obstacle", ks,
                      key=bk)
-            cols = [ci for ci, k in enumerate(ks) if k < K - 1]
+            cols = [ci for ci, k in enumerate(ks) if k < K - 1 and not (piece.field and ign_obs_iv[k])]
             if cols:
                 km = [ks[ci] for ci in cols]
                 k1 = [k + 1 for k in km]

@@ -281,9 +281,23 @@ class IntakeExtended(Model):
     type: Literal["intakeExtended"] = "intakeExtended"
 
 
+class IgnoreField(Model):
+    """The solver ignores the field over this scope.
+
+    For stretches where the robot may cross something drawn as a field obstacle (a bump, a
+    ramp) or touch the wall. Field obstacles (and the walls, when `walls` is set) are not
+    checked at the scope's samples or on the intervals touching them; the path's own
+    keep-out regions still apply. Waypoint or range scope only.
+    """
+
+    type: Literal["ignoreField"] = "ignoreField"
+    obstacles: bool = Field(True, description="Ignore the field's obstacles")
+    walls: bool = Field(False, description="Ignore the field walls")
+
+
 ConstraintData = Annotated[
     Union[MaxVelocity, MaxAcceleration, MaxAngularVelocity, PointAt, KeepIn, KeepOut, StraightLine,
-          RoughTerrain, IntakeExtended],
+          RoughTerrain, IntakeExtended, IgnoreField],
     Field(discriminator="type"),
 ]
 

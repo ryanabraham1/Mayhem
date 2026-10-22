@@ -25,6 +25,7 @@ class Piece:
     verts: np.ndarray  # (V, 2) CCW
     margin: float
     poly: Polygon
+    field: bool = True  # False for a path's own keep-out regions
 
 
 @dataclass
@@ -34,7 +35,13 @@ class World:
     wall_margin: float
     pieces: list[Piece]
     obstacle_polys: list[tuple[str, Polygon, float]]  # original (possibly concave)
+    field_polys: int = 0  # obstacle_polys[:field_polys] are the field's, the rest the path's keep-outs
     _roadmaps: dict = field(default_factory=dict)
+
+    def without_field(self) -> "World":
+        """This world with only the path's keep-outs (see the ignoreField constraint)."""
+        return World(self.length, self.width, self.wall_margin, [p for p in self.pieces if not p.field],
+                     self.obstacle_polys[self.field_polys:])
 
     def union(self, inflate: float = 0.0):
         geoms = [p.buffer(inflate + m, join_style="mitre", mitre_limit=2.0) for _, p, m in self.obstacle_polys]
@@ -102,17 +109,18 @@ def build_world(fld: Field_, extra: list[tuple[str, list[tuple[float, float]], f
         p = obstacle_polygon(o)
         if p is not None:
             polys.append((o.name, p, o.margin))
+    n_field = len(polys)
     for name, pts, margin in extra:
         if len(pts) >= 3:
             p = obstacle_polygon(Obstacle(id=name, name=name, points=pts))
             if p is not None:
                 polys.append((name, p, margin))
     pieces = []
-    for name, p, m in polys:
+    for i, (name, p, m) in enumerate(polys):
         for q in convex_decompose(p):
             verts = np.asarray(q.exterior.coords)[:-1]
-            pieces.append(Piece(name=name, verts=verts, margin=m, poly=q))
-    return World(fld.length, fld.width, fld.wall_margin, pieces, polys)
+            pieces.append(Piece(name=name, verts=verts, margin=m, poly=q, field=i < n_field))
+    return World(fld.length, fld.width, fld.wall_margin, pieces, polys, n_field)
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +327,7 @@ class Collision:
     y: float
     name: str
     depth: float
+    kind: str = "field"  # "field" obstacle, "path" keep-out or "wall"
 
 
 def check_path(world: World, corners, t, x, y, th, tol_frac: float = 0.5,
@@ -333,12 +342,13 @@ def check_path(world: World, corners, t, x, y, th, tol_frac: float = 0.5,
         bad = np.where(inter | (d < piece.margin * tol_frac - 1e-4))[0]
         for i in bad:
             hits.append(Collision(int(i), float(t[i]), float(x[i]), float(y[i]), piece.name,
-                                  float(piece.margin - d[i]) if not inter[i] else float(piece.margin)))
+                                  float(piece.margin - d[i]) if not inter[i] else float(piece.margin),
+                                  "field" if piece.field else "path"))
     # walls
     bounds = shapely.bounds(polys)
     wm = world.wall_margin * tol_frac - 1e-4
     bad = np.where((bounds[:, 0] < wm) | (bounds[:, 1] < wm) |
                    (bounds[:, 2] > world.length - wm) | (bounds[:, 3] > world.width - wm))[0]
     for i in bad:
-        hits.append(Collision(int(i), float(t[i]), float(x[i]), float(y[i]), "Field wall", 0.0))
+        hits.append(Collision(int(i), float(t[i]), float(x[i]), float(y[i]), "Field wall", 0.0, "wall"))
     return hits

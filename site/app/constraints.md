@@ -12,6 +12,7 @@ Open the **Constraint** menu in the toolbar and pick a type, then **click the fi
 | Keep in / Keep out region | Draw a polygon instead of picking waypoints. |
 | Rough terrain | Draw a polygon over a bump. See [below](#rough-terrain). |
 | Intake extended | The intake is out between the two waypoints, or in a zone. See [below](#intake-extended). |
+| Ignore field | The solver ignores field obstacles between the two waypoints. See [below](#ignore-field). |
 
 Selecting a constraint highlights the part of the path it covers. In its panel you can change the limit, move it to other waypoints, or make a velocity limit apply **in a zone** (a drawn region) instead.
 
@@ -24,6 +25,15 @@ On the robot, bind your deploy command to `AutoTrajectory.intakeExtended()`:
 ```java
 traj.intakeExtended().whileTrue(intake.deploy());
 ```
+
+## Ignore field
+
+Between the two waypoints, the solver skips the field's obstacles, so the path can go straight through something drawn as an obstacle (a bump the robot drives over, for example). Pick one waypoint to only let that waypoint sit inside an obstacle.
+
+- **Ignore field obstacles** (on by default) skips every field obstacle.
+- **Ignore field walls** lets the bumpers reach past the walls too.
+
+The path's own keep-out regions still apply. Outside the range, everything is checked as usual. If the obstacle should be crossable on every path, disable it in [Field mode](/app/field) instead.
 
 ## Rough terrain
 

@@ -50,6 +50,7 @@
         "data": {
           "discriminator": {
             "mapping": {
+              "ignoreField": "#/$defs/IgnoreField",
               "intakeExtended": "#/$defs/IntakeExtended",
               "keepIn": "#/$defs/KeepIn",
               "keepOut": "#/$defs/KeepOut",
@@ -89,6 +90,9 @@
             },
             {
               "$ref": "#/$defs/IntakeExtended"
+            },
+            {
+              "$ref": "#/$defs/IgnoreField"
             }
           ],
           "title": "Data"
@@ -315,6 +319,31 @@
         }
       },
       "title": "FuelSimConfig",
+      "type": "object"
+    },
+    "IgnoreField": {
+      "description": "The solver ignores the field over this scope.\n\nFor stretches where the robot may cross something drawn as a field obstacle (a bump, a\nramp) or touch the wall. Field obstacles (and the walls, when `walls` is set) are not\nchecked at the scope's samples or on the intervals touching them; the path's own\nkeep-out regions still apply. Waypoint or range scope only.",
+      "properties": {
+        "type": {
+          "const": "ignoreField",
+          "default": "ignoreField",
+          "title": "Type",
+          "type": "string"
+        },
+        "obstacles": {
+          "default": true,
+          "description": "Ignore the field's obstacles",
+          "title": "Obstacles",
+          "type": "boolean"
+        },
+        "walls": {
+          "default": false,
+          "description": "Ignore the field walls",
+          "title": "Walls",
+          "type": "boolean"
+        }
+      },
+      "title": "IgnoreField",
       "type": "object"
     },
     "Intake": {

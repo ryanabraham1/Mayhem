@@ -70,6 +70,7 @@ export const CONSTRAINT_LABELS: Record<ConstraintType, string> = {
   keepOut: "Keep out region",
   roughTerrain: "Rough terrain",
   intakeExtended: "Intake extended",
+  ignoreField: "Ignore field",
 };
 
 /** Constraint types placed by drawing a region instead of picking waypoints. */
@@ -107,6 +108,7 @@ export function defaultConstraintData(type: ConstraintType, at?: Vec2): Constrai
     case "roughTerrain": return { type, expectedSpeed: 0.7, feedbackScale: 0.3 };
     case "straightLine": return { type, tolerance: 0.02 };
     case "intakeExtended": return { type };
+    case "ignoreField": return { type, obstacles: true, walls: false };
   }
 }
 

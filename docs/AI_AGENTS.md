@@ -13,11 +13,11 @@ open editor's unsaved changes or update its in-memory state.
 ## Install and connect
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
-Download the `mayhem_solver-0.8.4-py3-none-any.whl` package from
-[GitHub Releases](https://github.com/ryanabraham1/Mayhem/releases/tag/v0.8.4), then install it:
+Download the `mayhem_solver-0.8.5-py3-none-any.whl` package from
+[GitHub Releases](https://github.com/ryanabraham1/Mayhem/releases/tag/v0.8.5), then install it:
 
 ```sh
-uv tool install --with 'mcp>=1.28,<2' /path/to/mayhem_solver-0.8.4-py3-none-any.whl
+uv tool install --with 'mcp>=1.28,<2' /path/to/mayhem_solver-0.8.5-py3-none-any.whl
 mayhem-mcp --workspace /absolute/path/to/robot-workspace
 ```
 

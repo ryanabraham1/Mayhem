@@ -163,6 +163,7 @@ export function constraintValue(c: Constraint) {
   if (d.type === "straightLine") return `±${(d.tolerance * 100).toFixed(0)} cm`;
   if (d.type === "roughTerrain") return "bump zone";
   if (d.type === "intakeExtended") return "intake out";
+  if (d.type === "ignoreField") return d.obstacles && d.walls ? "obstacles + walls" : d.walls ? "walls" : d.obstacles ? "obstacles" : "nothing";
   return `${d.points.length} pts`;
 }
 
@@ -187,6 +188,7 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
   const d = c.data;
   const regionOnly = d.type === "keepOut" || d.type === "keepIn" || d.type === "roughTerrain";
   const rangeOnly = d.type === "straightLine";
+  const noZone = d.type === "ignoreField";
   return (
     <Card title={CONSTRAINT_LABELS[d.type]}
       actions={
@@ -210,6 +212,7 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
               }
               x.scope.kind = "range";
             }
+            if (v === "ignoreField" && x.scope.kind === "zone") x.scope.kind = "range";
             // A straight line needs two waypoints; the editor only offers From/To for it.
             if (v === "straightLine") {
               x.scope.kind = "range";
@@ -250,6 +253,13 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
           </>
         )}
         {d.type === "intakeExtended" && <IntakeNote />}
+        {d.type === "ignoreField" && (
+          <>
+            <div className="note">The solver lets the robot cross the field here, e.g. to drive over a bump drawn as an obstacle. This path's keep-out regions still apply.</div>
+            <Check label="Ignore field obstacles" checked={d.obstacles} onChange={(v) => set((x) => { if (x.data.type === "ignoreField") x.data.obstacles = v; })} />
+            <Check label="Ignore field walls" checked={d.walls} onChange={(v) => set((x) => { if (x.data.type === "ignoreField") x.data.walls = v; })} />
+          </>
+        )}
         {d.type === "keepOut" && (
           <NumberField label="Margin" unit="m" value={d.margin} min={0} onChange={(v) => set((x) => { if (x.data.type === "keepOut") x.data.margin = v; })} />
         )}
@@ -264,7 +274,8 @@ export function ConstraintEditor({ traj, c, upd }: { traj: Trajectory; c: Constr
                   x.scope.region = [[w.x - 1, w.y - 1], [w.x + 1, w.y - 1], [w.x + 1, w.y + 1], [w.x - 1, w.y + 1]];
                 }
               })}
-                options={[{ value: "waypoint", label: "At waypoint" }, { value: "range", label: "Between" }, { value: "zone", label: "In zone" }]} />
+                options={[{ value: "waypoint", label: "At waypoint" }, { value: "range", label: "Between" },
+                  ...(noZone ? [] : [{ value: "zone" as const, label: "In zone" }])]} />
             </label>}
             {c.scope.kind !== "zone" && n > 0 && (
               <div className={c.scope.kind === "range" ? "field-row" : ""}>

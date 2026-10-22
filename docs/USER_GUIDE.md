@@ -74,6 +74,7 @@ While paths are generating, click **Cancel generation** in the top bar to stop r
 | Keep in / Keep out region | Draw a polygon instead of picking waypoints |
 | Rough terrain | Draw a polygon over a bump on this path. To cover every path, select the obstacle in **Field** mode and turn on **Rough terrain on every path** instead (the REBUILT bumps already are). The solver keeps its planned speed; the exported path marks the covered samples for the robot library. |
 | Intake extended | The intake (Settings → Robot) is out between the two waypoints, or in a zone. The solver keeps the intake clear of obstacles and walls there as well as the bumpers. The field shows the intake on those waypoints and highlights that stretch of the path in amber. On the robot, bind your deploy command to `AutoTrajectory.intakeExtended()`. |
+| Ignore field | Between the two waypoints (or at one), the solver ignores the field's obstacles, so the path can cross something drawn as an obstacle, like a bump. Turn on **Ignore field walls** to let the bumpers reach past the walls there too. The path's own keep-out regions still apply. |
 
 Selecting a constraint highlights the part of the path it covers. In its panel you can change the limit, move it to other waypoints, or make a velocity limit apply **in a zone** (a drawn region) instead.
 
