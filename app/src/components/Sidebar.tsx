@@ -5,7 +5,7 @@ import {
   FolderOpen, FolderPlus, FlipVertical2, Gauge, Link2, Loader2, Minus, Pencil, Pentagon, Play, Plus, Route, Trash2,
 } from "lucide-react";
 import { useStore } from "../store";
-import { CONSTRAINT_LABELS, folderList, newMarker, reorderWaypoint, totalTime } from "../model";
+import { CONSTRAINT_LABELS, folderLeaf, folderList, folderParent, inFolderTree, newMarker, reorderWaypoint, totalTime } from "../model";
 import type { ConstraintType, Trajectory } from "../types";
 import { constraintValue, scopeText, wpLabel } from "./Inspector";
 
@@ -39,8 +39,9 @@ function PathsSections() {
   );
 }
 
-/** Where a dragged path would land: into a folder (at its end) or before another path. */
+/** Where a dragged path or folder would land: into a folder (at its end) or before another path. */
 type DropTarget = { folder: string | null; before: string | null } | null;
+type Dragging = { kind: "path" | "folder"; name: string } | null;
 
 function PathList() {
   const order = useStore((s) => s.order);
@@ -52,90 +53,118 @@ function PathList() {
   const a = useStore.getState();
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [dragging, setDragging] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<Dragging>(null);
   const [drop, setDrop] = useState<DropTarget>(null);
 
   const folders = folderList(project, trajectories);
   const loose = order.filter((n) => !trajectories[n].folder);
   const inFolder = (f: string) => order.filter((n) => trajectories[n].folder === f);
+  const subfolders = (f: string | null) => folders.filter((c) => folderParent(c) === f);
+  const endDrag = () => { setDragging(null); setDrop(null); };
 
   const dropProps = (target: NonNullable<DropTarget>) => ({
     onDragOver: (e: React.DragEvent) => {
       if (!dragging) return;
-      e.preventDefault();
       e.stopPropagation();
+      // A folder can't go inside itself; stopping here also keeps the list behind from taking the drop.
+      if (dragging.kind === "folder" && inFolderTree(target.folder, dragging.name)) {
+        if (drop) setDrop(null);
+        return;
+      }
+      e.preventDefault();
       if (drop?.folder !== target.folder || drop?.before !== target.before) setDrop(target);
     },
     onDrop: (e: React.DragEvent) => {
       if (!dragging) return;
       e.preventDefault();
       e.stopPropagation();
-      a.moveTrajectory(dragging, target.folder, target.before);
-      setDragging(null);
-      setDrop(null);
+      if (dragging.kind === "path") a.moveTrajectory(dragging.name, target.folder, target.before);
+      else a.moveFolder(dragging.name, target.folder);
+      endDrag();
     },
   });
 
-  const newFolder = () => setRenamingFolder(a.addFolder());
+  const newFolder = (parent?: string) => {
+    if (parent) setCollapsed({ ...collapsed, [parent]: false });
+    setRenamingFolder(a.addFolder(undefined, parent));
+  };
 
   const row = (name: string) => (
-    <PathRow key={name} name={name} folders={folders} indent={!!trajectories[name].folder}
-      dropBefore={!!dragging && drop?.before === name}
-      onDragStart={() => setDragging(name)} onDragEnd={() => { setDragging(null); setDrop(null); }}
+    <PathRow key={name} name={name} folders={folders} depth={trajectories[name].folder?.split("/").length ?? 0}
+      dropBefore={dragging?.kind === "path" && drop?.before === name}
+      onDragStart={() => setDragging({ kind: "path", name })} onDragEnd={endDrag}
       onNewFolder={() => { const f = a.addFolder(); a.moveTrajectory(name, f); setRenamingFolder(f); }}
       {...dropProps({ folder: trajectories[name].folder ?? null, before: name })} />
   );
 
+  const folderNode = (f: string, depth: number): React.ReactNode => {
+    const names = inFolder(f);
+    const children = subfolders(f);
+    const all = order.filter((n) => inFolderTree(trajectories[n].folder, f));
+    const open = !collapsed[f];
+    const solvable = all.filter((n) => trajectories[n].waypoints.length >= 2);
+    return (
+      <div key={f}>
+        <div className={`item folder ${dragging && drop && drop.folder === f && drop.before === null ? "drop-into" : ""}`}
+          style={{ "--depth": depth } as React.CSSProperties}
+          draggable={renamingFolder !== f}
+          onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", f); setDragging({ kind: "folder", name: f }); }}
+          onDragEnd={endDrag}
+          onClick={() => setCollapsed({ ...collapsed, [f]: open })} onDoubleClick={() => setRenamingFolder(f)}
+          {...dropProps({ folder: f, before: null })}>
+          <span className="icon">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+          <span className="icon">{open ? <FolderOpen size={15} /> : <Folder size={15} />}</span>
+          {renamingFolder === f ? (
+            <RenameInput value={folderLeaf(f)} onDone={(v) => { if (v !== null) a.renameFolder(f, v); setRenamingFolder(null); }} />
+          ) : (
+            <span className="name">{folderLeaf(f)}</span>
+          )}
+          <span className="meta">{all.length}</span>
+          <span className="actions">
+            <button className="btn ghost icon sm" title="New path in this folder" onClick={(e) => {
+              e.stopPropagation();
+              a.addTrajectory("New Path", f);
+              setCollapsed({ ...collapsed, [f]: false });
+            }}><Plus size={13} /></button>
+            <button className="btn ghost icon sm" title="New folder inside this one" onClick={(e) => {
+              e.stopPropagation();
+              newFolder(f);
+            }}><FolderPlus size={13} /></button>
+            <button className="btn ghost icon sm" title="Generate every path in this folder"
+              disabled={status !== "ready" || !solvable.length || generatingAll || Object.values(solves).some((s) => s.status === "solving")}
+              onClick={(e) => { e.stopPropagation(); void a.solveAll(solvable); }}><Play size={13} /></button>
+            <button className="btn ghost icon sm danger" title="Delete folder (keeps its contents)" onClick={(e) => {
+              e.stopPropagation();
+              const where = folderParent(f) ? `"${folderLeaf(folderParent(f)!)}"` : "the top level";
+              if (!all.length && !children.length) a.deleteFolder(f);
+              else if (window.confirm(`Delete folder "${folderLeaf(f)}"? What's inside moves up to ${where}.`)) a.deleteFolder(f);
+            }}><Trash2 size={13} /></button>
+          </span>
+        </div>
+        {open && children.map((c) => folderNode(c, depth + 1))}
+        {open && names.map(row)}
+        {open && !names.length && !children.length && (
+          <div className="sidebar-empty indent" style={{ "--depth": depth } as React.CSSProperties}>Empty. Drag paths here.</div>
+        )}
+      </div>
+    );
+  };
+
+  const canLeave = dragging && (dragging.kind === "path" ? !!trajectories[dragging.name]?.folder : !!folderParent(dragging.name));
   return (
     <div className="section" {...dropProps({ folder: null, before: null })}>
       <div className="section-head">
         <span>Paths<span className="count">{order.length}</span></span>
         <span style={{ display: "flex", gap: 2 }}>
-          <button className="btn ghost icon sm" title="New folder" onClick={newFolder}><FolderPlus size={15} /></button>
+          <button className="btn ghost icon sm" title="New folder" onClick={() => newFolder()}><FolderPlus size={15} /></button>
           <button className="btn ghost icon sm" title="New path" onClick={() => a.addTrajectory("New Path")}><Plus size={15} /></button>
         </span>
       </div>
       {!order.length && !folders.length && <div className="sidebar-empty">No paths yet. Click + to add one.</div>}
-      {folders.map((f) => {
-        const names = inFolder(f);
-        const open = !collapsed[f];
-        const solvable = names.filter((n) => trajectories[n].waypoints.length >= 2);
-        return (
-          <div key={f}>
-            <div className={`item folder ${dragging && drop && drop.folder === f && drop.before === null ? "drop-into" : ""}`}
-              onClick={() => setCollapsed({ ...collapsed, [f]: open })} onDoubleClick={() => setRenamingFolder(f)}
-              {...dropProps({ folder: f, before: null })}>
-              <span className="icon">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
-              <span className="icon">{open ? <FolderOpen size={15} /> : <Folder size={15} />}</span>
-              {renamingFolder === f ? (
-                <RenameInput value={f} onDone={(v) => { if (v !== null) a.renameFolder(f, v); setRenamingFolder(null); }} />
-              ) : (
-                <span className="name">{f}</span>
-              )}
-              <span className="meta">{names.length}</span>
-              <span className="actions">
-                <button className="btn ghost icon sm" title="New path in this folder" onClick={(e) => {
-                  e.stopPropagation();
-                  a.addTrajectory("New Path", f);
-                  setCollapsed({ ...collapsed, [f]: false });
-                }}><Plus size={13} /></button>
-                <button className="btn ghost icon sm" title="Generate every path in this folder"
-                  disabled={status !== "ready" || !solvable.length || generatingAll || Object.values(solves).some((s) => s.status === "solving")}
-                  onClick={(e) => { e.stopPropagation(); void a.solveAll(solvable); }}><Play size={13} /></button>
-                <button className="btn ghost icon sm danger" title="Delete folder (keeps its paths)" onClick={(e) => {
-                  e.stopPropagation();
-                  if (!names.length || window.confirm(`Delete folder "${f}"? Its ${names.length} path${names.length === 1 ? "" : "s"} move to the top level.`)) a.deleteFolder(f);
-                }}><Trash2 size={13} /></button>
-              </span>
-            </div>
-            {open && names.map(row)}
-            {open && !names.length && <div className="sidebar-empty indent">Empty. Drag paths here.</div>}
-          </div>
-        );
-      })}
+      {subfolders(null).map((f) => folderNode(f, 0))}
       {loose.map(row)}
-      {dragging && trajectories[dragging]?.folder && (
-        <div className={`drop-zone ${drop?.folder === null && drop.before === null ? "on" : ""}`}>Drop here to remove from folder</div>
+      {canLeave && (
+        <div className={`drop-zone ${drop?.folder === null && drop.before === null ? "on" : ""}`}>Drop here to move to the top level</div>
       )}
     </div>
   );
@@ -162,8 +191,8 @@ function RenameInput({ value, onDone }: { value: string; onDone: (v: string | nu
   );
 }
 
-function PathRow({ name, folders, indent, dropBefore, onDragStart, onDragEnd, onNewFolder, onDragOver, onDrop }: {
-  name: string; folders: string[]; indent: boolean; dropBefore: boolean;
+function PathRow({ name, folders, depth, dropBefore, onDragStart, onDragEnd, onNewFolder, onDragOver, onDrop }: {
+  name: string; folders: string[]; depth: number; dropBefore: boolean;
   onDragStart: () => void; onDragEnd: () => void; onNewFolder: () => void;
   onDragOver: (e: React.DragEvent) => void; onDrop: (e: React.DragEvent) => void;
 }) {
@@ -211,7 +240,8 @@ function PathRow({ name, folders, indent, dropBefore, onDragStart, onDragEnd, on
   if (st?.status === "failed") meta = "failed";
   const move = (f: string | null) => { a.moveTrajectory(name, f); setMenu(false); };
   return (
-    <div className={`item ${selected ? "on" : ""} ${indent ? "indent" : ""} ${dropBefore ? "drop-before" : ""}`}
+    <div className={`item ${selected ? "on" : ""} ${depth ? "indent" : ""} ${dropBefore ? "drop-before" : ""}`}
+      style={depth ? { "--depth": depth - 1 } as React.CSSProperties : undefined}
       draggable={!renaming}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", name); onDragStart(); }}
       onDragEnd={onDragEnd} onDragOver={onDragOver} onDrop={onDrop}
@@ -235,7 +265,10 @@ function PathRow({ name, folders, indent, dropBefore, onDragStart, onDragEnd, on
             <div className="menu folder-menu" onClick={(e) => e.stopPropagation()}>
               {t.folder && <button className="menu-item" onClick={() => move(null)}><FolderMinus size={15} /><span className="menu-title">Top level</span></button>}
               {folders.filter((f) => f !== t.folder).map((f) => (
-                <button key={f} className="menu-item" onClick={() => move(f)}><Folder size={15} /><span className="menu-title">{f}</span></button>
+                <button key={f} className="menu-item" title={f.split("/").join(" / ")} onClick={() => move(f)}
+                  style={{ paddingLeft: 10 + 14 * (f.split("/").length - 1) }}>
+                  <Folder size={15} /><span className="menu-title">{folderLeaf(f)}</span>
+                </button>
               ))}
               <button className="menu-item" onClick={() => { setMenu(false); onNewFolder(); }}><FolderPlus size={15} /><span className="menu-title">New folder…</span></button>
             </div>

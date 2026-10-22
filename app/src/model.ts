@@ -29,10 +29,34 @@ export function newTrajectory(name: string): Trajectory {
   };
 }
 
-/** Folders to show in the sidebar: the project's list, plus any a path file names that it lacks. */
+// Folders nest by "/": "Auto/Left" is the folder "Left" inside "Auto".
+
+/** The folder that holds this one, or null at the top level. */
+export function folderParent(f: string): string | null {
+  const i = f.lastIndexOf("/");
+  return i < 0 ? null : f.slice(0, i);
+}
+
+/** The folder's own name, without its parents. */
+export function folderLeaf(f: string): string {
+  return f.slice(f.lastIndexOf("/") + 1);
+}
+
+/** Whether `f` is `root` or anywhere inside it. */
+export function inFolderTree(f: string | null | undefined, root: string): boolean {
+  return !!f && (f === root || f.startsWith(root + "/"));
+}
+
+/** Folders to show in the sidebar: the project's list, plus any a path file names that it lacks, plus their parents. */
 export function folderList(project: Project | null, trajectories: Record<string, Trajectory>): string[] {
-  const out = [...(project?.folders ?? [])];
-  for (const t of Object.values(trajectories)) if (t.folder && !out.includes(t.folder)) out.push(t.folder);
+  const out: string[] = [];
+  const add = (f: string) => {
+    const p = folderParent(f);
+    if (p) add(p);
+    if (!out.includes(f)) out.push(f);
+  };
+  for (const f of project?.folders ?? []) add(f);
+  for (const t of Object.values(trajectories)) if (t.folder) add(t.folder);
   return out;
 }
 

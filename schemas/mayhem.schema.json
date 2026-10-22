@@ -993,7 +993,7 @@
           "type": "array"
         },
         "folders": {
-          "description": "Path folders shown in the sidebar, in order",
+          "description": "Path folders shown in the sidebar, in order; \"/\" nests folders",
           "items": {
             "type": "string"
           },
@@ -1667,7 +1667,7 @@
             }
           ],
           "default": null,
-          "description": "Sidebar folder; organisational only, ignored by the solver",
+          "description": "Sidebar folder; \"/\" nests folders (\"Auto/Left\"). Organisational only, ignored by the solver",
           "title": "Folder"
         },
         "output": {

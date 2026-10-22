@@ -87,7 +87,7 @@ export interface TrajectoryOutput {
 export interface Trajectory {
   formatVersion: number; name: string; waypoints: Waypoint[]; constraints: Constraint[]; markers: Marker[];
   settings: SolverSettings; output: TrajectoryOutput | null;
-  /** sidebar folder; organisational only */
+  /** sidebar folder; "/" nests folders ("Auto/Left"); organisational only */
   folder?: string | null;
 }
 /** Another robot (ally or opponent) in the fuel playback sim; drives a smooth curve through its points. */

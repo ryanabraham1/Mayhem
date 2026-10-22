@@ -325,7 +325,7 @@ class Trajectory(Model):
     markers: list[Marker] = Field(default_factory=list)
     settings: SolverSettings = SolverSettings()
     folder: Optional[str] = Field(
-        None, description="Sidebar folder; organisational only, ignored by the solver"
+        None, description="Sidebar folder; \"/\" nests folders (\"Auto/Left\"). Organisational only, ignored by the solver"
     )
     output: Optional["TrajectoryOutput"] = None
 
@@ -476,7 +476,7 @@ class Project(Model):
     )
     poses: list[PoseVariable] = Field(default_factory=list)
     folders: list[str] = Field(
-        default_factory=list, description="Path folders shown in the sidebar, in order"
+        default_factory=list, description="Path folders shown in the sidebar, in order; \"/\" nests folders"
     )
     fuel_sim: FuelSimConfig = Field(
         default_factory=FuelSimConfig, description="Fuel playback sim setup; not used by the solver"

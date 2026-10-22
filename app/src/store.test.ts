@@ -335,3 +335,41 @@ describe("fuel sim setup", () => {
     expect(useStore.getState().fuelSimOn).toBe(false);
   });
 });
+
+describe("nested folders", () => {
+  beforeEach(() => {
+    useStore.setState({ project: { ...makeProject(), folders: ["Auto", "Auto/Left"] } });
+    useStore.setState((s) => {
+      s.trajectories.A.folder = "Auto";
+      s.trajectories.B.folder = "Auto/Left";
+    });
+  });
+
+  it("adds a folder inside another and keeps names unique there", () => {
+    expect(useStore.getState().addFolder("Left", "Auto")).toBe("Auto/Left 2");
+    expect(useStore.getState().addFolder("Right/Side", "Auto")).toBe("Auto/Right-Side");
+  });
+
+  it("renames a folder along with its subfolders and paths", () => {
+    useStore.getState().renameFolder("Auto", "Blue");
+    const s = useStore.getState();
+    expect(s.project!.folders).toEqual(["Blue", "Blue/Left"]);
+    expect([s.trajectories.A.folder, s.trajectories.B.folder]).toEqual(["Blue", "Blue/Left"]);
+  });
+
+  it("moves a folder to the top level and refuses to move one into itself", () => {
+    useStore.getState().moveFolder("Auto", "Auto/Left");
+    expect(useStore.getState().trajectories.B.folder).toBe("Auto/Left");
+    useStore.getState().moveFolder("Auto/Left", null);
+    const s = useStore.getState();
+    expect(s.project!.folders).toEqual(["Auto", "Left"]);
+    expect(s.trajectories.B.folder).toBe("Left");
+  });
+
+  it("moves a deleted folder's contents up one level", () => {
+    useStore.getState().deleteFolder("Auto");
+    const s = useStore.getState();
+    expect(s.project!.folders).toEqual(["Left"]);
+    expect([s.trajectories.A.folder, s.trajectories.B.folder]).toEqual([null, "Left"]);
+  });
+});

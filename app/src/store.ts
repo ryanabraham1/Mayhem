@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { enableMapSet, produce } from "immer";
 import { backend, type BackendStatus } from "./backend";
-import { flippedName, flipTrajectoryY, folderList, newTrajectory } from "./model";
+import { flippedName, flipTrajectoryY, folderLeaf, folderList, folderParent, inFolderTree, newTrajectory } from "./model";
 import type { ConstraintType, DrivetrainInfo, Field, FuelSimConfig, Issue, Project, Trajectory, Vec2 } from "./types";
 import { DEFAULT_FUEL_SIM } from "./fuelsim";
 
@@ -106,9 +106,13 @@ interface Actions {
   renameTrajectory(oldName: string, newName: string): Promise<void>;
   /** Put a path in a folder (null = top level), optionally placing it before another path. */
   moveTrajectory(name: string, folder: string | null, before?: string | null): void;
-  addFolder(name?: string): string;
+  /** Adds a folder, inside `parent` when given; returns its full "/" path. */
+  addFolder(name?: string, parent?: string | null): string;
+  /** Renames a folder in place; `newName` is just its own name, not its parents'. */
   renameFolder(oldName: string, newName: string): void;
-  /** Removes the folder; its paths move to the top level. */
+  /** Puts a folder, with everything in it, inside another folder (null = top level). */
+  moveFolder(name: string, parent: string | null): void;
+  /** Removes the folder; its paths and subfolders move up one level. */
   deleteFolder(name: string): void;
   undo(): void;
   redo(): void;
@@ -245,6 +249,23 @@ export const useStore = create<State & Actions>()(
       const { dir, project } = get();
       if (!dir || !project) return;
       scheduleSave(`project:${dir}`, () => backend.call("saveProject", { dir, project }));
+    };
+
+    /** Renames or moves a folder to the full path `to`, carrying its subfolders and paths along. */
+    const relocateFolder = (from: string, to: string) => {
+      if (folderList(get().project, get().trajectories).includes(to)) {
+        get().toast("error", `A folder named "${folderLeaf(to)}" already exists there`);
+        return;
+      }
+      const re = (f: string) => (inFolderTree(f, from) ? to + f.slice(from.length) : f);
+      const moved = get().order.filter((n) => inFolderTree(get().trajectories[n].folder, from));
+      get().checkpoint();
+      set((s) => {
+        if (s.project) s.project.folders = folderList(s.project, s.trajectories).map(re);
+        moved.forEach((n) => { s.trajectories[n].folder = re(s.trajectories[n].folder!); });
+      });
+      moved.forEach(saveTraj);
+      saveProject();
     };
 
     const markStale = (name: string) => {
@@ -672,12 +693,13 @@ export const useStore = create<State & Actions>()(
         saveProject();
       },
 
-      addFolder(name) {
+      addFolder(name, parent) {
         const existing = new Set(folderList(get().project, get().trajectories));
-        let n = name?.trim() || "New Folder";
-        const base = n;
+        const leaf = name?.replace(/\//g, "-").trim() || "New Folder";
+        const at = (l: string) => (parent ? `${parent}/${l}` : l);
+        let n = at(leaf);
         let i = 2;
-        while (existing.has(n)) n = `${base} ${i++}`;
+        while (existing.has(n)) n = at(`${leaf} ${i++}`);
         get().checkpoint();
         set((s) => {
           s.project?.folders.push(n);
@@ -687,32 +709,30 @@ export const useStore = create<State & Actions>()(
       },
 
       renameFolder(oldName, newName) {
-        newName = newName.trim();
-        if (!newName || newName === oldName) return;
-        if (folderList(get().project, get().trajectories).includes(newName)) {
-          get().toast("error", `A folder named "${newName}" already exists`);
-          return;
-        }
-        const moved = get().order.filter((n) => get().trajectories[n].folder === oldName);
-        get().checkpoint();
-        set((s) => {
-          if (s.project) {
-            const i = s.project.folders.indexOf(oldName);
-            if (i >= 0) s.project.folders[i] = newName;
-            else s.project.folders.push(newName);
-          }
-          moved.forEach((n) => { s.trajectories[n].folder = newName; });
-        });
-        moved.forEach(saveTraj);
-        saveProject();
+        // "/" nests folders, so it can't be part of a name.
+        const leaf = newName.replace(/\//g, "-").trim();
+        if (!leaf || leaf === folderLeaf(oldName)) return;
+        const parent = folderParent(oldName);
+        relocateFolder(oldName, parent ? `${parent}/${leaf}` : leaf);
+      },
+
+      moveFolder(name, parent) {
+        if (parent === folderParent(name) || inFolderTree(parent, name)) return;
+        relocateFolder(name, parent ? `${parent}/${folderLeaf(name)}` : folderLeaf(name));
       },
 
       deleteFolder(name) {
-        const moved = get().order.filter((n) => get().trajectories[n].folder === name);
+        const parent = folderParent(name);
+        // Everything inside moves up a level: "A/B/x" -> "A/x" when deleting "A/B".
+        const up = (f: string) => (f === name ? parent : parent ? parent + f.slice(name.length) : f.slice(name.length + 1));
+        const moved = get().order.filter((n) => inFolderTree(get().trajectories[n].folder, name));
         get().checkpoint();
         set((s) => {
-          if (s.project) s.project.folders = s.project.folders.filter((f) => f !== name);
-          moved.forEach((n) => { s.trajectories[n].folder = null; });
+          if (s.project) {
+            s.project.folders = [...new Set(folderList(s.project, s.trajectories).filter((f) => f !== name)
+              .map((f) => (inFolderTree(f, name) ? up(f)! : f)))];
+          }
+          moved.forEach((n) => { s.trajectories[n].folder = up(s.trajectories[n].folder!); });
         });
         moved.forEach(saveTraj);
         saveProject();
