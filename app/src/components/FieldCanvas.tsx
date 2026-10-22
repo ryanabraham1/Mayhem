@@ -528,6 +528,9 @@ export function FieldCanvas({ mode }: { mode: Mode }) {
         for (const c of t.constraints) {
           if (c.scope.kind === "range" && c.scope.to === n - 1 && n > 1 && c.scope.from !== c.scope.to) c.scope.to = n;
         }
+        for (const m of t.markers) {
+          if (m.endWaypoint === n - 1 && n > 1 && m.waypoint !== m.endWaypoint) m.endWaypoint = n;
+        }
         t.waypoints.push(w);
       }, true);
       st().select({ kind: "waypoint", index: idx });

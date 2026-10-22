@@ -354,14 +354,18 @@ export function reorderWaypoint(t: Trajectory, from: number, to: number) {
   }
   for (const c of t.constraints) {
     if (c.scope.kind === "zone") continue;
+    // A range that ran to the end of the path keeps running to the end, whichever waypoint is last now.
+    const toEnd = c.scope.kind === "range" && c.scope.to === n - 1 && c.scope.from !== c.scope.to;
     const a = newIndex[c.scope.from] ?? c.scope.from;
-    const b = newIndex[c.scope.to] ?? c.scope.to;
+    const b = toEnd ? n - 1 : newIndex[c.scope.to] ?? c.scope.to;
     c.scope.from = Math.min(a, b);
     c.scope.to = Math.max(a, b);
   }
   for (const m of t.markers) {
+    // Same for a marker zone that ran to the end.
+    const toEnd = m.endWaypoint === n - 1 && m.waypoint !== m.endWaypoint;
     m.waypoint = newIndex[m.waypoint] ?? m.waypoint;
-    if (m.endWaypoint !== null) m.endWaypoint = newIndex[m.endWaypoint] ?? m.endWaypoint;
+    if (m.endWaypoint !== null) m.endWaypoint = toEnd ? n - 1 : newIndex[m.endWaypoint] ?? m.endWaypoint;
   }
 }
 

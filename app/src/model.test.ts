@@ -141,6 +141,26 @@ describe("reorderWaypoint", () => {
     expect([t.constraints[0].scope.from, t.constraints[0].scope.to]).toEqual([2, 3]);
     expect(t.markers[0].waypoint).toBe(0);
   });
+
+  it("keeps a range that runs to the end running to the end when the last waypoint moves", async () => {
+    const { reorderWaypoint, newTrajectory, newConstraint, newWaypoint } = await import("./model");
+    const t = newTrajectory("x");
+    t.waypoints = [0, 1, 2, 3, 4].map((x) => newWaypoint(x, 0));
+    const c = newConstraint("intakeExtended", 5, undefined, 2, 4);
+    t.constraints = [c];
+    reorderWaypoint(t, 4, 1);
+    expect([c.scope.from, c.scope.to]).toEqual([3, 4]);
+  });
+
+  it("keeps a marker zone that runs to the end running to the end when the last waypoint moves", async () => {
+    const { reorderWaypoint, newTrajectory, newMarker, newWaypoint } = await import("./model");
+    const t = newTrajectory("x");
+    t.waypoints = [0, 1, 2, 3, 4].map((x) => newWaypoint(x, 0));
+    const m = { ...newMarker(2), endWaypoint: 4 };
+    t.markers = [m];
+    reorderWaypoint(t, 4, 1);
+    expect([m.waypoint, m.endWaypoint]).toEqual([3, 4]);
+  });
 });
 
 describe("deleteWaypoint", () => {
