@@ -282,4 +282,6 @@ cd site && pnpm build                   # static output in site/.vitepress/dist
 
 `.github/workflows/docs.yml` builds the site on pull requests that touch `site/` and, on a push to `main`, publishes it with `scripts/publish-docs.sh`. The script replaces everything at the root of the `gh-pages` branch except `maven/` and `MayhemLib.json`, which `scripts/publish-pages.sh` owns (see "Hosting MayhemLib"), and the two workflows share the `mayhemlib-pages` concurrency group so pushes to the branch never race. The docs and the MayhemLib files live on the same Pages site, so no extra Pages setup is needed once the branch is serving.
 
+The API reference (`/api/`) is generated: `./gradlew apiJson` in `lib/` runs the doclet in `lib/src/doclet`, which writes `site/api/mayhemlib.json`, and `site/.vitepress/api.ts` turns that into the API sidebar, one page per class (the dynamic route `site/api/[pkg]/[cls].md`) and local-search entries. The docs workflow sets up JDK 17, regenerates the JSON, builds the site and copies the standard Javadoc (`./gradlew javadoc`) to `/javadoc/`. It also runs on changes under `lib/src/main/`, so Javadoc edits republish the site. Commit the regenerated JSON with Javadoc changes so local previews match.
+
 `site/` repeats material from `docs/USER_GUIDE.md` and `lib/README.md`; update both when behavior changes.

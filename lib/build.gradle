@@ -29,7 +29,31 @@ tasks.withType(JavaCompile).configureEach {
     options.compilerArgs += ['-Xlint:unchecked', '-Xlint:deprecation']
 }
 
-javadoc { options.addStringOption('Xdoclint:none', '-quiet') }
+javadoc {
+    options.addStringOption('Xdoclint:none', '-quiet')
+    title = "MayhemLib ${version} API"
+}
+
+// A doclet (src/doclet) that exports the public API and its comments as JSON for the docs site,
+// which renders it as the API reference at /api/. Run it after changing Javadoc:
+//   ./gradlew apiJson        (writes ../site/api/mayhemlib.json)
+sourceSets { doclet }
+tasks.named('compileDocletJava') { options.release = 17 }
+
+tasks.register('apiJson', Javadoc) {
+    description = 'Exports the MayhemLib API and Javadoc as JSON for the docs site'
+    source = sourceSets.main.allJava
+    classpath = sourceSets.main.compileClasspath
+    destinationDir = layout.buildDirectory.dir('docs/api-json').get().asFile
+    def outFile = file('../site/api/mayhemlib.json')
+    outputs.file(outFile)
+    dependsOn 'docletClasses'
+    options.doclet = 'mayhemdoclet.ApiJsonDoclet'
+    options.docletpath = sourceSets.doclet.output.classesDirs.files.toList()
+    options.addStringOption('out', outFile.absolutePath)
+    options.addStringOption('apiversion', version.toString())
+    options.addBooleanOption('quiet', true)
+}
 
 dependencies {
     // Provided by the robot project (WPILib + vendordeps); never bundled.

@@ -1,6 +1,12 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vitepress";
+import { apiSearchSections, apiSidebar, loadApi } from "./api";
 
 const repo = "https://github.com/ryanabraham1/Mayhem";
+const appVersion: string = JSON.parse(
+  readFileSync(new URL("../../app/package.json", import.meta.url), "utf-8"),
+).version;
+const api = loadApi();
 
 export default defineConfig({
   title: "Mayhem",
@@ -19,11 +25,15 @@ export default defineConfig({
       "link",
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
       },
     ],
-    ["meta", { name: "theme-color", content: "#6b3fe6" }],
+    ["meta", { name: "theme-color", content: "#ffffff" }],
   ],
+  markdown: {
+    // Code blocks are dark in both color schemes.
+    theme: { light: "github-dark", dark: "github-dark" },
+  },
   themeConfig: {
     logo: "/icon.svg",
     siteTitle: "Mayhem",
@@ -31,8 +41,16 @@ export default defineConfig({
       { text: "Guide", link: "/guide/introduction", activeMatch: "/guide/" },
       { text: "Desktop app", link: "/app/projects", activeMatch: "/app/" },
       { text: "MayhemLib", link: "/lib/installation", activeMatch: "/lib/" },
+      { text: "API", link: "/api/", activeMatch: "/api/" },
       { text: "Reference", link: "/reference/solver", activeMatch: "/reference/" },
-      { text: "Download", link: `${repo}/releases/latest` },
+      {
+        text: `v${appVersion}`,
+        items: [
+          { text: "Download the app", link: `${repo}/releases/latest` },
+          { text: "All releases", link: `${repo}/releases` },
+          { text: `MayhemLib ${api.version}`, link: "/lib/installation" },
+        ],
+      },
     ],
     sidebar: {
       "/guide/": [
@@ -63,7 +81,7 @@ export default defineConfig({
       ],
       "/lib/": [
         {
-          text: "MayhemLib (robot code)",
+          text: "Get started",
           items: [
             { text: "Installation", link: "/lib/installation" },
             { text: "Quick start", link: "/lib/quick-start" },
@@ -71,7 +89,7 @@ export default defineConfig({
           ],
         },
         {
-          text: "API",
+          text: "Concepts",
           items: [
             { text: "AutoFactory, routines and triggers", link: "/lib/api" },
             { text: "Event markers", link: "/lib/markers" },
@@ -88,7 +106,12 @@ export default defineConfig({
             { text: "Troubleshooting", link: "/lib/troubleshooting" },
           ],
         },
+        {
+          text: "Reference",
+          items: [{ text: "MayhemLib API (Javadoc)", link: "/api/" }],
+        },
       ],
+      "/api/": apiSidebar(api),
       "/reference/": [
         {
           text: "Reference",
@@ -101,7 +124,13 @@ export default defineConfig({
       ],
     },
     socialLinks: [{ icon: "github", link: repo }],
-    search: { provider: "local" },
+    search: {
+      provider: "local",
+      options: {
+        // Index the generated API pages too (see apiSearchSections).
+        miniSearch: { _splitIntoSections: (file: string) => apiSearchSections(file) },
+      },
+    },
     editLink: {
       pattern: `${repo}/edit/main/site/:path`,
       text: "Edit this page on GitHub",

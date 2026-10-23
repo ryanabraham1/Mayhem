@@ -50,4 +50,12 @@ cd site && pnpm install && pnpm dev      # live preview at http://localhost:5173
 cd site && pnpm build                    # static output in site/.vitepress/dist
 ```
 
-Every page has an **Edit this page on GitHub** link. A push to `main` that touches `site/` publishes the site to the root of the `gh-pages` branch, next to the hosted MayhemLib files.
+Every guide page has an **Edit this page on GitHub** link. A push to `main` that touches `site/` or MayhemLib's source publishes the site to the root of the `gh-pages` branch, next to the hosted MayhemLib files.
+
+The [API reference](/api/) is generated from MayhemLib's Javadoc, so fix API docs in the Java source, not in `site/`. A small doclet in `lib/src/doclet` exports the public API to `site/api/mayhemlib.json`, and `site/.vitepress/api.ts` renders one page per class from it. CI regenerates the JSON before every docs build; to preview Javadoc changes locally, run:
+
+```bash
+cd lib && ./gradlew apiJson
+```
+
+The standard Javadoc HTML is published at [/javadoc/](https://ryanabraham1.github.io/Mayhem/javadoc/) too.
