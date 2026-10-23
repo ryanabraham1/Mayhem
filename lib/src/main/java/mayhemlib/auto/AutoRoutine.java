@@ -152,9 +152,14 @@ public final class AutoRoutine {
 
   /** Stops the routine and cancels its trajectory commands; it can run again later. */
   public void reset() {
-    isActive = false;
     for (AutoTrajectory t : trajectories) {
       t.reset();
+    }
+    if (isActive) {
+      // Poll once while inactive so triggers see the falling edge; otherwise active().onTrue
+      // would not fire again the next time this routine runs.
+      isActive = false;
+      loop.poll();
     }
   }
 

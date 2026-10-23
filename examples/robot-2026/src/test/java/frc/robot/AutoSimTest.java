@@ -16,6 +16,7 @@ import edu.wpi.first.wpilibj2.command.Commands;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import mayhemlib.auto.AutoChooser;
 import mayhemlib.auto.AutoRoutine;
 import mayhemlib.auto.AutoTrajectory;
 import mayhemlib.sim.BumpInjector;
@@ -93,6 +94,30 @@ class AutoSimTest {
     AutoTrajectory badSplit = assertDoesNotThrow(() -> routine.trajectory("Straight", 99));
     assertFalse(badSplit.isLoaded());
     run(Commands.sequence(missing.resetOdometry(), missing.cmd(), badSplit.cmd()), 1);
+  }
+
+  @Test
+  void chosenRoutineRunsAgainOnTheNextAutoEnable() {
+    AtomicInteger starts = new AtomicInteger();
+    AutoChooser chooser = new AutoChooser();
+    chooser.addRoutine("Counter", () -> {
+      AutoRoutine routine = rc.autoFactory.newRoutine("Counter");
+      routine.active().onTrue(Commands.runOnce(starts::incrementAndGet));
+      return routine;
+    });
+    chooser.select("Counter");
+
+    // Enable, then disable, auto twice without touching the chooser.
+    for (int run = 1; run <= 2; run++) {
+      Command auto = chooser.selectedCommandScheduler();
+      CommandScheduler.getInstance().schedule(auto);
+      for (int i = 0; i < 5; i++) {
+        CommandScheduler.getInstance().run();
+      }
+      CommandScheduler.getInstance().cancel(auto);
+      CommandScheduler.getInstance().run();
+      assertEquals(run, starts.get(), "active().onTrue fired on run " + run);
+    }
   }
 
   @Test
