@@ -8,7 +8,7 @@
 import { DEFAULT_INTAKE, flipPoint, intakeCorners, sampleAt, totalTime, uid } from "./model";
 import type { FuelSimConfig, Field, Obstacle, RobotConfig, SimRobot, TrajectoryOutput, Vec2 } from "./types";
 
-export const DEFAULT_FUEL_SIM: FuelSimConfig = { intakeRate: 10, capacity: 0, robots: [] };
+export const DEFAULT_FUEL_SIM: FuelSimConfig = { intakeRate: 40, capacity: 0, robots: [] };
 
 export interface FuelSim {
   n: number;
