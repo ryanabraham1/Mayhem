@@ -15,11 +15,21 @@ import mayhemlib.trajectory.TrajectorySample;
  * <p>For each candidate join time t_j (bounded by the next must-hit point), it builds the fastest
  * quintic from the current state to the trajectory state at t_j that respects the exported
  * velocity/acceleration limits. The winner minimizes arrival time at the end of the trajectory,
- * {@code bridgeDuration + (T - t_j)}. There is no obstacle avoidance: bridges are short and go
- * straight back to the path, which keeps planning cheap on a roboRIO. Pure Java, allocation-light,
- * well under a millisecond.
+ * {@code bridgeDuration + (T - t_j)}. A join ahead of the clock must not cut off part of the path:
+ * the skipped stretch has to stay close to the bridge, so a loop is never shortcut however quick
+ * that would be. There is no obstacle avoidance: bridges are short and go straight back to the
+ * path, which keeps planning cheap on a roboRIO. Pure Java, allocation-light, well under a
+ * millisecond.
  */
 public final class BridgePlanner {
+  /** Spacing of the checks along a stretch of path a bridge would skip [s]. */
+  private static final double SKIP_CHECK_STEP = 0.05;
+  /**
+   * A quintic can't track a curve as tightly as the plan does, so bridges get this much more than
+   * the plan's own peak acceleration. Without it, short bridges fail and a long, wide one wins.
+   */
+  private static final double PATH_ACCEL_HEADROOM = 1.3;
+
   private final RecoveryConfig cfg;
 
   public BridgePlanner(RecoveryConfig cfg) {
@@ -123,13 +133,35 @@ public final class BridgePlanner {
     Bridge best = null;
     double bestCost = Double.POSITIVE_INFINITY;
     int tried = 0;
-    for (int i = 0; i < n; i++) {
-      double tj = lo + (hi - lo) * i / (n - 1);
-      tried++;
+    TrajectorySample here = traj.sampleAt(tNow);
+    double skipAllowance =
+        cfg.maxJoinShortcut + Math.hypot(pose.getX() - here.x, pose.getY() - here.y);
+    // the extra last candidate is the clock itself, which can never skip anything
+    for (int i = 0; i <= n; i++) {
+      double tj = i < n ? lo + (hi - lo) * i / (n - 1) : Math.min(tNow, hi);
       TrajectorySample target = traj.sampleAt(tj);
+      if (cutsOffPath(traj, tNow, tj, pose, target, skipAllowance)) {
+        continue;
+      }
+      tried++;
       double th0 = target.heading - MathUtil.angleModulus(target.heading - th0Raw);
-      State start = new State(pose.getX(), pose.getY(), th0, vx0, vy0, w0, 0, 0, 0);
-      Bridge.Segment seg = fastestSegment(start, State.of(target), lim);
+      // the robot was following the plan, so carry on from the plan's acceleration: starting from
+      // zero mid-curve forces a wide, slow swing back to the path
+      State start = new State(pose.getX(), pose.getY(), th0, vx0, vy0, w0, here.ax, here.ay, here.alpha);
+      // the bridge replaces this stretch of path, so whatever the plan does there is achievable
+      double peakV = 0;
+      double peakA = 0;
+      for (double t = Math.min(tj, tNow); t <= Math.max(tj, tNow); t += SKIP_CHECK_STEP) {
+        TrajectorySample s = traj.sampleAt(t);
+        peakV = Math.max(peakV, s.speed());
+        peakA = Math.max(peakA, Math.hypot(s.ax, s.ay));
+      }
+      Bridge.Segment seg = fastestSegment(start, State.of(target), lim, peakV, peakA);
+      if (seg == null) {
+        // hit hard enough that the plan's acceleration no longer applies
+        start = new State(pose.getX(), pose.getY(), th0, vx0, vy0, w0, 0, 0, 0);
+        seg = fastestSegment(start, State.of(target), lim, peakV, peakA);
+      }
       if (seg != null && seg.duration - tj < bestCost) {
         best = new Bridge(List.of(seg), tj);
         bestCost = seg.duration - tj;
@@ -141,19 +173,40 @@ public final class BridgePlanner {
 
   // ---------------------------------------------------------------------------------------------
 
+  /** True if the path between tNow and tj strays further than allowance from the straight bridge. */
+  private static boolean cutsOffPath(MayhemTrajectory traj, double tNow, double tj, Pose2d pose,
+      TrajectorySample target, double allowance) {
+    for (double t = tNow; t < tj; t += SKIP_CHECK_STEP) {
+      TrajectorySample s = traj.sampleAt(t);
+      if (distanceToSegment(s.x, s.y, pose.getX(), pose.getY(), target.x, target.y) > allowance) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static double distanceToSegment(double px, double py, double ax, double ay, double bx, double by) {
+    double dx = bx - ax;
+    double dy = by - ay;
+    double len2 = dx * dx + dy * dy;
+    double u = len2 < 1e-9 ? 0 : MathUtil.clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0, 1);
+    return Math.hypot(px - (ax + u * dx), py - (ay + u * dy));
+  }
+
   /** Shortest-duration quintic satisfying the limits, or null. */
-  Bridge.Segment fastestSegment(State s, State e, Limits lim) {
+  Bridge.Segment fastestSegment(State s, State e, Limits lim, double pathV, double pathA) {
     double dist = Math.hypot(e.x - s.x, e.y - s.y);
     double dth = Math.abs(e.th - s.th);
     double tLow = Math.max(0.05, Math.max(dist / lim.v, dth / lim.w));
     // velocities at the ends may legitimately exceed the limit (robot was shoved)
-    double vCap = Math.max(lim.v, Math.max(Math.hypot(s.vx, s.vy), Math.hypot(e.vx, e.vy))) * 1.01;
+    double vCap = Math.max(Math.max(lim.v, pathV), Math.max(Math.hypot(s.vx, s.vy), Math.hypot(e.vx, e.vy))) * 1.01;
+    double aCap = Math.max(Math.max(lim.a, pathA * PATH_ACCEL_HEADROOM), Math.max(Math.hypot(s.ax, s.ay), Math.hypot(e.ax, e.ay))) * 1.01;
     double wCap = Math.max(lim.w, Math.max(Math.abs(s.w), Math.abs(e.w))) * 1.01;
     double prev = -1;
     double feasibleT = -1;
     double Tk = tLow;
     for (int k = 0; k < 28; k++, Tk *= 1.2) {
-      if (feasible(s, e, Tk, lim, vCap, wCap)) {
+      if (feasible(s, e, Tk, lim, vCap, aCap, wCap)) {
         feasibleT = Tk;
         break;
       }
@@ -170,7 +223,7 @@ public final class BridgePlanner {
       double b = feasibleT;
       for (int i = 0; i < 10; i++) {
         double mid = 0.5 * (a + b);
-        if (feasible(s, e, mid, lim, vCap, wCap)) {
+        if (feasible(s, e, mid, lim, vCap, aCap, wCap)) {
           b = mid;
         } else {
           a = mid;
@@ -188,10 +241,10 @@ public final class BridgePlanner {
         new Quintic(s.th, s.w, s.al, e.th, e.w, e.al, T));
   }
 
-  private static boolean feasible(State s, State e, double T, Limits lim, double vCap, double wCap) {
+  private static boolean feasible(
+      State s, State e, double T, Limits lim, double vCap, double aCap, double wCap) {
     Bridge.Segment seg = segment(s, e, T);
     int m = 24;
-    double aCap = Math.max(lim.a, Math.max(Math.hypot(s.ax, s.ay), Math.hypot(e.ax, e.ay))) * 1.01;
     double alCap = Math.max(lim.al, Math.max(Math.abs(s.al), Math.abs(e.al))) * 1.01;
     for (int i = 0; i <= m; i++) {
       double t = T * i / m;

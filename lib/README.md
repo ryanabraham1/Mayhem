@@ -313,7 +313,8 @@ The follower responds to tracking error in three layers:
 3. **Bridge.** A sustained large error or an accelerometer spike counts as a hit. After a hit, the
    planner builds the fastest quintic "bridge" from the robot's current state back onto the
    trajectory that respects the exported velocity and acceleration limits. It considers several
-   join times, bounded by the next must-hit point. There is **no obstacle avoidance** during
+   join times, bounded by the next must-hit point, and never shortcuts a loop or wide curve: the
+   part of the path it skips has to stay close to the bridge. There is **no obstacle avoidance** during
    recovery: bridges go straight back to the path, which keeps planning cheap on the roboRIO
    (well under 1 ms). When the robot rejoins, normal following resumes.
 
@@ -344,6 +345,7 @@ zone as a trigger, and `/Mayhem/onRoughTerrain` reports it through telemetry.
 | `accelSpikeG` | 1.0 g | Measured horizontal acceleration **above the planned acceleration** that counts as a hit. A spike only triggers when the position error is at least `dilationStartError`. |
 | `joinCandidates` | 12 | Number of join times evaluated per plan. |
 | `maxJoinLookahead` / `maxJoinBehind` | 2.5 / 1.0 s | Join window around the current trajectory time. The next must-hit point limits it further. |
+| `maxJoinShortcut` | 0.25 m | How far the skipped part of the path may stray from a bridge, on top of how far off the path the robot already is. Stops bridges from cutting across loops. |
 | `replanError` | 0.5 m | While bridging, replan if the robot drifts this far from the bridge. |
 | `minReplanInterval` | 0.25 s | Minimum time between plans. |
 | `limitScale` | 1.0 | Scales the conservative velocity and acceleration limits the app exports for bridges. |

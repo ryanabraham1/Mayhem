@@ -32,6 +32,11 @@ public final class RecoveryConfig {
   public double maxJoinLookahead = 2.5;
   /** How far behind the current trajectory time a bridge may rejoin [s]. */
   public double maxJoinBehind = 1.0;
+  /**
+   * How far the skipped part of the path may stray from a bridge, on top of how far off the path
+   * the robot already is [m]. Keeps a bridge from shortcutting a loop or a wide curve.
+   */
+  public double maxJoinShortcut = 0.25;
   /** While bridging, replan if the robot is this far from the bridge path. */
   public double replanError = 0.5;
   /** Minimum time between two bridge plans [s]. */

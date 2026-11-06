@@ -10,12 +10,15 @@ import mayhemlib.recovery.Bridge;
 import mayhemlib.recovery.BridgePlanner;
 import mayhemlib.recovery.RecoveryConfig;
 import mayhemlib.runner.TrajectoryRunner;
+import mayhemlib.trajectory.FieldSymmetry;
 import mayhemlib.trajectory.MayhemTrajectory;
 import mayhemlib.trajectory.IntakeSpan;
+import mayhemlib.trajectory.RecoveryData;
 import mayhemlib.trajectory.TrajectoryEvent;
 import mayhemlib.trajectory.TrajectorySample;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +26,7 @@ class RecoveryTest {
   static final class Run {
     final List<String> events = new ArrayList<>();
     double maxError;
+    double highestY;
     double endTime;
     int bridges;
     TrajectoryRunner runner;
@@ -56,6 +60,7 @@ class RecoveryTest {
       }
       DriveCommand c = r.runner.update(now, r.robot.pose(), r.robot.speeds(), r.robot.lastAccelG);
       r.robot.step(c, dt);
+      r.highestY = Math.max(r.highestY, r.robot.y);
       if (r.runner.state() == TrajectoryRunner.State.FOLLOWING) {
         r.maxError = Math.max(r.maxError, r.runner.positionError());
       }
@@ -118,6 +123,66 @@ class RecoveryTest {
       }
     }
     assertTrue(b.joinTime <= nextMust + 1e-9);
+  }
+
+  /** Straight in along y=0, once around a 1.5 m circle at 3 m/s, then straight on. */
+  static MayhemTrajectory loop() {
+    double v = 3;
+    double radius = 1.5;
+    double lead = 1.0;
+    double around = 2 * Math.PI * radius / v;
+    List<TrajectorySample> samples = new ArrayList<>();
+    double[] none = new double[4];
+    double total = lead + around + lead;
+    for (double t = 0; t <= total + 1e-9; t += 0.02) {
+      double x;
+      double y;
+      double vx = v;
+      double vy = 0;
+      if (t < lead) {
+        x = v * t;
+        y = 0;
+      } else if (t < lead + around) {
+        double a = (t - lead) * v / radius;
+        x = v * lead + radius * Math.sin(a);
+        y = radius * (1 - Math.cos(a));
+        vx = v * Math.cos(a);
+        vy = v * Math.sin(a);
+      } else {
+        x = v * (t - around);
+        y = 0;
+      }
+      samples.add(new TrajectorySample(t, x, y, 0, vx, vy, 0, 0, 0, 0, none, none));
+    }
+    RecoveryData rec = new RecoveryData(new Translation2d[] {new Translation2d(0.4, 0.4)}, List.of(),
+        16.5, 8.0, FieldSymmetry.fromString("rotational"), List.of(), List.of(), 4, 6, 6, 10,
+        new double[] {total});
+    return new MayhemTrajectory("loop", samples, List.of(), new int[0], new double[0], rec, "", false);
+  }
+
+  @Test
+  void bridgeNeverShortcutsALoop() {
+    MayhemTrajectory t = loop();
+    // at the loop's entry the path comes back to this same spot about 3 s later
+    for (double tNow : new double[] {0.8, 1.0, 1.2}) {
+      TrajectorySample ref = t.sampleAt(tNow);
+      Pose2d pushed = new Pose2d(ref.x, ref.y - 0.15, new Rotation2d());
+      BridgePlanner.Result res = new BridgePlanner(new RecoveryConfig())
+          .plan(t, tNow, pushed, new ChassisSpeeds(ref.vx, ref.vy, 0));
+      assertTrue(res.bridge.isPresent());
+      assertTrue(res.bridge.get().joinTime < tNow + 0.8, "join " + res.bridge.get().joinTime);
+    }
+  }
+
+  @Test
+  void robotDrivesTheWholeLoopAfterAHit() {
+    MayhemTrajectory t = loop();
+    Run r = simulate(t, new RecoveryConfig(), 1.7, 0.0, -0.2, 0);
+    assertTrue(r.runner.isFinished());
+    assertTrue(r.bridges >= 1, "planned a bridge");
+    assertTrue(r.highestY > 2.7, "reached y=" + r.highestY);
+    // a shortcut shows up as finishing early
+    assertTrue(r.endTime >= t.totalTime() - 0.1, "finished at " + r.endTime);
   }
 
   @Test
