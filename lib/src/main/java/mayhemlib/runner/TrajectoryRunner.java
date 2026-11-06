@@ -427,7 +427,11 @@ public final class TrajectoryRunner {
       return false;
     }
     lastPlanTime = now;
-    BridgePlanner.Result res = planner.plan(traj, t, pose, v);
+    // the clock is frozen during a bridge, so a replan starts from how far the bridge has come
+    double from = bridge == null
+        ? t
+        : bridgeFrom + (bridge.joinTime - bridgeFrom) * Math.min(1, tau / bridge.duration());
+    BridgePlanner.Result res = planner.plan(traj, from, pose, v);
     lastPlanSeconds = res.planSeconds;
     if (res.bridge.isEmpty()) {
       return false;
@@ -457,7 +461,7 @@ public final class TrajectoryRunner {
       }
     }
     bridge = b;
-    bridgeFrom = t;
+    bridgeFrom = from;
     tau = 0;
     state = State.BRIDGING;
     startRefine(b);

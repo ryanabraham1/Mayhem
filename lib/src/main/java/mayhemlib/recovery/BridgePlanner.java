@@ -134,13 +134,12 @@ public final class BridgePlanner {
     double bestCost = Double.POSITIVE_INFINITY;
     int tried = 0;
     TrajectorySample here = traj.sampleAt(tNow);
-    double skipAllowance =
-        cfg.maxJoinShortcut + Math.hypot(pose.getX() - here.x, pose.getY() - here.y);
+    double offPath = Math.hypot(pose.getX() - here.x, pose.getY() - here.y);
     // the extra last candidate is the clock itself, which can never skip anything
     for (int i = 0; i <= n; i++) {
       double tj = i < n ? lo + (hi - lo) * i / (n - 1) : Math.min(tNow, hi);
       TrajectorySample target = traj.sampleAt(tj);
-      if (cutsOffPath(traj, tNow, tj, pose, target, skipAllowance)) {
+      if (cutsOffPath(traj, tNow, tj, pose, target, offPath)) {
         continue;
       }
       tried++;
@@ -173,11 +172,16 @@ public final class BridgePlanner {
 
   // ---------------------------------------------------------------------------------------------
 
-  /** True if the path between tNow and tj strays further than allowance from the straight bridge. */
-  private static boolean cutsOffPath(MayhemTrajectory traj, double tNow, double tj, Pose2d pose,
-      TrajectorySample target, double allowance) {
+  /**
+   * True if the path between tNow and tj strays too far from the straight bridge. Near the robot
+   * the path is as far away as the robot is off it; that allowance shrinks to
+   * {@link RecoveryConfig#maxJoinShortcut} by the join.
+   */
+  private boolean cutsOffPath(MayhemTrajectory traj, double tNow, double tj, Pose2d pose,
+      TrajectorySample target, double offPath) {
     for (double t = tNow; t < tj; t += SKIP_CHECK_STEP) {
       TrajectorySample s = traj.sampleAt(t);
+      double allowance = cfg.maxJoinShortcut + offPath * (tj - t) / (tj - tNow);
       if (distanceToSegment(s.x, s.y, pose.getX(), pose.getY(), target.x, target.y) > allowance) {
         return true;
       }

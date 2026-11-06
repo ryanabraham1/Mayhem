@@ -345,7 +345,7 @@ zone as a trigger, and `/Mayhem/onRoughTerrain` reports it through telemetry.
 | `accelSpikeG` | 1.0 g | Measured horizontal acceleration **above the planned acceleration** that counts as a hit. A spike only triggers when the position error is at least `dilationStartError`. |
 | `joinCandidates` | 12 | Number of join times evaluated per plan. |
 | `maxJoinLookahead` / `maxJoinBehind` | 2.5 / 1.0 s | Join window around the current trajectory time. The next must-hit point limits it further. |
-| `maxJoinShortcut` | 0.25 m | How far the skipped part of the path may stray from a bridge, on top of how far off the path the robot already is. Stops bridges from cutting across loops. |
+| `maxJoinShortcut` | 0.25 m | How far the skipped part of the path may stray from a bridge. Near the robot, how far off the path it already is gets added on top. Stops bridges from cutting across loops. |
 | `replanError` | 0.5 m | While bridging, replan if the robot drifts this far from the bridge. |
 | `minReplanInterval` | 0.25 s | Minimum time between plans. |
 | `limitScale` | 1.0 | Scales the conservative velocity and acceleration limits the app exports for bridges. |
