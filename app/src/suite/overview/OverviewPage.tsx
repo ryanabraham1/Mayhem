@@ -6,12 +6,14 @@ import {
   FileChartColumn,
   Link2,
   Plus,
+  RefreshCw,
 } from "lucide-react";
 import { FieldArt } from "../../components/FieldArt";
 import type { Field } from "../../types";
 import seasonField from "../core/rebuilt-2026.json";
 import { routeSegments } from "../core/routes.ts";
 import type { AutoRoutine, SuiteProject } from "../core/model.ts";
+import { checkForUpdate, installUpdate, useUpdater } from "../../updater";
 import { useLogLibrary } from "../logLibrary";
 import { useRobot } from "../robot";
 import type { SuiteState } from "../useSuiteProject";
@@ -47,6 +49,32 @@ function MiniField({ project, routine }: { project: SuiteProject; routine: AutoR
   );
 }
 
+function UpdateStatus() {
+  const u = useUpdater();
+  const busy = u.phase === "checking" || u.phase === "downloading" || u.phase === "restarting";
+  const ready = u.version && (u.phase === "available" || u.phase === "error");
+  return (
+    <div className="mx-status-chip" style={{ cursor: "default" }}>
+      {u.current ? `Mayhem v${u.current}` : "Mayhem"}
+      {ready ? (
+        <Button size="sm" variant="primary" onClick={() => void installUpdate()}>
+          Install {u.version}
+        </Button>
+      ) : (
+        <Button size="sm" variant="ghost" icon={RefreshCw} disabled={busy} onClick={() => void checkForUpdate(true)}>
+          {u.phase === "checking"
+            ? "Checking…"
+            : u.phase === "downloading"
+              ? "Downloading…"
+              : u.phase === "restarting"
+                ? "Restarting…"
+                : "Check for updates"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) => void }) {
   const { project } = s;
   const robot = useRobot();
@@ -76,6 +104,7 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
             <Dot tone={sync.config.autoPull ? (sync.reach === "reachable" ? "good" : "warn") : "neutral"} />
             {sync.config.autoPull ? "Auto-collecting logs" : "Log collection off"}
           </button>
+          <UpdateStatus />
         </div>
       </header>
 
