@@ -15,6 +15,7 @@ import {
   type Recording,
 } from "./core/analysis.ts";
 import {
+  deleteLog,
   listLogs,
   patchLog,
   readLog,
@@ -24,8 +25,8 @@ import {
   type ReceiptOptions,
   type StoredLog,
 } from "./storage";
-import { invoke, nativeRead } from "./native";
-import { loadSyncConfig, useLogSync } from "./logSync";
+import { desktop, invoke, nativeRead } from "./native";
+import { forgetSources, loadSyncConfig, useLogSync } from "./logSync";
 
 export const MAX_LOG_BYTES = 250 * 1024 * 1024;
 type Parsed = { recording: Recording; analysis: Analysis };
@@ -277,6 +278,36 @@ function useLogLibraryState({
     }
   };
 
+  /** Permanently delete recordings from this computer. Team cloud and robot copies are untouched. */
+  const remove = async (targets: StoredLog[]) => {
+    const failed: string[] = [];
+    for (const log of targets) {
+      try {
+        await deleteLog(log.id);
+        forgetSources(log.sources);
+        try {
+          localStorage.removeItem(mappingKey(log.id));
+        } catch {
+          /* ignore */
+        }
+        if (log.nativePath && desktop)
+          await invoke("delete_library_file", { path: log.nativePath }).catch((e) =>
+            failed.push(`${log.name}: removed from the library, but its file stayed on disk (${String(e)})`),
+          );
+      } catch (e) {
+        failed.push(`${log.name}: ${String(e)}`);
+      }
+    }
+    const ids = new Set(targets.map((l) => l.id));
+    setCurrent((c) => (c && ids.has(c.id) ? null : c));
+    try {
+      setLogs(await listLogs());
+    } catch {
+      setLogs((previous) => previous.filter((l) => !ids.has(l.id)));
+    }
+    if (failed.length) notify(failed.slice(0, 3).join("\n"));
+  };
+
   const sync = useLogSync({ host, logs, received, updateLog, notify });
 
   return {
@@ -292,6 +323,7 @@ function useLogLibraryState({
     remap,
     resetMapping,
     archive,
+    remove,
     close: () => setCurrent(null),
     sync,
   };

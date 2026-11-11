@@ -6,11 +6,11 @@ import { analyze } from "../src/suite/core/analysis";
 import type { StoredLog } from "../src/suite/storage";
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => "/sim/match.wpilog") }));
 vi.mock("../src/suite/native", () => ({ desktop: true, invoke: vi.fn(), nativeRead: vi.fn(async () => new Uint8Array([1, 2, 3]).buffer) }));
-vi.mock("../src/suite/storage", () => ({ listLogs: vi.fn(), storeLog: vi.fn(), patchLog: vi.fn(), readLog: vi.fn(), setLogArchived: vi.fn() }));
+vi.mock("../src/suite/storage", () => ({ listLogs: vi.fn(), storeLog: vi.fn(), patchLog: vi.fn(), readLog: vi.fn(), setLogArchived: vi.fn(), deleteLog: vi.fn() }));
 import { invoke } from "../src/suite/native";
-import { listLogs, storeLog, patchLog } from "../src/suite/storage";
+import { listLogs, storeLog, patchLog, deleteLog } from "../src/suite/storage";
 import { LogLibraryProvider, useLogLibrary } from "../src/suite/logLibrary";
-import { SYNC_KEY } from "../src/suite/logSync";
+import { SYNC_KEY, deletedSources } from "../src/suite/logSync";
 const recording = { name: "match.wpilog", duration: 2, channels: [], warnings: [] };
 class ParsedWorker {
   onmessage?: (event: { data: unknown }) => void;
@@ -83,4 +83,35 @@ it("queues file-input imports using the latest automatic-upload preference", asy
   act(() => view.result.current.sync.update({ autoUpload: true }));
   await act(() => view.result.current.importFile({ name: "match.wpilog", arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer } as File));
   expect(saved[0]).toMatchObject({ upload: "queued", uploadSite: site });
+});
+
+it("deletes recordings from the library and Mayhem's folder, and remembers robot sources so they aren't re-collected", async () => {
+  const view = setup({});
+  await waitFor(() => expect(listLogs).toHaveBeenCalled());
+  const robot: StoredLog = { id: "r", name: "robot.wpilog", bytes: 1, added: 1, nativePath: "/recordings/r.wpilog", sources: ["roborio:/home/lvuser/a.wpilog:10"] };
+  const web: StoredLog = { id: "w", name: "web.wpilog", bytes: 1, added: 2 };
+  saved = [robot, web];
+  localStorage.setItem("robot-log-mapping:r", "{}");
+  vi.mocked(deleteLog).mockImplementation(async (id) => { saved = saved.filter((l) => l.id !== id); });
+  vi.mocked(invoke).mockResolvedValue(undefined);
+  await act(() => view.result.current.remove([robot, web]));
+  expect(deleteLog).toHaveBeenCalledWith("r");
+  expect(deleteLog).toHaveBeenCalledWith("w");
+  expect(invoke).toHaveBeenCalledWith("delete_library_file", { path: "/recordings/r.wpilog" });
+  expect(vi.mocked(invoke).mock.calls.filter(([n]) => n === "delete_library_file")).toHaveLength(1);
+  expect(view.result.current.logs).toEqual([]);
+  expect(deletedSources().has("roborio:/home/lvuser/a.wpilog:10")).toBe(true);
+  expect(localStorage.getItem("robot-log-mapping:r")).toBeNull();
+  expect(notify).not.toHaveBeenCalled();
+});
+
+it("reports a file that could not be deleted while still removing it from the library", async () => {
+  const view = setup({});
+  const log: StoredLog = { id: "x", name: "x.wpilog", bytes: 1, added: 1, nativePath: "/elsewhere/x.wpilog" };
+  saved = [log];
+  vi.mocked(deleteLog).mockImplementation(async () => { saved = []; });
+  vi.mocked(invoke).mockRejectedValue("Mayhem only deletes recordings saved in its own library folder.");
+  await act(() => view.result.current.remove([log]));
+  expect(view.result.current.logs).toEqual([]);
+  expect(notify).toHaveBeenCalledWith(expect.stringContaining("its file stayed on disk"));
 });

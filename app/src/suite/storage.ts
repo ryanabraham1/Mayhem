@@ -304,3 +304,19 @@ export async function setLogArchived(id: string, archived: boolean) {
     db.close();
   }
 }
+/** Permanently remove a recording's library entry and any copy stored in the browser. */
+export async function deleteLog(id: string) {
+  const db = await openLogs();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(["logs", "blobs"], "readwrite");
+      tx.objectStore("logs").delete(id);
+      tx.objectStore("blobs").delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}

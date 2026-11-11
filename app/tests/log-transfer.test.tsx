@@ -6,7 +6,7 @@ vi.mock("../src/suite/native", () => ({
   nativeRead: vi.fn(async () => new Uint8Array([1]).buffer),
 }));
 import { invoke } from "../src/suite/native";
-import { useLogSync, POLL_MS, SYNC_KEY } from "../src/suite/logSync";
+import { useLogSync, POLL_MS, SYNC_KEY, forgetSources } from "../src/suite/logSync";
 import { LogActions, TeamCloud } from "../src/suite/logs/LogsPage";
 import type { StoredLog } from "../src/suite/storage";
 
@@ -257,4 +257,33 @@ it("offers download for new team recordings and open for ones already in the lib
   expect(screen.getByRole("button", { name: "Download a.wpilog to the library" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Open b.wpilog from the library" }));
   expect(open).toHaveBeenCalledWith(saved);
+});
+
+it("shows a saved recording's file in the system file manager", async () => {
+  vi.mocked(invoke).mockResolvedValue(undefined);
+  render(
+    <LogActions
+      log={{ id: "hash", name: "match.wpilog", bytes: 1, added: 1, nativePath: "/saved/match.wpilog" }}
+      update={vi.fn(async () => {})}
+      notify={vi.fn()}
+    />,
+  );
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: /^Show in .+ \(match\.wpilog\)$/ })));
+  expect(invoke).toHaveBeenCalledWith("reveal_log_file", { path: "/saved/match.wpilog" });
+});
+
+it("disables the file manager button for browser imports without a file on disk", () => {
+  render(<LogActions log={{ id: "web", name: "web.wpilog", bytes: 1, added: 1 }} update={vi.fn(async () => {})} notify={vi.fn()} />);
+  expect((screen.getByRole("button", { name: /^Show in .+ \(web\.wpilog\)$/ }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("does not automatically re-collect a robot log the user deleted", async () => {
+  localStorage.setItem(SYNC_KEY, JSON.stringify({ collectAll: true, autoPull: true }));
+  forgetSources([`${host}:${files[0].path}:10`]);
+  vi.mocked(invoke).mockImplementation(async (name) => (name === "list_robot_logs" ? files : "/saved/b.wpilog") as any);
+  const { view, received } = setup();
+  await act(() => view.result.current.refresh(true));
+  await act(() => view.result.current.refresh(true));
+  expect(received).toHaveBeenCalledOnce();
+  expect((received.mock.calls[0] as unknown[])[1]).toBe("b.wpilog");
 });

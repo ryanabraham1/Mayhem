@@ -58,6 +58,25 @@ export function loadSyncConfig(): SyncConfig {
   }
 }
 export const POLL_MS = 15000;
+/** Robot/folder files whose recordings were deleted, so automatic collection doesn't bring them back. */
+export const DELETED_KEY = "mayhem.deleted-sources.v1";
+export function deletedSources(): Set<string> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DELETED_KEY) ?? "[]");
+    return new Set(Array.isArray(saved) ? saved.filter((v) => typeof v === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+export function forgetSources(sources: string[] = []) {
+  if (!sources.length) return;
+  const all = [...deletedSources(), ...sources];
+  try {
+    localStorage.setItem(DELETED_KEY, JSON.stringify([...new Set(all)].slice(-2000)));
+  } catch {
+    /* Without storage a deleted robot log may be collected again; nothing else is affected. */
+  }
+}
 const sourceKey = (origin: string, log: RemoteLog) =>
   `${origin}:${log.path}:${log.size}`;
 
@@ -311,6 +330,7 @@ export function useLogSync({
         );
         if (automatic) {
           const filter = config.nameContains.trim().toLowerCase();
+          const deleted = deletedSources();
           const wanted = files
             .filter(
               (log) =>
@@ -321,6 +341,7 @@ export function useLogSync({
                     !!filter &&
                     log.name.toLowerCase().includes(filter))) &&
                 !pulled.current.has(sourceKey(origin, log)) &&
+                !deleted.has(sourceKey(origin, log)) &&
                 !logs.some((saved) =>
                   saved.sources?.includes(sourceKey(origin, log)),
                 ),

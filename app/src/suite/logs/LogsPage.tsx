@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FileChartColumn,
   FolderOpen,
+  FolderSearch,
   Map as MapIcon,
   Pause,
   Play,
@@ -19,6 +20,7 @@ import {
   RotateCcw,
   Search,
   Stethoscope,
+  Trash2,
   UploadCloud,
   Waves,
 } from "lucide-react";
@@ -81,10 +83,42 @@ export function LogActions({
       >
         {log.upload === "uploaded" ? "Uploaded" : log.upload === "queued" ? "Queued" : "Upload"}
       </Button>
+      <IconButton
+        label={`${revealLabel} (${log.name})`}
+        title={
+          !desktop
+            ? "Use the Mayhem desktop app to find the saved file"
+            : !log.nativePath
+              ? "This recording was imported in the browser and has no file on disk"
+              : `${revealLabel}: ${log.nativePath}`
+        }
+        icon={FolderSearch}
+        disabled={!desktop || !log.nativePath}
+        onClick={() => revealInFolder(log, notify)}
+      />
     </>
   );
 }
 
+/** "Show in Finder" on macOS, "Show in Explorer" on Windows. */
+export const revealLabel =
+  typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent)
+    ? "Show in Finder"
+    : typeof navigator !== "undefined" && /Win/i.test(navigator.userAgent)
+      ? "Show in Explorer"
+      : "Show in folder";
+/** Ask before permanently deleting recordings from this computer. */
+export function confirmDelete(targets: StoredLog[]) {
+  if (!targets.length) return false;
+  const what = targets.length === 1 ? `"${targets[0].name}"` : `${targets.length} recordings`;
+  return window.confirm(
+    `Delete ${what} from this computer?\n\nThis permanently removes ${targets.length === 1 ? "it" : "them"} from Mayhem's library and deletes Mayhem's saved ${targets.length === 1 ? "copy" : "copies"}. Copies in the team cloud, on the robot or in a folder you imported from are not affected.`,
+  );
+}
+const revealInFolder = (log: StoredLog, notify: (m: string) => void) => {
+  if (!log.nativePath) return;
+  void invoke("reveal_log_file", { path: log.nativePath }).catch((e) => notify(String(e)));
+};
 const openInViewer = (log: StoredLog, notify: (m: string) => void) => {
   void invoke("open_log_viewer", {
     path: log.nativePath,
@@ -383,12 +417,21 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
                       },
                       "separator",
                       { label: "Copy name", icon: ClipboardCopy, onSelect: () => void copyText(l.name) },
+                      desktop && l.nativePath && { label: revealLabel, icon: FolderSearch, onSelect: () => revealInFolder(l, notify) },
                       l.nativePath && { label: "Copy file path", onSelect: () => void copyText(l.nativePath!) },
                       "separator",
                       {
                         label: l.archived ? "Restore" : "Archive",
                         icon: l.archived ? RotateCcw : Archive,
                         onSelect: () => void lib.archive(l, !l.archived),
+                      },
+                      {
+                        label: "Delete…",
+                        icon: Trash2,
+                        danger: true,
+                        onSelect: () => {
+                          if (confirmDelete([l])) void lib.remove([l]);
+                        },
                       },
                     ],
                     l.name.replace(/\.wpilog$/i, ""),
@@ -406,6 +449,19 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
             Show archived
           </label>
+          {showArchived && lib.logs.some((l) => l.archived) && (
+            <Button
+              size="sm"
+              variant="danger"
+              icon={Trash2}
+              onClick={() => {
+                const archived = lib.logs.filter((l) => l.archived);
+                if (confirmDelete(archived)) void lib.remove(archived);
+              }}
+            >
+              Delete archived ({lib.logs.filter((l) => l.archived).length})
+            </Button>
+          )}
           <TeamCloud sync={sync} logs={lib.logs} query={query} open={(l) => void lib.open(l)} openRobot={openRobot} />
         </aside>
 
@@ -457,6 +513,16 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
                       label={`${log.archived ? "Restore" : "Archive"} ${log.name}`}
                       icon={log.archived ? RotateCcw : Archive}
                       onClick={() => void lib.archive(log, !log.archived)}
+                    />
+                  )}
+                  {log && (
+                    <IconButton
+                      label={`Delete ${log.name}`}
+                      title="Delete from this computer"
+                      icon={Trash2}
+                      onClick={() => {
+                        if (confirmDelete([log])) void lib.remove([log]);
+                      }}
                     />
                   )}
                 </div>

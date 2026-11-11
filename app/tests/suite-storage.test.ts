@@ -17,6 +17,7 @@ import {
   readLog,
   setLogArchived,
   patchLog,
+  deleteLog,
 } from "../src/suite/storage";
 const originalSet = Storage.prototype.setItem;
 beforeEach(() => {
@@ -112,4 +113,14 @@ it("does not lose the active project if the library cannot be saved or another w
   saveProject({ ...sampleProject, revision: 3 });
   expect(() => activateProject(newProject("New"), sampleProject)).toThrow(/Another window/);
   expect(loadProject().project.revision).toBe(3);
+});
+
+it("deletes a recording's entry and stored bytes without touching other recordings", async () => {
+  const bytes = new Uint8Array([1, 2, 3]).buffer;
+  await storeLog({ id: "gone", name: "gone.wpilog", bytes: 3, added: 1 }, bytes);
+  await storeLog({ id: "kept", name: "kept.wpilog", bytes: 3, added: 2 }, bytes);
+  await deleteLog("gone");
+  expect((await listLogs()).map((l) => l.id)).toEqual(["kept"]);
+  await expect(readLog("gone")).rejects.toBeTruthy();
+  expect(new Uint8Array(await readLog("kept"))).toEqual(new Uint8Array(bytes));
 });

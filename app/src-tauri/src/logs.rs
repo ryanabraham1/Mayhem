@@ -261,6 +261,36 @@ pub async fn archive_log_file(
     .await
     .map_err(|e| e.to_string())?
 }
+/** Delete `path` only when it is a log file directly inside `directory` (Mayhem's own copy). */
+fn delete_library_copy(path: &Path, directory: &Path) -> Result<(), String> {
+    let Ok(file) = fs::canonicalize(path) else {
+        return Ok(()); // Already gone.
+    };
+    let Ok(directory) = fs::canonicalize(directory) else {
+        return Err("Mayhem only deletes recordings saved in its own library folder.".into());
+    };
+    if file.parent() != Some(directory.as_path())
+        || !matches!(file.extension().and_then(|e| e.to_str()), Some("wpilog") | Some("json"))
+        || !file.is_file()
+    {
+        return Err("Mayhem only deletes recordings saved in its own library folder.".into());
+    }
+    fs::remove_file(&file).map_err(|e| format!("Could not delete the recording file: {e}"))
+}
+/** Delete Mayhem's saved copy of a recording. Original files elsewhere are never touched. */
+#[tauri::command]
+pub async fn delete_library_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let directory = app
+            .path()
+            .app_local_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("recordings");
+        delete_library_copy(Path::new(&path), &directory)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 #[tauri::command]
 pub async fn read_log_file(path: String) -> Result<tauri::ipc::Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -297,6 +327,40 @@ pub async fn download_robot_log(
         fs::rename(&partial, &target).map_err(|e| e.to_string())?;
         Ok(target.to_string_lossy().into_owned())
     }).await.map_err(|e| e.to_string())?
+}
+/** Show a library recording in Finder / Explorer / the file manager, selected where supported. */
+#[tauri::command]
+pub async fn reveal_log_file(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = log_file(&path)?;
+        #[cfg(target_os = "macos")]
+        let mut command = {
+            let mut c = Command::new("open");
+            c.arg("-R").arg(&path);
+            c
+        };
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut c = Command::new("explorer");
+            c.arg(format!("/select,{}", path.display()));
+            c
+        };
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let mut command = {
+            let mut c = Command::new("xdg-open");
+            c.arg(path.parent().ok_or("Missing folder")?);
+            c
+        };
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Could not open the file manager: {e}"))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn open_log_viewer(path: String, viewer: Option<String>) -> Result<(), String> {
@@ -748,6 +812,27 @@ mod tests {
         assert_eq!(fs::read(&partial).unwrap(), b"WPILOG cloud");
         let huge = std::io::repeat(0).take(MAX_LOG + 1);
         assert!(save_verified(huge, &root.join("b.partial")).is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn deleting_only_removes_files_inside_the_library_folder() {
+        let root = std::env::temp_dir().join(format!("mayhem-delete-{}", std::process::id()));
+        let library = root.join("recordings");
+        fs::create_dir_all(&library).unwrap();
+        let saved = library.join("abc.wpilog");
+        let original = root.join("original.wpilog");
+        let other = library.join("notes.txt");
+        fs::write(&saved, b"1").unwrap();
+        fs::write(&original, b"2").unwrap();
+        fs::write(&other, b"3").unwrap();
+        assert!(delete_library_copy(&original, &library).is_err());
+        assert!(original.exists(), "originals outside the library are never deleted");
+        assert!(delete_library_copy(&library.join("../original.wpilog"), &library).is_err());
+        assert!(original.exists());
+        assert!(delete_library_copy(&other, &library).is_err());
+        assert!(delete_library_copy(&saved, &library).is_ok());
+        assert!(!saved.exists());
+        assert!(delete_library_copy(&saved, &library).is_ok(), "already deleted is fine");
         let _ = fs::remove_dir_all(&root);
     }
     #[test]
