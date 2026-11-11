@@ -36,6 +36,30 @@ interface Drag {
   y: number;
   heading: number;
 }
+/** Legacy planner / Choreo convention: red (slow) through yellow to green (fast). */
+export const speedColor = (fraction: number) =>
+  `hsl(${Math.round(Math.max(0, Math.min(1, fraction)) * 120)}, 85%, 45%)`;
+const SPEED_BUCKETS = 24;
+/** Split a route into polylines of one speed color each (few SVG nodes, smooth joins). */
+function speedRunsFor(path: { x: number; y: number; speed: number }[], maxSpeed: number) {
+  const runs: { color: string; points: [number, number][] }[] = [];
+  let bucket = -1;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1],
+      b = path[i];
+    if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-6 && runs.length) continue;
+    const next = Math.round(
+      (Math.max(0, Math.min(1, (a.speed + b.speed) / 2 / Math.max(1e-6, maxSpeed)))) * SPEED_BUCKETS,
+    );
+    if (next !== bucket) {
+      bucket = next;
+      runs.push({ color: speedColor(next / SPEED_BUCKETS), points: [[a.x, a.y]] });
+    }
+    runs[runs.length - 1].points.push([b.x, b.y]);
+  }
+  return runs;
+}
+
 export function FieldView({
   project,
   routine,
@@ -52,6 +76,8 @@ export function FieldView({
   duplicate,
   resetStart,
   trail = [],
+  speedPath,
+  maxSpeed = 1,
 }: {
   project: SuiteProject;
   routine: AutoRoutine;
@@ -71,7 +97,12 @@ export function FieldView({
   resetStart?: () => void;
   /** Poses already driven in the preview, drawn behind the robot. */
   trail?: Pose[];
+  /** The whole previewed route with speed (m/s); drawn colored by speed instead of the trail. */
+  speedPath?: { x: number; y: number; speed: number }[];
+  /** Speed drawn fully green. */
+  maxSpeed?: number;
 }) {
+  const speedRuns = useMemo(() => speedRunsFor(speedPath ?? [], maxSpeed), [speedPath, maxSpeed]);
   const svg = useRef<SVGSVGElement>(null);
   const { width, height } = project.field;
   const fit = (): View => ({
@@ -552,7 +583,20 @@ export function FieldView({
             />
           </g>
         )}
-        {trail.length > 1 && (
+        {speedRuns.map((run, i) => (
+          <polyline
+            key={i}
+            className="mx-speed-path"
+            points={run.points.map(([x, y]) => `${x},${height - y}`).join(" ")}
+            fill="none"
+            stroke={run.color}
+            strokeWidth=".09"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            pointerEvents="none"
+          />
+        ))}
+        {!speedRuns.length && trail.length > 1 && (
           <polyline
             className="mx-trail"
             points={trail.map((p) => `${p.x},${height - p.y}`).join(" ")}

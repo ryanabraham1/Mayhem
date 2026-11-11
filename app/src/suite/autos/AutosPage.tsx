@@ -12,6 +12,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { FieldView } from "../FieldView";
+import { resolveConstraints } from "../core/model.ts";
 import { download } from "../storage";
 import type { PlaceTool, SuiteState } from "../useSuiteProject";
 import { Badge, Button, IconButton, PageHeader, Segmented } from "../ui";
@@ -72,6 +73,17 @@ export function AutosPage({ s }: { s: SuiteState }) {
     () => s.frames.slice(0, s.cursor + 1).map((f) => f.pose),
     [s.frames, s.cursor],
   );
+  // The whole forecast route, colored by speed on the field.
+  const speedPath = useMemo(
+    () =>
+      s.forecast.frames.map((f) => ({
+        x: f.pose.x,
+        y: f.pose.y,
+        speed: Math.hypot(f.velocity.vx, f.velocity.vy),
+      })),
+    [s.forecast],
+  );
+  const maxSpeed = resolveConstraints(s.project.robot.constraints).maxVelocity;
   const steps = s.routine.nodes.filter((n) => n.kind !== "finish").length;
   const errors = s.issues.filter((i) => i.severity === "error").length;
 
@@ -134,6 +146,8 @@ export function AutosPage({ s }: { s: SuiteState }) {
             routine={s.routine}
             pose={s.frame.pose}
             trail={trail}
+            speedPath={speedPath}
+            maxSpeed={maxSpeed}
             selected={s.selected}
             tool={tool}
             select={s.setSelected}
