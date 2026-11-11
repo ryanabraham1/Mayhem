@@ -1,14 +1,16 @@
 # Building Mayhem
 
-Mayhem has three parts:
+Mayhem contains the development suite and the classic trajectory-planning stack:
 
 | Part | Path | Toolchain |
 |------|------|-----------|
-| Solver (CasADi + IPOPT) | `solver/` | Python 3.12 via [uv](https://docs.astral.sh/uv/) |
+| Classic solver (CasADi + IPOPT) | `solver/` | Python 3.12 via [uv](https://docs.astral.sh/uv/) |
 | Desktop app (UI + Tauri shell) | `app/`, `app/src-tauri/` | Node 22+ / pnpm, Rust (stable) |
-| Robot library (vendordep) | `lib/` | JDK 17+, Gradle wrapper |
+| Classic Java robot library (vendordep) | `lib/` | JDK 17+, Gradle wrapper |
 
-The desktop app is a Tauri 2 shell around the Vite/React UI. The UI talks to the solver over
+The suite also includes the C++ pose controller in `lib-cpp/` (C++17/CMake) and the Node CLI/MCP entry point `scripts/mayhem.mjs`. See [the user guide](USER_GUIDE.md), [C++ setup](../lib-cpp/README.md) and [suite agent tools](SUITE_AGENTS.md).
+
+The desktop app is a Tauri 2 shell around the Vite/React UI. The classic planner talks to the solver over
 newline-delimited JSON-RPC: inside the desktop app it spawns the frozen solver as a Tauri
 **sidecar** (`binaries/mayhem-solver`, `serve` subcommand, stdio). In a plain browser it
 connects to `ws://127.0.0.1:8765` instead (override with `VITE_SOLVER_WS`).
@@ -27,7 +29,17 @@ connects to `ws://127.0.0.1:8765` instead (override with `VITE_SOLVER_WS`).
 
 ### Browser dev (fastest loop)
 
-Two terminals:
+For the new suite, only the frontend is needed:
+
+```sh
+cd app
+pnpm install
+pnpm dev
+```
+
+Open `http://localhost:5173`. No Python solver is needed for suite editing, preview or log import.
+
+For **Settings → Classic trajectory planner**, use two terminals:
 
 ```sh
 # 1: solver over WebSocket, straight from source

@@ -11,7 +11,7 @@ const api = loadApi();
 export default defineConfig({
   title: "Mayhem",
   description:
-    "Time-optimal swerve trajectory planning for FRC, with on-robot bump recovery.",
+    "Pose-based autonomous editing, state-machine inspection and robot log analysis for FRC.",
   // Served from https://ryanabraham1.github.io/Mayhem/ (the gh-pages branch also hosts the
   // MayhemLib maven repo and MayhemLib.json at the same root).
   base: "/Mayhem/",
@@ -39,7 +39,8 @@ export default defineConfig({
     siteTitle: "Mayhem",
     nav: [
       { text: "Guide", link: "/guide/introduction", activeMatch: "/guide/" },
-      { text: "Desktop app", link: "/app/projects", activeMatch: "/app/" },
+      { text: "Suite", link: "/guide/suite" },
+      { text: "Classic planner", link: "/app/projects", activeMatch: "/app/" },
       { text: "MayhemLib", link: "/lib/installation", activeMatch: "/lib/" },
       { text: "API", link: "/api/", activeMatch: "/api/" },
       { text: "Reference", link: "/reference/solver", activeMatch: "/reference/" },
@@ -59,13 +60,15 @@ export default defineConfig({
           items: [
             { text: "Introduction", link: "/guide/introduction" },
             { text: "Installation", link: "/guide/installation" },
-            { text: "Your first auto", link: "/guide/quick-start" },
+            { text: "Your first suite routine", link: "/guide/quick-start" },
+            { text: "Suite workflows", link: "/guide/suite" },
+            { text: "Classic trajectory quick start", link: "/guide/classic-quick-start" },
           ],
         },
       ],
       "/app/": [
         {
-          text: "Desktop app",
+          text: "Classic planner",
           items: [
             { text: "Projects and deploying", link: "/app/projects" },
             { text: "Robot configuration", link: "/app/robot" },

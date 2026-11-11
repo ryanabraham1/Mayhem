@@ -1,4 +1,6 @@
-# Mayhem for AI agents
+# Classic planner for AI agents
+
+For the rebuilt suite, use [SUITE_AGENTS.md](SUITE_AGENTS.md) and the [suite user guide](USER_GUIDE.md). The Python MCP interface below edits classic trajectory projects; the suite uses a separate Node CLI/MCP interface and revision-checked live files.
 
 Mayhem includes a local **MCP server** that lets agents discover saved projects,
 read robot/field configuration, author trajectories and event markers, validate

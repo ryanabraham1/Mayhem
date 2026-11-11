@@ -1,62 +1,14 @@
-# Your first auto
+# Your first suite routine
 
-This walks from an empty project to a robot driving a Mayhem path. Each step links to the page with the details.
+Run the development app with `cd app`, `pnpm install`, then `pnpm dev` and open `http://localhost:5173`. The suite needs no Python solver for this workflow.
 
-## 1. Create a project in your robot code
+1. Click the project name in the top bar and create a project.
+2. On **Robot**, enter your dimensions, drive limits and typed inputs.
+3. On **Autonomous**, create a routine, drag its starting robot, then choose **Pose**, **Translation** or **Handoff** and click the field to place goals.
+4. Select a step and adjust its heading, arrival tolerances, callbacks, conditions and watchdogs in the inspector.
+5. Play **Path only** to inspect the full pose sequence. Switch to **Full routine** and set simulated inputs and callback results under **Inputs & events** to check conditions and failures.
+6. Choose **Export project** for a JSON backup. In desktop, **Agents → Save project file** creates a live file link for agent collaboration. Review **Agents → C++ export** and integrate callbacks in your robot code before hardware testing.
 
-Open Mayhem, click **New project**, and choose your robot project's `src/main/deploy/mayhem/` folder (create it if it doesn't exist). Every save is then already "deployed": WPILib copies the folder to the roboRIO on your next code deploy.
+[Full suite guide →](/guide/suite)
 
-[More on projects →](/app/projects)
-
-## 2. Enter your robot's real numbers
-
-Open **Settings → Robot** and fill in mass, moment of inertia, bumper size, wheelbase, wheel radius, motor and gear ratio, and the stator current limit. The optimizer treats these as hard physical limits, so the closer they are to the truth, the better the path matches what the robot can do.
-
-![Robot settings](/img/robot-settings.jpg)
-
-[Robot configuration →](/app/robot)
-
-## 3. Place waypoints and generate
-
-Press <kbd>W</kbd>, then click the field to add pose waypoints (position and heading). Press **Generate** (<kbd>⌘</kbd><kbd>↵</kbd>). The path is colored by speed.
-
-![Waypoints and a generated path](/img/waypoints.jpg)
-
-[Building paths →](/app/paths)
-
-## 4. Add what the path needs
-
-Use [constraints](/app/constraints) to limit speed, point at a target or keep out of a region, and [event markers](/app/markers) to run robot commands at points along the path. Scrub the timeline to [check the result](/app/checking).
-
-## 5. Add MayhemLib to the robot
-
-Install the vendordep with **WPILib: Manage Vendor Libraries → Install new libraries (online)**:
-
-```
-https://ryanabraham1.github.io/Mayhem/MayhemLib.json
-```
-
-## 6. Run the path
-
-For a CTRE Tuner X swerve, create the factory once and build a routine:
-
-```java
-AutoFactory autoFactory = CtreSwerve.autoFactory(drivetrain)
-    .withTelemetry(true);                       // NetworkTables under /Mayhem
-
-autoFactory.bind("intake", () -> intake.run()); // marker named "intake" runs this
-
-AutoRoutine routine = autoFactory.newRoutine("Hub Cycle");
-AutoTrajectory cycle = routine.trajectory("Hub Cycle");
-routine.active().onTrue(Commands.sequence(cycle.resetOdometry(), cycle.cmd()));
-cycle.atTime("shoot").onTrue(shooter.shootOnce());
-return routine;
-```
-
-For a one-path auto without triggers:
-
-```java
-Commands.sequence(autoFactory.resetOdometry("Straight"), autoFactory.trajectoryCmd("Straight"))
-```
-
-[MayhemLib quick start →](/lib/quick-start) · A complete robot project: [examples/robot-2026](https://github.com/ryanabraham1/Mayhem/tree/main/examples/robot-2026)
+Suite `.mayhem.json` files are separate from classic `project.mayhem` / `.mtraj` projects. For the solver and Java MayhemLib workflow, follow [Your first classic trajectory](/guide/classic-quick-start).

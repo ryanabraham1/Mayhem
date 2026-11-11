@@ -15,6 +15,10 @@ The suite is a working development foundation, not a finished replacement for ev
 | Team cloud | Live team library, private storage, selected downloads, upload-only device queue/retry, actual hosted AdvantageScope Lite with selected-log handoff; synthetic upload/download tested | Real match log validation, storage retention controls, upstream Lite preview updates |
 | Release | Mayhem 0.9.2 packaged, signature checked and installed in /Applications; production team website deployed | Apple notarization, Windows/Linux package verification, published releases |
 
+## Documentation for the overhaul
+
+[USER_GUIDE.md](USER_GUIDE.md) is the suite workflow guide: projects and file links, pose editing, preview modes, state inspection, log analysis, robot collection and agent handoff. Existing solver instructions are preserved in [CLASSIC_PLANNER.md](CLASSIC_PLANNER.md). The README, build instructions and VitePress site now route readers to the appropriate suite or classic workflow; classic screenshots are labeled. Documentation changes do not change the validation or release status recorded below.
+
 ## UI rehaul and team 3256 simulation (2026-11-11, current working tree)
 
 - The whole suite UI was rebuilt: a top navigation bar (Overview, Autonomous, State machines, Logs, Robot, Agents, Settings) replaces the per-page layouts, with a new light/dark design system in `app/src/suite/suite.css` and shared primitives in `ui.tsx`. The 2,263-line `SuiteApp.tsx` was split into `useSuiteProject.ts` (project state, history, file link, preview) and one folder per page.

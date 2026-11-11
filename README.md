@@ -2,7 +2,7 @@
 
 A robot software workspace for humans and coding agents: pose-based autonomous tools, state-machine inspection, and robot log playback/analysis.
 
-The new suite is in active development. The original time-optimal trajectory planner stays available from **Settings → Classic trajectory planner**. Current release downloads still contain the older planner; they do not contain this unshipped rewrite.
+The new suite is in active development. The original time-optimal trajectory planner stays available from **Settings → Classic trajectory planner**. This checkout contains the overhaul; check the assets and notes of a published release before assuming it includes the suite.
 
 ## New suite (development)
 
@@ -22,13 +22,15 @@ pnpm dev
 
 Open http://localhost:5173. The new browser suite needs no Python solver. Desktop builds retain the sidecar for the legacy planner; see the existing build instructions below.
 
+Start with the [suite user guide](docs/USER_GUIDE.md) for project switching, autonomous previews, state inspection, and log collection. Suite projects use `.mayhem.json`; classic `project.mayhem` / `.mtraj` projects have a [separate guide](docs/CLASSIC_PLANNER.md).
+
 Read [suite status and remaining work](docs/SUITE_STATUS.md), [agent/tool usage](docs/SUITE_AGENTS.md), [C++ integration](lib-cpp/README.md), and [team log setup](docs/TEAM_LOGS.md). Physical robot tests and production cloud verification remain outstanding.
 
 ## Legacy trajectory planner
 
 **Documentation: <https://ryanabraham1.github.io/Mayhem/>**
 
-## Download the desktop app
+## Published desktop downloads
 
 Get the latest installer from [GitHub Releases](https://github.com/ryanabraham1/Mayhem/releases/latest):
 
@@ -53,13 +55,14 @@ The robot library installs as a vendordep from a hosted URL; see [installation i
 
 | Part | Where | Docs |
 |---|---|---|
-| Desktop app (Tauri 2 + React) | [app/](app/) | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) |
+| Suite and classic app (Tauri 2 + React) | [app/](app/) | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) |
+| Suite C++ controller | [lib-cpp/](lib-cpp/) | [lib-cpp/README.md](lib-cpp/README.md) |
 | Solver (Python, CasADi/IPOPT) | [solver/](solver/) | [docs/SOLVER.md](docs/SOLVER.md) |
 | Robot library (Java) | [lib/](lib/) | [lib/README.md](lib/README.md) |
 | Example robot project | [examples/robot-2026/](examples/robot-2026/) | |
 | Building and releasing | | [docs/BUILDING.md](docs/BUILDING.md) |
 
-## Quick start (development)
+## Classic planner development
 
 ```bash
 cd solver && uv sync && uv run mayhem-solver serve --ws 8765
@@ -71,14 +74,14 @@ cd app && pnpm install && pnpm dev
 
 Open http://localhost:5173. To run as a desktop app, build the solver sidecar once and use `pnpm tauri dev`; see [docs/BUILDING.md](docs/BUILDING.md).
 
-## AI agent integration
+## Classic planner AI agent integration
 
 Mayhem has a local MCP server for discovering and editing saved projects,
 generating trajectories, inspecting solver diagnostics, and copying current paths
 to a robot deploy folder. It uses revision checks and explicit solve/save/deploy
 steps. See [AI agent setup and tool reference](docs/AI_AGENTS.md).
 
-## Using the paths on the robot (MayhemLib)
+## Using classic paths on the robot (Java MayhemLib)
 
 MayhemLib's API is modeled on ChoreoLib's `AutoFactory` / `AutoRoutine` / `AutoTrajectory` /
 `AutoChooser`, so if you've used Choreo it should feel familiar. The main difference: you don't

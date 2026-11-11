@@ -1,7 +1,7 @@
 ---
 layout: home
 title: Mayhem
-titleTemplate: Time-optimal swerve paths for FRC
+titleTemplate: Autonomous tools, states and logs for FRC
 markdownStyles: false
 footer: false
 ---

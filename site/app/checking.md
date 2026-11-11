@@ -1,5 +1,8 @@
 # Checking a path
 
+> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Suite workflows](/guide/suite).
+
+
 ![Scrubbing a generated path on the timeline](/img/playback.jpg)
 
 ## Timeline
