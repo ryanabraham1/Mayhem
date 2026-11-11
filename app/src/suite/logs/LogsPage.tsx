@@ -20,7 +20,7 @@ import {
   UploadCloud,
   Waves,
 } from "lucide-react";
-import { currentBreakdown, type Finding } from "../core/analysis.ts";
+import { currentBreakdown, isDeviceCurrentSignal, parsePowerMapping, type Finding } from "../core/analysis.ts";
 import { PoseReplay } from "../PoseReplay";
 import { desktop, invoke } from "../native";
 import { download, type StoredLog } from "../storage";
@@ -178,13 +178,19 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
     (l) => (showArchived || !l.archived) && l.name.toLowerCase().includes(query.trim().toLowerCase()),
   );
   const channels = recording?.channels ?? [];
-  const channel = channels.find((c) => c.name === channelName);
+  const channel = channels.find((c) => c.name === channelName) ?? (analysis?.estimatedCurrent?.name === channelName ? analysis.estimatedCurrent : undefined);
   const voltage = channels.find((c) => c.name === analysis?.mapping.voltage);
-  const totalCurrent = channels.find((c) => c.name === analysis?.mapping.current);
+  const totalCurrent = analysis?.estimatedCurrent ?? channels.find((c) => c.name === analysis?.mapping.current);
   const breakdown = useMemo(
-    () => (recording ? currentBreakdown(recording, analysis?.mapping.current) : []),
-    [recording, analysis?.mapping.current],
+    () => (recording ? currentBreakdown(recording, analysis?.mapping.current, 24, analysis?.mapping.deviceCurrents) : []),
+    [recording, analysis?.mapping.current, analysis?.mapping.deviceCurrents],
   );
+  const [mappingText, setMappingText] = useState<string | null>(null);
+  const [mappingError, setMappingError] = useState("");
+  const defaultMapping = analysis
+    ? { ...analysis.mapping, deviceCurrents: analysis.mapping.deviceCurrents ?? channels.filter((c) => c.name !== analysis.mapping.current && isDeviceCurrentSignal(c.name)).map((c) => c.name) }
+    : {};
+  useEffect(() => { setMappingText(null); setMappingError(""); }, [current?.id]);
   const errors = analysis?.findings.filter((f) => f.severity === "error") ?? [];
   const warnings = analysis?.findings.filter((f) => f.severity === "warning") ?? [];
   const seek = (t: number, finding?: Finding) => {
@@ -375,7 +381,7 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
                         : "No red flags found"}
                   </strong>
                   <span>
-                    Min battery {analysis.power.minVoltage?.toFixed(2) ?? "—"} V · peak draw{" "}
+                    Min battery {analysis.power.minVoltage?.toFixed(2) ?? "—"} V · {analysis.power.currentSource === "estimated" ? "estimated peak draw" : "peak draw"}{" "}
                     {analysis.power.peakCurrent?.toFixed(0) ?? "—"} A
                   </span>
                 </div>
@@ -450,9 +456,9 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
                       unit="V"
                       tone={analysis.power.minVoltage === undefined ? undefined : analysis.power.minVoltage < 7 ? "bad" : analysis.power.minVoltage < 9 ? "warn" : "good"}
                     />
-                    <Stat label="Peak total draw" value={analysis.power.peakCurrent?.toFixed(0) ?? "—"} unit="A" />
-                    <Stat label="Average power" value={analysis.power.averagePower?.toFixed(0) ?? "—"} unit="W" />
-                    <Stat label="Energy used" value={analysis.power.energyWh?.toFixed(2) ?? "—"} unit="Wh" />
+                    <Stat label={analysis.power.currentSource === "estimated" ? "Estimated peak draw" : "Peak total draw"} value={analysis.power.peakCurrent?.toFixed(0) ?? "—"} unit="A" />
+                    <Stat label={analysis.power.currentSource === "estimated" ? "Estimated average power" : "Average power"} value={analysis.power.averagePower?.toFixed(0) ?? "—"} unit="W" />
+                    <Stat label={analysis.power.currentSource === "estimated" ? "Estimated energy used" : "Energy used"} value={analysis.power.energyWh?.toFixed(2) ?? "—"} unit="Wh" />
                   </div>
                   {voltage ? (
                     <SignalChart
@@ -469,6 +475,7 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
                   ) : (
                     <p className="mx-help">Map a battery voltage signal below to graph voltage sag.</p>
                   )}
+                  {analysis.power.currentSource === "estimated" && <p className="mx-help">Estimated from {analysis.power.currentChannels?.length} logged supply/branch current signals. Unlogged loads are omitted; duplicate device sources must be excluded in the mapping.</p>}
                   <h3 className="mx-subhead">Biggest current draws</h3>
                   {breakdown.length ? (
                     <div className="mx-bars">
@@ -483,7 +490,7 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
                         >
                           <span className="mx-bar-name">{b.channel}</span>
                           <span className="mx-bar-track">
-                            <i style={{ width: `${(b.mAh / breakdown[0].mAh) * 100}%` }} />
+                            <i style={{ width: `${(b.mAh / (breakdown[0].mAh || 1)) * 100}%` }} />
                           </span>
                           <code>{b.mAh.toFixed(0)} mAh</code>
                           <code className="is-muted">peak {b.peak.toFixed(0)} A</code>
@@ -497,6 +504,26 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
                     </p>
                   )}
                   <h3 className="mx-subhead">Signal mapping</h3>
+                  <p className="mx-help">Automatic detection uses signal names. Define an explicit mapping to override it; numbers alone do not identify electrical current.</p>
+                  <details>
+                    <summary>Agent / custom signal mapping</summary>
+                    <p className="mx-help">Download the signal catalog for an agent, then paste its mapping object here. Use volts for voltage and amperes for currents. deviceCurrents lists exactly which supply-current signals appear above; an empty list disables the ranking. Changes are saved for this log on this computer.</p>
+                    <button className="mx-btn mx-btn-md" onClick={() => download("robot-log-signals.json", JSON.stringify({
+                      instructions: "Edit mapping only, then paste it into Signal mapping. Use exact channel names; voltage is V, currents are A. deviceCurrents is authoritative: list supply/PDH branch currents only, not stator currents or the total. [] disables device ranking. Avoid listing duplicate sources for the same device.",
+                      mapping: defaultMapping,
+                      channels: channels.map((c) => ({ name: c.name, type: c.type })),
+                    }, null, 2))}>Download signal catalog</button>
+                    <textarea aria-label="Signal mapping JSON" rows={12} value={mappingText ?? JSON.stringify(defaultMapping, null, 2)} onChange={(e) => setMappingText(e.target.value)} />
+                    {mappingError && <p role="alert">{mappingError}</p>}
+                    <button className="mx-btn mx-btn-md" onClick={() => {
+                      try {
+                        lib.remap(parsePowerMapping(JSON.parse(mappingText ?? JSON.stringify(defaultMapping)), channels));
+                        setMappingError("");
+                        setMappingText(null);
+                      } catch (e) { setMappingError(e instanceof Error ? e.message : String(e)); }
+                    }}>Apply mapping</button>
+                    <button className="mx-btn mx-btn-md" onClick={() => { lib.resetMapping(); setMappingText(null); setMappingError(""); }}>Reset to automatic detection</button>
+                  </details>
                   <div className="mx-mapping">
                     {(["voltage", "current", "brownout"] as const).map((key) => (
                       <Field key={key} label={key === "brownout" ? "Brownout flag" : key === "voltage" ? "Battery voltage" : "Total current"}>

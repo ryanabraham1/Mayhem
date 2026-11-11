@@ -297,7 +297,9 @@ function UploadPanel() {
       </Field>
       <Toggle
         label="Remember the token on this computer"
-        hint="Needed for uploads to resume after Mayhem restarts."
+        hint={c.rememberToken
+          ? "Saves automatically as you type, so uploads can resume after restarts and app updates."
+          : "Session only: this token will be forgotten when Mayhem closes. Enable to keep it after restarts and app updates."}
         checked={c.rememberToken}
         onChange={sync.setRemember}
       />

@@ -26,6 +26,85 @@ export interface PowerMapping {
   voltage?: string;
   current?: string;
   brownout?: string;
+  /** Exact supply-current channels in amperes. Undefined uses detection; [] disables it. */
+  deviceCurrents?: string[];
+}
+/** A portable, agent-editable mapping. Reject typos rather than silently guessing. */
+export function parsePowerMapping(value: unknown, channels?: Channel[]): PowerMapping {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected a signal mapping object.");
+  const input = value as Record<string, unknown>;
+  const result: PowerMapping = {};
+  for (const key of Object.keys(input)) {
+    if (!["voltage", "current", "brownout", "deviceCurrents"].includes(key)) throw new Error(`Unknown mapping field: ${key}`);
+  }
+  for (const key of ["voltage", "current", "brownout"] as const) {
+    const name = input[key];
+    if (name === undefined) continue;
+    if (typeof name !== "string" || !name.trim()) throw new Error(`Invalid ${key} signal name.`);
+    result[key] = name;
+  }
+  if (input.deviceCurrents !== undefined) {
+    if (!Array.isArray(input.deviceCurrents) || input.deviceCurrents.length > 4096 || !input.deviceCurrents.every(n => typeof n === "string" && n.trim())) throw new Error("deviceCurrents must be an array of exact signal names.");
+    result.deviceCurrents = [...new Set(input.deviceCurrents as string[])];
+  }
+  if (channels) {
+    const byName = new Map(channels.map(c => [c.name, c]));
+    for (const [role, names] of Object.entries(result)) {
+      for (const name of typeof names === "string" ? [names] : names) {
+        const channel = byName.get(name);
+        if (!channel) throw new Error(`Signal not found: ${name}`);
+        if (role === "brownout" ? channel.type !== "boolean" : !["double", "float", "int64", "number"].includes(channel.type)) throw new Error(`Wrong signal type for ${role}: ${name}`);
+      }
+    }
+  }
+  return result;
+}
+/** Conservative name hints only; explicit mappings take precedence. */
+export function isDeviceCurrentSignal(name: string): boolean {
+  const leaf = name.replace(/\/\d+$/, "").split("/").pop() ?? "";
+  if (/stator/i.test(name) || /totalcurrent|currentlimit|setpoint|target/i.test(leaf)) return false;
+  return /currents?(?:left|right)?$/i.test(leaf) || /(?:^|[_ .-])amps?$/i.test(leaf) || /[a-z]Amps?$/.test(leaf);
+}
+/** Sum battery-side currents over their common recorded span, holding each sample
+ * until its next update. Never sum peaks, or mix motor supply and PDH measurements. */
+export function estimateTotalCurrent(recording: Recording, mapping: PowerMapping): { channel: Channel; inputs: string[] } | undefined {
+  const explicit = mapping.deviceCurrents === undefined ? undefined : new Set(mapping.deviceCurrents);
+  let candidates = recording.channels.filter(c => c.name !== mapping.current &&
+    (explicit ? explicit.has(c.name) : isDeviceCurrentSignal(c.name) && /supplycurrents?|(?:pdh|pdp|powerdistribution).*currents?/i.test(c.name)));
+  if (!explicit && candidates.some(c => /supplycurrent/i.test(c.name))) {
+    candidates = candidates.filter(c => /supplycurrent/i.test(c.name));
+  }
+  const seen = new Set<string>();
+  const streams = candidates.filter(c => {
+    const canonical = c.name.replace(/^NT:/i, "").replace(/^\/+/, "");
+    if (seen.has(canonical)) return false;
+    seen.add(canonical);
+    return true;
+  }).map(c => ({ name: c.name, samples: c.samples.filter((s): s is Sample & {value: number} =>
+    typeof s.value === "number" && Number.isFinite(s.value) && Number.isFinite(s.time)) })).filter(c => c.samples.length >= 2);
+  if (!streams.length) return;
+  const start = Math.max(0, ...streams.map(c => c.samples[0].time));
+  const end = Math.min(recording.duration, ...streams.map(c => c.samples[c.samples.length - 1].time));
+  if (end <= start) return;
+  const deltas = new Map<number, number>();
+  let total = 0;
+  for (const stream of streams) {
+    let previous = 0;
+    for (const s of stream.samples) {
+      const value = Math.abs(s.value);
+      if (s.time <= start) total += value - previous;
+      else if (s.time <= end) deltas.set(s.time, (deltas.get(s.time) ?? 0) + value - previous);
+      else break;
+      previous = value;
+    }
+  }
+  const samples: Sample[] = [{time: start, value: total}];
+  for (const [time, delta] of [...deltas].sort((a, b) => a[0] - b[0])) {
+    total += delta;
+    samples.push({time, value: Math.max(0, total)});
+  }
+  if (samples[samples.length - 1].time < end) samples.push({time: end, value: total});
+  return { channel: {name: "Estimated total supply current", type: "double", samples}, inputs: streams.map(c => c.name) };
 }
 export interface LogRule {
   id: string; channel: string; op: "lt" | "gt" | "eq"; value: number | boolean | string;
@@ -47,7 +126,10 @@ export interface Analysis {
   findings: Finding[];
   coverage: string[];
   mapping: PowerMapping;
+  estimatedCurrent?: Channel;
   power: {
+    currentSource?: "measured" | "estimated";
+    currentChannels?: string[];
     minVoltage?: number;
     peakCurrent?: number;
     energyWh?: number;
@@ -82,8 +164,11 @@ export function analyze(
   const channels = new Map(recording.channels.map((c) => [c.name, c]));
   const findings: Finding[] = [],
     coverage: string[] = [];
+  const measured = channels.get(mapping.current ?? "");
+  const hasMeasured = measured?.samples.some(s => typeof s.value === "number" && Number.isFinite(s.value));
+  const estimate = hasMeasured ? undefined : estimateTotalCurrent(recording, mapping);
   const voltage = channels.get(mapping.voltage ?? ""),
-    current = channels.get(mapping.current ?? ""),
+    current = hasMeasured ? measured : estimate?.channel,
     brownout = channels.get(mapping.brownout ?? "");
   const excursions = (
     channel: Channel,
@@ -133,16 +218,17 @@ export function analyze(
       "warning",
       0.1,
     );
+  if (estimate) coverage.push(`Total current estimated from ${estimate.inputs.length} supply/branch current signals over their common recorded span. Unlogged loads are omitted; duplicate device sources must be removed using Signal mapping. This is a partial load estimate, not a measured battery total.`);
   if (!a.length)
     coverage.push(
-      "Total current missing: total load and energy calculations unavailable.",
+      "No measured total or usable supply/branch current signals: total load and energy calculations unavailable.",
     );
   else
     excursions(
       current!,
       (n) => typeof n === "number" && n > 180,
-      "Sustained high current",
-      "Measured total current above 180 A for at least 250 ms. Threshold is a starting diagnostic, not a breaker model.",
+      estimate ? "Sustained high estimated current" : "Sustained high current",
+      `${estimate ? "Estimated summed supply current" : "Measured total current"} above 180 A for at least 250 ms. Threshold is a starting diagnostic, not a breaker model.`,
       "warning",
       0.25,
     );
@@ -282,9 +368,12 @@ export function analyze(
   for (const s of a) peakCurrent = Math.max(peakCurrent ?? -Infinity, s.value);
   return {
     mapping,
+    estimatedCurrent: estimate?.channel,
     findings: findings.sort((a, b) => a.start - b.start),
     coverage,
     power: {
+      currentSource: a.length ? estimate ? "estimated" : "measured" : undefined,
+      currentChannels: estimate?.inputs,
       minVoltage,
       peakCurrent,
       energyWh: covered > 0 ? energy / 3600 : undefined,
@@ -372,13 +461,13 @@ export function currentBreakdown(
   recording: Recording,
   exclude?: string,
   limit = 24,
+  deviceCurrents?: readonly string[],
 ): CurrentUse[] {
   const result: CurrentUse[] = [];
+  const explicit = deviceCurrents === undefined ? undefined : new Set(deviceCurrents);
   for (const channel of recording.channels) {
     if (channel.name === exclude) continue;
-    // Ends in Current(s), CurrentLeft/Right or Amps, optionally with an array index.
-    if (!/(?:currents?(?:left|right)?|amps?)(?:\/\d+)?$/i.test(channel.name)) continue;
-    if (/stator/i.test(channel.name)) continue;
+    if (explicit ? !explicit.has(channel.name) : !isDeviceCurrentSignal(channel.name)) continue;
     const samples = channel.samples.filter(
       (s): s is Sample & { value: number } =>
         typeof s.value === "number" && Number.isFinite(s.value),

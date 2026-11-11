@@ -36,7 +36,7 @@ export const syncDefaults: SyncConfig = {
   site: "https://3256tools.vercel.app",
   viewer: "",
   cloudPaused: false,
-  rememberToken: false,
+  rememberToken: true,
 };
 export function loadSyncConfig(): SyncConfig {
   try {
@@ -124,13 +124,17 @@ export function useLogSync({
     setTokenState(value);
     try {
       if (config.rememberToken) localStorage.setItem(TOKEN_KEY, value);
-    } catch {}
+    } catch {
+      notify("Could not save the upload token. It will only be available until Mayhem closes. Check that app storage is available.");
+    }
   };
   const setRemember = (remember: boolean) => {
     update({ rememberToken: remember });
     try {
       if (remember) localStorage.setItem(TOKEN_KEY, token);
-    } catch {}
+    } catch {
+      notify("Could not save the upload token. It will only be available until Mayhem closes. Check that app storage is available.");
+    }
   };
 
   const fromFolder = config.source === "folder";

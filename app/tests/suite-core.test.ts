@@ -453,7 +453,7 @@ describe("power evidence", () => {
       channels: recording.channels.slice(0, 1),
     });
     expect(a.power.energyWh).toBeUndefined();
-    expect(a.coverage.some((c) => c.includes("Total current missing"))).toBe(
+    expect(a.coverage.some((c) => c.includes("No measured total or usable supply/branch current signals"))).toBe(
       true,
     );
   });
@@ -550,7 +550,7 @@ describe("native/browser controller agreement", () => {
   });
 });
 
-import { currentBreakdown } from "../src/suite/core/analysis";
+import { currentBreakdown, parsePowerMapping } from "../src/suite/core/analysis";
 it("ranks individual current draws by charge and skips the total and stator signals", () => {
   const ramp = (value: number) =>
     Array.from({ length: 11 }, (_, i) => ({ time: i, value }));
@@ -564,6 +564,8 @@ it("ranks individual current draws by charge and skips the total and stator sign
         { name: "Drive/FL/SupplyCurrent", type: "double", samples: ramp(36) },
         { name: "Intake/SupplyCurrent", type: "double", samples: ramp(-12) },
         { name: "Drive/FL/StatorCurrent", type: "double", samples: ramp(80) },
+        { name: "NT:/DriveState/Timestamp", type: "double", samples: ramp(482427) },
+        { name: "/Vision/Camera0/poseObservations/0/timestamp", type: "double", samples: ramp(40) },
         { name: "Shooter/Velocity", type: "double", samples: ramp(5) },
         { name: "Drive/currentEffectiveWheelRadius", type: "double", samples: ramp(500) },
         { name: "/Shooter/shooterMotorSupplyCurrents/0", type: "double", samples: ramp(4) },
@@ -579,4 +581,30 @@ it("ranks individual current draws by charge and skips the total and stator sign
   expect(ranked[0].average).toBeCloseTo(36);
   expect(ranked[0].mAh).toBeCloseTo(100);
   expect(ranked[1].peak).toBe(12);
+});
+
+it("uses authoritative current mappings and validates exact signal names and types", () => {
+  const channel = { name: "Custom/Load", type: "double", samples: [{time: 0, value: 36}, {time: 10, value: 36}] };
+  const recording = { name: "test", duration: 10, warnings: [], channels: [channel] };
+  expect(currentBreakdown(recording)).toEqual([]);
+  const mapping = parsePowerMapping({ deviceCurrents: [channel.name] }, recording.channels);
+  expect(currentBreakdown(recording, undefined, 24, mapping.deviceCurrents)[0].mAh).toBeCloseTo(100);
+  expect(currentBreakdown(recording, undefined, 24, [])).toEqual([]);
+  expect(currentBreakdown(recording, channel.name, 24, mapping.deviceCurrents)).toEqual([]);
+  expect(() => parsePowerMapping({ deviceCurrents: ["missing"] }, recording.channels)).toThrow("Signal not found");
+  expect(() => parsePowerMapping({ currents: [] })).toThrow("Unknown mapping field");
+  expect(() => parsePowerMapping({ deviceCurrents: "bad" })).toThrow();
+  expect(() => parsePowerMapping({ brownout: channel.name }, recording.channels)).toThrow("Wrong signal type");
+});
+
+it("estimates missing total current by aligning device supply readings", () => {
+  const a = analyze({ name: "estimate", duration: 10, warnings: [], channels: [
+    {name: "BatteryVoltage", type: "double", samples: [{time:0,value:12},{time:10,value:12}]},
+    {name: "A/SupplyCurrent", type: "double", samples: [{time:0,value:100},{time:5,value:0},{time:10,value:0}]},
+    {name: "B/SupplyCurrent", type: "double", samples: [{time:0,value:0},{time:5,value:100},{time:10,value:100}]},
+  ] });
+  expect(a.power.currentSource).toBe("estimated");
+  expect(a.power.peakCurrent).toBe(100);
+  expect(a.power.energyWh).toBeCloseTo(12000 / 3600);
+  expect(a.estimatedCurrent?.samples).toHaveLength(3);
 });

@@ -141,3 +141,51 @@ it("collects from a local folder (simulation or USB) without SFTP, keeping the o
   expect(invoke).not.toHaveBeenCalledWith("download_robot_log", expect.anything());
   expect(received).toHaveBeenCalledWith(expect.anything(), "FRC_sim.wpilog", "/sim/logs/FRC_sim.wpilog", expect.objectContaining({ source: "local:/sim/logs/FRC_sim.wpilog:30" }));
 });
+
+
+it("remembers a token by default across restarts without resetting collection preferences", () => {
+  localStorage.setItem(SYNC_KEY, JSON.stringify({ site: "https://team.example", autoPull: true }));
+  const first = setup();
+  expect(first.view.result.current.config.rememberToken).toBe(true);
+  act(() => first.view.result.current.setToken("test-device-token"));
+  first.view.unmount();
+  const second = setup();
+  expect(second.view.result.current.token).toBe("test-device-token");
+  expect(second.view.result.current.config.site).toBe("https://team.example");
+  expect(second.view.result.current.config.autoPull).toBe(true);
+});
+
+it("preserves an explicit session-only choice and removes the previously remembered token", () => {
+  const first = setup();
+  act(() => first.view.result.current.setToken("test-device-token"));
+  act(() => first.view.result.current.setRemember(false));
+  expect(first.view.result.current.token).toBe("test-device-token");
+  first.view.unmount();
+  const second = setup();
+  expect(second.view.result.current.config.rememberToken).toBe(false);
+  expect(second.view.result.current.token).toBe("");
+});
+
+it("saves an existing session token when remembering is enabled", () => {
+  localStorage.setItem(SYNC_KEY, JSON.stringify({ rememberToken: false }));
+  const first = setup();
+  act(() => first.view.result.current.setToken("test-device-token"));
+  act(() => first.view.result.current.setRemember(true));
+  first.view.unmount();
+  const second = setup();
+  expect(second.view.result.current.token).toBe("test-device-token");
+});
+
+it("reports token save failures instead of silently losing the token", () => {
+  const { view, notify } = setup();
+  const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("Storage unavailable");
+  });
+  try {
+    act(() => view.result.current.setToken("test-device-token"));
+    expect(view.result.current.token).toBe("test-device-token");
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("Could not save the upload token"));
+  } finally {
+    write.mockRestore();
+  }
+});

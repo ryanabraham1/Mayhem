@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   analyze,
+  parsePowerMapping,
   type Analysis,
   type PowerMapping,
   type Recording,
@@ -39,6 +40,18 @@ export function summarize({ recording, analysis }: Parsed): LogSummary {
     peakCurrent: analysis.power.peakCurrent,
   };
 }
+
+const mappingKey = (id: string) => `robot-log-mapping:${id}`;
+const withSavedMapping = <T extends Parsed>(id: string, result: T, policy: unknown): T => {
+  try {
+    const raw = localStorage.getItem(mappingKey(id));
+    if (!raw) return result;
+    const mapping = parsePowerMapping(JSON.parse(raw), result.recording.channels);
+    return { ...result, analysis: analyze(result.recording, mapping, policy as never) };
+  } catch {
+    return result; // Outdated or unavailable; keep automatic detection.
+  }
+};
 
 function useLogLibraryState({
   policy,
@@ -155,9 +168,9 @@ function useLogLibraryState({
       };
       await storeLog(log, savedPath ? undefined : buffer);
       setLogs((previous) => [log, ...previous.filter((p) => p.id !== id)]);
-      if (!options.background) setCurrent({ ...result, id });
+      if (!options.background) setCurrent({ ...withSavedMapping(id, result, policy), id });
     },
-    [parse],
+    [parse, policy],
   );
 
   const updateLog = useCallback(
@@ -181,7 +194,7 @@ function useLogLibraryState({
     setBusy(true);
     try {
       const result = await parse(await bytesOf(log), log.name);
-      setCurrent({ ...result, id: log.id });
+      setCurrent({ ...withSavedMapping(log.id, result, policy), id: log.id });
       const summary = summarize(result);
       if (JSON.stringify(summary) !== JSON.stringify(log.summary))
         await updateLog(log.id, { summary }).catch(() => {});
@@ -230,10 +243,30 @@ function useLogLibraryState({
     }
   };
 
-  const remap = (mapping: PowerMapping) =>
+  /** Apply a mapping and remember it for this recording. Returns false if storage is unavailable. */
+  const remap = (mapping: PowerMapping, persist = true) => {
+    let saved = true;
+    if (current && persist) {
+      try {
+        localStorage.setItem(mappingKey(current.id), JSON.stringify(mapping));
+      } catch {
+        saved = false;
+      }
+    }
     setCurrent((c) =>
       c ? { ...c, analysis: analyze(c.recording, mapping, policy) } : c,
     );
+    return saved;
+  };
+  const resetMapping = () => {
+    if (!current) return;
+    try {
+      localStorage.removeItem(mappingKey(current.id));
+    } catch {
+      /* ignore */
+    }
+    setCurrent((c) => (c ? { ...c, analysis: analyze(c.recording, undefined, policy) } : c));
+  };
 
   const archive = async (log: StoredLog, archived: boolean) => {
     try {
@@ -257,6 +290,7 @@ function useLogLibraryState({
     updateLog,
     bytesOf,
     remap,
+    resetMapping,
     archive,
     close: () => setCurrent(null),
     sync,
@@ -276,6 +310,7 @@ export function LogLibraryProvider({
   const value = useLogLibraryState(props);
   return <LogContext.Provider value={value}>{children}</LogContext.Provider>;
 }
+
 export function useLogLibrary() {
   const value = useContext(LogContext);
   if (!value)

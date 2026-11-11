@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { expect, it } from "vitest";
 import { analyze, type Recording } from "../src/suite/core/analysis";
-it("recognizes current robot outputs without requiring Mayhem-specific names or fabricating missing power", () => {
+it("recognizes current robot outputs without requiring Mayhem-specific names and labels supply-current power as estimated", () => {
   const recording: Recording = { name: "2026 reference convention", duration: 2, warnings: [], channels: [
     { name: "/RealOutputs/SystemStats/BatteryVoltage", type: "double", samples: [{time:0,value:12}, {time:2,value:12}] },
     { name: "/RealOutputs/SystemStats/BrownedOut", type: "boolean", samples: [{time:0,value:false}] },
@@ -12,8 +12,9 @@ it("recognizes current robot outputs without requiring Mayhem-specific names or 
   const result = analyze(recording);
   expect(result.power.minVoltage).toBe(12);
   expect(result.mapping.current).toBeUndefined();
-  expect(result.power.energyWh).toBeUndefined();
-  expect(result.coverage).toContainEqual(expect.stringContaining("Total current missing"));
+  expect(result.power.currentSource).toBe("estimated");
+  expect(result.power.energyWh).toBeCloseTo(70 * 12 * 2 / 3600);
+  expect(result.coverage).toContainEqual(expect.stringContaining("estimated"));
   expect(result.findings.map(f=>f.title)).toEqual(expect.arrayContaining(["Control loop period over 25 ms", "Rapid state switching"]));
 });
 it("keeps custom future-season power mappings independent of reference names", () => {
