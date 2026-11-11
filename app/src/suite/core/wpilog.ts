@@ -1,5 +1,5 @@
 import type { Channel, Recording, Sample } from "./analysis.ts";
-/** WPILOG 1.0 reader. Binary structures remain visible as unsupported channels.
+/** WPILOG 1.0 reader. Decodes scalars, numeric/string arrays and common WPILib structs (and struct arrays) into derived channels.
  * Spec: allwpilib v2026.2.2/wpiutil/doc/datalog.adoc. */
 export function parseWPILog(buffer: ArrayBuffer, name: string): Recording {
   const bytes = new Uint8Array(buffer),
@@ -127,7 +127,16 @@ export function parseWPILog(buffer: ArrayBuffer, name: string): Recording {
           "struct:Translation2d": ["x", "y"],
           "struct:Rotation2d": ["heading"],
           "struct:ChassisSpeeds": ["vx", "vy", "omega"],
+          "struct:Transform2d": ["x", "y", "heading"],
+          "struct:SwerveModuleState": ["speed", "angle"],
+          "struct:SwerveModulePosition": ["distance", "angle"],
+          "struct:Translation3d": ["x", "y", "z"],
+          "struct:Pose3d": ["x", "y", "z", "qw", "qx", "qy", "qz"],
+          "struct:Transform3d": ["x", "y", "z", "qw", "qx", "qy", "qz"],
         };
+        const structArray = channel.type.endsWith("[]")
+          ? structures[channel.type.slice(0, -2)]
+          : undefined;
         if (arrays[channel.type]) {
           const width = arrays[channel.type];
           if (size % width || size / width > 512)
@@ -155,6 +164,34 @@ export function parseWPILog(buffer: ArrayBuffer, name: string): Recording {
                     : bytes[at] !== 0,
               );
           }
+        } else if (structArray) {
+          const stride = structArray.length * 8;
+          if (size % stride)
+            throw new Error(`Invalid ${channel.type} payload in ${channel.name}.`);
+          const count = size / stride;
+          if (count > 32)
+            warnings.add(
+              `${channel.name}: only the first 32 array elements were decoded.`,
+            );
+          for (let e = 0; e < Math.min(count, 32); e++)
+            structArray.forEach((field, i) =>
+              derived(`${e}/${field}`, view.getFloat64(offset + e * stride + i * 8, true)),
+            );
+        } else if (channel.type === "string[]") {
+          const items: string[] = [];
+          let at = offset;
+          if (at + 4 <= end) {
+            const count = view.getUint32(at, true);
+            at += 4;
+            for (let i = 0; i < count && i < 256 && at + 4 <= end; i++) {
+              const length = view.getUint32(at, true);
+              at += 4;
+              if (at + length > end) break;
+              items.push(decoder.decode(bytes.subarray(at, at + length)));
+              at += length;
+            }
+          }
+          value = JSON.stringify(items);
         } else if (structures[channel.type]) {
           const fields = structures[channel.type];
           if (size !== fields.length * 8)

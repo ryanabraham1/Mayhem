@@ -52,3 +52,35 @@ it("keeps agent writes revision checked and rejects stale saves without changing
     revision: 1,
   });
 });
+it("returns a compact analyze_log summary and supports channel/time queries", async () => {
+  const log = join(directory, "recording.json");
+  const samples = (v: (i: number) => number) =>
+    Array.from({ length: 200 }, (_, i) => ({ time: i * 0.1, value: v(i) }));
+  await writeFile(
+    log,
+    JSON.stringify({
+      name: "t",
+      duration: 20,
+      warnings: [],
+      channels: [
+        { name: "/Robot/Battery", type: "double", samples: samples(() => 12) },
+        { name: "/Arm/supplyCurrent", type: "double", samples: samples((i) => i) },
+      ],
+    }),
+  );
+  const summary: any = await execute("analyze_log", { path: log });
+  expect(summary.channels).toBeUndefined();
+  expect(summary.channelOverview.total).toBe(2);
+  const q: any = await execute("analyze_log", {
+    path: log,
+    channels: ["arm"],
+    from: 5,
+    to: 10,
+    maxSamples: 4,
+  });
+  expect(q.query.matched).toBe(1);
+  expect(q.query.channels[0]).toMatchObject({ min: 50, max: 100 });
+  expect(q.query.channels[0].series.length).toBeLessThanOrEqual(4);
+  const full: any = await execute("analyze_log", { path: log, detail: "full" });
+  expect(full.channels).toHaveLength(2);
+});

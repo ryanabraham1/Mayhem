@@ -515,6 +515,28 @@ describe("power evidence", () => {
       ),
     ).toThrow(/incomplete/);
   });
+  it("decodes struct arrays and string arrays", () => {
+    const parts: number[] = [];
+    const u32 = (n: number) => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
+    const text = (t: string) => [...u32(t.length), ...new TextEncoder().encode(t)];
+    const record = (id: number, time: number, payload: number[]) =>
+      parts.push(0x10, id, payload.length, time & 255, time >> 8, ...payload);
+    const f64 = (...v: number[]) =>
+      [...new Uint8Array(new Float64Array(v).buffer)];
+    parts.push(...new TextEncoder().encode("WPILOG"), 0, 1, ...u32(0));
+    const start = (id: number, name: string, type: string) =>
+      record(0, 0, [0, ...u32(id), ...text(name), ...text(type), ...text("")]);
+    start(1, "/Swerve/States", "struct:SwerveModuleState[]");
+    start(2, "/Alerts", "string[]");
+    record(1, 1000, f64(1.5, 0.25, 2.5, 0.5));
+    record(2, 2000, [...u32(1), ...text("hi")]);
+    const bytes = new Uint8Array(parts);
+    const recording = parseWPILog(bytes.buffer, "t");
+    const at = (n: string) => recording.channels.find((c) => c.name === n)?.samples[0].value;
+    expect(at("/Swerve/States/0/speed")).toBe(1.5);
+    expect(at("/Swerve/States/1/angle")).toBe(0.5);
+    expect(at("/Alerts")).toBe('["hi"]');
+  });
 });
 describe("native/browser controller agreement", () => {
   const executable = resolve(

@@ -7,6 +7,7 @@ import {
   open,
   unlink,
   mkdir,
+  stat,
 } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -16,7 +17,8 @@ import { parseProject, validateProject } from "../app/src/suite/core/model.ts";
 import { sampleProject } from "../app/src/suite/core/sample.ts";
 import { exportCpp } from "../app/src/suite/core/export-cpp.ts";
 import { simulate } from "../app/src/suite/core/runtime.ts";
-import { analyze, parseRecordingJSON } from "../app/src/suite/core/analysis.ts";
+import { analyze, parseRecordingJSON, currentBreakdown } from "../app/src/suite/core/analysis.ts";
+import { listChannels, logTable, findAnomalies, whatChanged, logEvents } from "../app/src/suite/core/logquery.ts";
 import { NT4Observer } from "../app/src/suite/core/nt4.ts";
 import { parseWPILog } from "../app/src/suite/core/wpilog.ts";
 const tools = [
@@ -98,18 +100,102 @@ const tools = [
   {
     name: "analyze_log",
     description:
-      "Read a local WPILOG 1.0 or recording JSON and return measured power findings and logging coverage. Optionally map voltage/current/brownout names.",
+      "Read a local WPILOG 1.0 or recording JSON and return measured power findings and logging coverage. Returns a compact summary by default (findings, power, top current draws, channel overview). Use `channels` (substring filters) to get per-channel stats and downsampled samples, `from`/`to` to restrict to a time window, and `detail: \"full\"` for the raw legacy dump. Optionally map voltage/current/brownout names.",
     inputSchema: {
       type: "object",
-      properties: { path: { type: "string" }, mapping: { type: "object" }, policy: { type: "object" } },
+      properties: {
+        path: { type: "string" },
+        mapping: { type: "object" },
+        policy: { type: "object" },
+        detail: { type: "string", enum: ["summary", "full"], description: "summary (default) omits sample arrays; full returns everything." },
+        channels: { type: "array", items: { type: "string" }, description: "Case-insensitive substrings; matching channels return stats (min/max/mean/first/last) and downsampled samples. Include \"Estimated total supply current\" to query the estimate." },
+        from: { type: "number", description: "Window start, seconds from log start." },
+        to: { type: "number", description: "Window end, seconds from log start." },
+        maxSamples: { type: "integer", minimum: 0, maximum: 500, description: "Max samples per queried channel (default 40, 0 = stats only)." },
+        maxChannels: { type: "integer", minimum: 1, maximum: 200, description: "Max matched channels returned (default 30)." },
+      },
       required: ["path"],
     },
+  },
+  {
+    name: "list_log_channels",
+    description:
+      "Search a WPILOG/recording's channels. Returns name, type, sample count, time span, rate, and min/max/mean for numeric channels. Start here to find what to look at. `filter` = case-insensitive substrings.",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log (adds the estimated total current channel)." }, filter: { type: "array", items: { type: "string" } }, type: { type: "string" }, limit: { type: "integer", maximum: 300 }, offset: { type: "integer" } }, required: ["path"] },
+  },
+  {
+    name: "log_table",
+    description:
+      "Line several channels up on one shared clock (last value held) between `from` and `to`, at `step` seconds or `points` rows (max 500). Use it to compare up to 20 signals at the same moments; for up to 8 channels it also returns pairwise correlation. Names are exact or substring matches.",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log (adds the estimated total current channel)." }, channels: { type: "array", items: { type: "string" } }, from: { type: "number" }, to: { type: "number" }, step: { type: "number" }, points: { type: "integer" } }, required: ["path", "channels"] },
+  },
+  {
+    name: "log_anomalies",
+    description:
+      "Scan channels (all by default) for abnormal behavior: outliers, sudden jumps, sampling dropouts, flatlined sensors, boolean flapping, channels that stop/start logging. Returns ranked events with times to investigate with log_table / log_what_changed. `sensitivity` 0.25-4 (higher finds more).",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log (adds the estimated total current channel)." }, channels: { type: "array", items: { type: "string" } }, from: { type: "number" }, to: { type: "number" }, limit: { type: "integer" }, sensitivity: { type: "number" } }, required: ["path"] },
+  },
+  {
+    name: "log_what_changed",
+    description:
+      "Given a moment `time` (seconds), rank the channels that deviated most from their own normal within +/- `window` seconds (default 1), with before/after values. Use after finding a suspicious time to see what else was happening.",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log (adds the estimated total current channel)." }, time: { type: "number" }, window: { type: "number" }, filter: { type: "array", items: { type: "string" } }, limit: { type: "integer" } }, required: ["path", "time"] },
+  },
+  {
+    name: "log_events",
+    description:
+      "Chronological list of value changes for boolean/string/state channels (all non-numeric by default, or the named `channels`), merged across channels. Shows state-machine transitions, mode changes and alerts in order.",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log (adds the estimated total current channel)." }, channels: { type: "array", items: { type: "string" } }, from: { type: "number" }, to: { type: "number" }, limit: { type: "integer" } }, required: ["path"] },
   },
 ];
 function pathFor(path) {
   if (typeof path !== "string" || !path.trim())
     throw new Error("A file path is required.");
   return resolve(path);
+}
+function channelStats(channel, from, to, maxSamples) {
+  const inWindow = channel.samples.filter((s) => s.time >= from && s.time <= to);
+  const nums = inWindow.filter((s) => typeof s.value === "number" && Number.isFinite(s.value));
+  const round = (n) => Math.round(n * 1e4) / 1e4;
+  const out = { name: channel.name, type: channel.type, samples: inWindow.length };
+  if (nums.length) {
+    let min = Infinity, max = -Infinity, sum = 0;
+    for (const s of nums) {
+      min = Math.min(min, s.value);
+      max = Math.max(max, s.value);
+      sum += s.value;
+    }
+    Object.assign(out, { min: round(min), max: round(max), mean: round(sum / nums.length), first: round(nums[0].value), last: round(nums[nums.length - 1].value) });
+  } else if (inWindow.length) {
+    out.first = inWindow[0].value;
+    out.last = inWindow[inWindow.length - 1].value;
+  }
+  if (maxSamples > 0 && inWindow.length) {
+    const step = Math.max(1, Math.ceil(inWindow.length / maxSamples));
+    out.series = inWindow
+      .filter((_, i) => i % step === 0)
+      .map((s) => [round(s.time), typeof s.value === "number" ? round(s.value) : s.value]);
+  }
+  return out;
+}
+const logCache = new Map();
+async function loadLog(path, mapping) {
+  const { mtimeMs } = await stat(path);
+  const key = `${path}|${mtimeMs}|${JSON.stringify(mapping ?? null)}`;
+  let hit = logCache.get(key);
+  if (!hit) {
+    const bytes = await readFile(path);
+    const recording = path.toLowerCase().endsWith(".wpilog")
+      ? parseWPILog(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), path)
+      : parseRecordingJSON(bytes.toString("utf8"));
+    const { estimatedCurrent } = analyze(recording, mapping);
+    hit = estimatedCurrent
+      ? { ...recording, channels: [...recording.channels, estimatedCurrent] }
+      : recording;
+    logCache.clear();
+    logCache.set(key, hit);
+  }
+  return hit;
 }
 export async function execute(name, args) {
   if (name === "validate_project")
@@ -216,6 +302,16 @@ export async function execute(name, args) {
       steps: result.frames.length - 1,
     };
   }
+  if (
+    ["list_log_channels", "log_table", "log_anomalies", "log_what_changed", "log_events"].includes(name)
+  ) {
+    const recording = await loadLog(path, args.mapping);
+    if (name === "list_log_channels") return listChannels(recording, args);
+    if (name === "log_table") return logTable(recording, args);
+    if (name === "log_anomalies") return findAnomalies(recording, args);
+    if (name === "log_what_changed") return whatChanged(recording, args);
+    return logEvents(recording, args);
+  }
   if (name === "analyze_log") {
     const bytes = await readFile(path);
     const recording = path.toLowerCase().endsWith(".wpilog")
@@ -227,17 +323,69 @@ export async function execute(name, args) {
           path,
         )
       : parseRecordingJSON(bytes.toString("utf8"));
-    return {
+    const result = analyze(recording, args.mapping, args.policy);
+    if (args.detail === "full")
+      return {
+        name: recording.name,
+        duration: recording.duration,
+        channels: recording.channels.map((c) => ({ name: c.name, type: c.type, samples: c.samples.length })),
+        warnings: recording.warnings,
+        ...result,
+      };
+    const { estimatedCurrent, ...rest } = result;
+    const from = Number.isFinite(args.from) ? args.from : -Infinity;
+    const to = Number.isFinite(args.to) ? args.to : Infinity;
+    const maxSamples = args.maxSamples ?? 40;
+    const maxChannels = args.maxChannels ?? 30;
+    const pool = estimatedCurrent
+      ? [...recording.channels, estimatedCurrent]
+      : recording.channels;
+    const byType = {};
+    for (const c of recording.channels) {
+      const e = (byType[c.type] ??= { count: 0, withSamples: 0 });
+      e.count++;
+      if (c.samples.length) e.withSamples++;
+    }
+    const prefixes = {};
+    for (const c of recording.channels) {
+      const key = c.name.split("/").slice(0, 3).join("/");
+      prefixes[key] = (prefixes[key] ?? 0) + 1;
+    }
+    const out = {
       name: recording.name,
       duration: recording.duration,
-      channels: recording.channels.map((c) => ({
-        name: c.name,
-        type: c.type,
-        samples: c.samples.length,
-      })),
       warnings: recording.warnings,
-      ...analyze(recording, args.mapping, args.policy),
+      ...rest,
+      channelOverview: {
+        total: recording.channels.length,
+        byType,
+        topPrefixes: Object.entries(prefixes)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 25)
+          .map(([prefix, count]) => ({ prefix, count })),
+      },
+      topCurrentDraws: currentBreakdown(
+        recording,
+        rest.mapping?.current,
+        12,
+        rest.power?.currentChannels,
+      ),
     };
+    if (estimatedCurrent)
+      out.estimatedCurrentSummary = channelStats(estimatedCurrent, from, to, maxSamples);
+    if (Array.isArray(args.channels) && args.channels.length) {
+      const needles = args.channels.map((n) => String(n).toLowerCase());
+      const matched = pool.filter((c) =>
+        needles.some((n) => c.name.toLowerCase().includes(n)),
+      );
+      out.query = {
+        window: { from: Number.isFinite(from) ? from : 0, to: Number.isFinite(to) ? to : recording.duration },
+        matched: matched.length,
+        truncated: matched.length > maxChannels,
+        channels: matched.slice(0, maxChannels).map((c) => channelStats(c, from, to, maxSamples)),
+      };
+    }
+    return out;
   }
   throw new Error(`Unknown tool ${name}`);
 }

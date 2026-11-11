@@ -49,7 +49,19 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 }
 ```
 
-Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `analyze_log`, `inspect_live_robot`. They do not deploy robot code. Use your normal robot project build/deploy tools.
+Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+
+## Digging into logs
+
+`analyze_log` returns a compact summary (add `channels`, `from`/`to` for per-channel stats, or `detail: "full"` for everything). To investigate, use the exploration tools; all take a WPILOG path (parsed once and cached) and return small ranked results:
+
+1. `log_anomalies` — scan every channel for outliers, big jumps, sampling dropouts, flatlined sensors, boolean flapping, and channels that stop or start logging. Each hit has a time.
+2. `log_what_changed` — for a suspicious `time`, rank the channels that deviated most from their own normal within `window` seconds, with before/after values.
+3. `log_table` — line up to 20 channels on one clock (`step` or `points`, max 500 rows) to compare them at the same instants; up to 8 channels also returns pairwise correlation.
+4. `log_events` — merged chronological changes of state/boolean/string channels (state machines, modes, alerts).
+5. `list_log_channels` — find channel names; `filter` takes case-insensitive substrings, which also match derived `/x`, `/heading`, `/0/speed` pose and module channels.
+
+Typical loop: anomalies → what changed at that time → table of the suspects → events for the state that was active. Findings are symptoms to verify, not proven causes. Struct arrays (swerve module states/positions, Pose3d lists) are decoded into per-element channels, capped at 32 elements.
 
 ## State-machine visibility without architectural constraints
 
