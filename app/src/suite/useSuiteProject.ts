@@ -9,6 +9,7 @@ import {
 } from "./core/model.ts";
 import {
   initialFrame,
+  simulate,
   step,
   type ActionStatus,
   type Frame,
@@ -17,6 +18,8 @@ import {
 import { activateProject, loadProject, saveProject } from "./storage";
 import { desktop, invoke } from "./native";
 
+/** How far ahead the preview forecast simulates a routine. */
+export const FORECAST_SECONDS = 60;
 export type PlaceTool = "select" | "pose" | "translation" | "handoff";
 
 const initialSignals = (p: SuiteProject): Signals =>
@@ -245,6 +248,38 @@ export function useSuiteProject() {
     previewMode,
     actions,
   ]);
+  // Whole-run forecast from the start: total time and timeline markers.
+  const forecast = useMemo(
+    () =>
+      simulate(project, routine, signals, {
+        mode: previewMode,
+        actions,
+        freezeDrive,
+        maxSeconds: FORECAST_SECONDS,
+      }),
+    [project, routine, signals, previewMode, actions, freezeDrive],
+  );
+  // Jump to a time, simulating forward from the recorded run when needed.
+  const seek = (time: number) => {
+    setPlaying(false);
+    let recorded = frames;
+    if (time > latest.time && latest.status === "running") {
+      const additions: Frame[] = [];
+      let current = latest;
+      while (current.status === "running" && current.time < time - 1e-9 && additions.length < 30000) {
+        current = step(project, routine, current, signals, 0.02, freezeDrive, {
+          mode: previewMode,
+          actions,
+        });
+        additions.push(current);
+      }
+      recorded = [...frames, ...additions];
+      setFrames(recorded);
+    }
+    let index = recorded.findIndex((f) => f.time >= time - 1e-9);
+    if (index < 0) index = recorded.length - 1;
+    setCursor(index);
+  };
   const togglePlay = () => {
     if (!playing && latest.status !== "running" && cursor >= frames.length - 1)
       resetPreview();
@@ -650,6 +685,8 @@ export function useSuiteProject() {
     setPlaying,
     togglePlay,
     resetPreview,
+    forecast,
+    seek,
     previewMode,
     setPreviewMode,
     actions,
