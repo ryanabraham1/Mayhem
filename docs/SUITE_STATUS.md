@@ -24,6 +24,27 @@ The suite is a working development foundation, not a finished replacement for ev
 
 Verification: 145 frontend tests, TypeScript and production build, strict Clippy and 5 Rust tests pass; the 3256 project validates and simulates through the CLI. Browser checks covered every page in light mode, preview playback, machine simulation, log import of synthetic and simulated robot logs, and state replay. Not verified: the Tauri desktop build of these changes (folder collection, native dialogs, updater), dark mode on every page, and anything against a physical roboRIO.
 
+## PR validation and distribution (2026-11-11)
+
+CI now builds real desktop bundles with the real frontend and frozen solver on macOS arm64/x64,
+Windows and Linux, runs Rust tests/Clippy on each, and checks packaged-process startup. Playwright
+tests the production browser build's auto authoring/export/reopen flow, WPILOG worker import and
+IndexedDB persistence, state simulation, and navigation in both themes. Separate distribution
+checks extract the new CLI/MCP and C++ archives, run them outside the checkout, and compile a
+Node-generated routine against the extracted C++ headers. Actionlint checks the workflows;
+`CI ready` aggregates every required validation job.
+
+Releases resolve the tag to a commit SHA, run the same CI against that SHA before creating a
+draft, package only that SHA, and verify the tag has not moved before publishing. Release assets
+now include the new C++ and Node CLI/MCP archives and SHA-256 hashes alongside the existing Java
+and Python tools. See `BUILDING.md` for commands and boundaries.
+
+Local verification: 145 app tests, three Playwright workflows, five Rust tests and strict Clippy,
+97 solver tests, Java Gradle tests, CMake/CTest, an installed CMake consumer, extracted archive
+checks, and a macOS app bundle build/startup pass. This is not a successful hosted platform
+matrix or physical robot validation. Native dialogs, SFTP and updater installation still need
+interactive testing; startup smoke only detects early process exits.
+
 ## Reliability fixes (2026-11-10)
 
 - The project-name button opens a real project picker: create a blank project, rename, duplicate, open a file, or switch saved local copies. Switching preserves outgoing edits and checks for competing windows. Open/Save file operations block competing editor mutations while their dialogs or writes are pending.
@@ -58,4 +79,7 @@ Next product priority: keep improving the supervised auto editor, then validate 
 
 ## Hosted CI limitation
 
-GitHub Actions run 42960778220 did not start any jobs: GitHub reported that the account is locked due to a billing issue. Local checks above passed; the three-platform CI matrix is configured but has not run for this PR. The macOS application is packaged and installed locally.
+GitHub Actions runs 42960778220 and 43065322863 did not start jobs: GitHub reported that the
+account is locked due to a billing issue. The latter run's check annotations were rechecked on
+2026-11-11 and still report the lock. Local checks above passed; the expanded hosted platform
+matrix must pass after the account is unlocked before this PR is considered merge-ready.

@@ -9,6 +9,8 @@ import {
   mkdir,
 } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
+import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { parseProject, validateProject } from "../app/src/suite/core/model.ts";
 import { sampleProject } from "../app/src/suite/core/sample.ts";
@@ -335,7 +337,7 @@ async function main() {
 }
 if (
   process.argv[1] &&
-  import.meta.url === new URL(`file://${resolve(process.argv[1])}`).href
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
 )
   main().catch((error) => {
     console.error(error.message);

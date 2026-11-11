@@ -160,16 +160,36 @@ Notes:
 
 | Job | What it runs |
 |-----|--------------|
+| `workflows` | Actionlint validates workflow syntax, expressions and reusable-workflow calls |
 | `solver` | `uv run pytest -q` on Ubuntu, macOS and Windows |
-| `sidecar` | Frozen solver + stdio smoke solve + `shutdown` on Ubuntu, macOS and Windows |
 | `java` | `./gradlew test` on JDK 17 |
 | `frontend` | `pnpm test`, then `pnpm build` (`tsc -b` typecheck + Vite build) |
-| `desktop` | `cargo clippy --locked -D warnings` for the Tauri shell on macOS and Windows (placeholder sidecar) |
+| `cpp` | CMake/CTest, installation and independent `find_package` consumer on Linux, macOS and Windows |
+| `tools` | Build/extract CLI/MCP and C++ archives; verify hashes, CLI simulation, MCP stdio, C++ tests and compilation of Node-generated routines on Linux, macOS and Windows |
+| `browser` | Playwright against the production build: author/preview/export/reopen an auto, switch projects, import/persist/replay WPILOG through its worker, simulate state inputs, and navigate all suite pages in both themes |
+| `desktop` | Real frozen sidecar + stdio smoke solve/shutdown; real frontend; Rust tests and strict Clippy; unsigned Tauri bundles and packaged-process startup on Linux, Windows, and both macOS architectures |
+| `ready` | Stable `CI ready` check; fails if any validation job fails, is cancelled or is skipped |
+
+Desktop CI disables updater artifact signing so PRs need no signing secrets. The release workflow
+still requires the updater key. Linux uses Xvfb and an extracted `.deb`; Windows silently installs
+the NSIS bundle into a temporary directory; macOS launches the bundled executable. Startup checks
+fail on early process exit. They do not exercise native dialogs, SFTP, updater installation or a
+physical robot. Browser traces/screenshots and desktop startup logs are uploaded for diagnosis.
+
+For local browser checks, run `pnpm exec playwright install chromium`, `pnpm build`, then
+`pnpm test:e2e` in `app/`. Archive checks require Node 24+, Python 3.12+, CMake and a C++ compiler:
+
+```sh
+python3 scripts/package-suite.py --version local --output artifacts/suite
+python3 scripts/verify-suite-package.py artifacts/suite
+```
 
 `.github/workflows/release.yml` runs when a version tag such as `v0.1.0` is pushed, or by
 manual dispatch with an existing tag:
 
-1. `create-release` creates a draft GitHub Release for the tag, or reuses the existing one.
+1. `resolve-tag` resolves the tag to an immutable commit SHA. `validate` calls the same CI workflow
+   against that SHA. Only after every job passes does `create-release` create/reuse a draft release.
+   All packaging jobs check out that validated SHA.
 2. `desktop` is a matrix build that freezes and smoke-tests the sidecar, sets the app version
    from the tag, and builds bundles with `tauri-apps/tauri-action`, which uploads them to the
    draft. The same files are also kept as workflow artifacts.
@@ -182,7 +202,12 @@ manual dispatch with an existing tag:
    an `-rc`, hosts the maven repo and `MayhemLib.json` on GitHub Pages
    (`scripts/publish-pages.sh`; see "Hosting MayhemLib" below).
 4. `mcp` runs the solver/MCP tests and attaches the Python wheel and source package.
-5. `publish` checks that the installers and MayhemLib files are present, writes the
+   `suite-tools` builds and independently verifies `Mayhem-suite-tools-<tag>.zip`,
+   `Mayhem-cpp-<tag>.zip`, and `Mayhem-suite-SHA256SUMS.txt`. The CLI/MCP archive needs Node 24+
+   but no npm installation. Keep its directory structure intact. The C++ archive contains the
+   header-only library, CMake setup and tests; it is separate from the Java vendordep.
+5. `publish` checks that the tag still points at the validated SHA and all installers/library/tool
+   assets are present, writes the
    auto-update manifest `latest.json` from the uploaded `.sig` files, then publishes the
    release. If a build fails, the release stays a draft so incomplete downloads are not shown
    as the latest release, and installed apps are not offered it.

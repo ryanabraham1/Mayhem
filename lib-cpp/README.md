@@ -2,6 +2,10 @@
 
 Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters require C++20 and the normal WPILib libraries. Add this directory to your robot's includes. The new C++ API is under development; the legacy Java vendordep does not install it.
 
+Releases include `Mayhem-cpp-<tag>.zip` with the headers, CMake files, example routine and tests.
+Extract the whole archive and run the CMake commands below from its root. SHA-256 hashes are in
+`Mayhem-suite-SHA256SUMS.txt` alongside the release archives.
+
 Use the pieces you need:
 
 | Header | Purpose |

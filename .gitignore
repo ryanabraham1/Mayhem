@@ -30,3 +30,6 @@ artifacts/
 
 # pnpm store created by local installs
 .pnpm-store/
+app/playwright-report/
+app/test-results/
+lib-cpp/consumer-build/

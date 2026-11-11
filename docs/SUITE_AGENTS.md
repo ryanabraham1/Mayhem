@@ -18,7 +18,9 @@ The public contract is `app/src/suite/core/model.ts`. The versioned JSON format 
 
 In the desktop app, open or save a linked project file. Local edits save with revision checks; agent edits appear within about 1.5 seconds. Use the same lock/revision protocol to prevent competing writes. A conflict preserves local work and requires rereading/reconciling the file. Browser mode imports/exports snapshots and keeps its working copy locally. Click the project name in the top bar to create, rename, duplicate, or switch projects. Saved projects are local snapshots; selecting one preserves the outgoing working copy and detaches any file link. Use Open project file to reconnect to an agent-edited file. Each project has independent undo history and preview state; the recording library is shared across projects.
 
-Requires Node 22.18+ (or a newer Node with TypeScript stripping and WebSocket support):
+Release downloads include `Mayhem-suite-tools-<tag>.zip`. Extract the whole archive and run the
+commands below from its root; no npm installation is needed. The same commands work in a source
+checkout. Requires Node 24+ (the version used by CI, with TypeScript stripping and WebSocket support):
 
 ```sh
 node scripts/mayhem.mjs example > robot.mayhem.json

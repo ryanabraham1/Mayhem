@@ -9,5 +9,5 @@ export default defineConfig({
   server: { port: 5173, strictPort: true },
   envPrefix: ["VITE_", "TAURI_"],
   build: { target: "es2022", sourcemap: false, chunkSizeWarningLimit: 1500 },
-  test: { environment: "jsdom", setupFiles: ["src/test/setup.ts"] },
+  test: { environment: "jsdom", setupFiles: ["src/test/setup.ts"], exclude: ["e2e/**", "node_modules/**"] },
 });
