@@ -227,8 +227,8 @@ export function analyze(
     excursions(
       current!,
       (n) => typeof n === "number" && n > 180,
-      estimate ? "Sustained high estimated current" : "Sustained high current",
-      `${estimate ? "Estimated summed supply current" : "Measured total current"} above 180 A for at least 250 ms. Threshold is a starting diagnostic, not a breaker model.`,
+      estimate ? "High estimated current" : "High current",
+      `${estimate ? "Estimated" : "Measured"} current above 180 A for ≥250 ms. Diagnostic only.`,
       "warning",
       0.25,
     );
