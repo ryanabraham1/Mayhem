@@ -258,7 +258,7 @@ function UploadPanel() {
     >
       <Toggle
         label="Upload new logs automatically"
-        hint="Collected logs join the upload queue. Failed uploads retry with backoff."
+        hint="Collected and imported logs join the upload queue. Failed uploads retry with backoff."
         checked={c.autoUpload}
         disabled={!desktop}
         onChange={(autoUpload) => sync.update({ autoUpload })}

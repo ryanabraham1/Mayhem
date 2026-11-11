@@ -24,7 +24,7 @@ import {
   type StoredLog,
 } from "./storage";
 import { invoke, nativeRead } from "./native";
-import { useLogSync } from "./logSync";
+import { loadSyncConfig, useLogSync } from "./logSync";
 
 export const MAX_LOG_BYTES = 250 * 1024 * 1024;
 type Parsed = { recording: Recording; analysis: Analysis };
@@ -196,7 +196,10 @@ function useLogLibraryState({
     if (!file) return;
     setBusy(true);
     try {
-      await received(await file.arrayBuffer(), file.name);
+      const config = loadSyncConfig();
+      await received(await file.arrayBuffer(), file.name, undefined, {
+        queueSite: config.autoUpload ? config.site : undefined,
+      });
     } catch (e) {
       notify(String(e));
     } finally {
@@ -211,12 +214,15 @@ function useLogLibraryState({
         multiple: false,
         filters: [{ name: "Robot logs", extensions: ["wpilog", "json"] }],
       });
-      if (typeof path === "string")
+      if (typeof path === "string") {
+        const config = loadSyncConfig();
         await received(
           await nativeRead(path),
           path.split(/[\\/]/).at(-1) ?? path,
           path,
+          { queueSite: config.autoUpload ? config.site : undefined },
         );
+      }
     } catch (e) {
       notify(String(e));
     } finally {
