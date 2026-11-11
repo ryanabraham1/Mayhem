@@ -14,6 +14,7 @@ import { desktop } from "../native";
 import { robotAddresses, useRobot } from "../robot";
 import { useLogLibrary } from "../logLibrary";
 import { SignalsEditor } from "../SignalsEditor";
+import { resolveConstraints } from "../core/model.ts";
 import type { SuiteState } from "../useSuiteProject";
 import {
   Badge,
@@ -36,6 +37,9 @@ const constraintLabels: Record<string, [string, string]> = {
   maxAngularAcceleration: ["Max turn acceleration", "rad/s²"],
   translationKp: ["Translation kP", ""],
   rotationKp: ["Rotation kP", ""],
+  handoffRadius: ["Handoff radius", "m"],
+  crossTrackKp: ["Cross-track kP", ""],
+  minVelocity: ["Min speed", "m/s"],
 };
 
 export function ConnectionPanel() {
@@ -340,7 +344,10 @@ export function RobotPage({ s }: { s: SuiteState }) {
         <div className="mx-col">
           <UploadPanel />
           <Panel title="Drive limits and size" icon={SlidersHorizontal}>
-            <p className="mx-help">Used by the autonomous preview and exported to the C++ pose controller.</p>
+            <p className="mx-help">
+              Used by the autonomous preview and exported to the C++ path follower (ported from BLine).
+              Handoff radius is how close the robot must get to a pass-through point before moving on.
+            </p>
             <div className="mx-grid-fields">
               <NumberField
                 label="Robot length"
@@ -364,13 +371,13 @@ export function RobotPage({ s }: { s: SuiteState }) {
                   })
                 }
               />
-              {Object.entries(project.robot.constraints).map(([key, value]) => (
+              {Object.entries(resolveConstraints(project.robot.constraints)).map(([key, value]) => (
                 <NumberField
                   key={key}
                   label={constraintLabels[key]?.[0] ?? key}
                   unit={constraintLabels[key]?.[1]}
                   value={value}
-                  min={0.001}
+                  min={key === "minVelocity" ? 0 : 0.001}
                   change={(v) =>
                     s.commit((p) => {
                       p.robot.constraints[key as keyof typeof p.robot.constraints] = v;
