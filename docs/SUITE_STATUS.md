@@ -33,3 +33,7 @@ Next product priority: keep improving the supervised auto editor, then validate 
 - C++: controller and generated-routine checks compile with Clang C++17 and pass. Browser/native controller traces agree. Optional WPILib adapters were syntax-checked against installed 2026 headers. CMake was unavailable on this machine, so the documented CMake/CTest command was not run locally; CI now includes that path on three platforms.
 - Live protocol: the browser and CLI received actual NT4 values from a local WPILib ntcore server. This is a protocol test, not a physical robot test.
 - Team website: production Next build and targeted ESLint pass; all 21 Node tests pass, including scope handoff and log-route checks. Production migration and native upload/shared download/playback are verified with a labeled synthetic recording. Actual hosted AdvantageScope graphs and desktop AdvantageScope launch with the selected log were checked. Physical robot collection remains unverified.
+
+## Hosted CI limitation
+
+GitHub Actions run 42960778220 did not start any jobs: GitHub reported that the account is locked due to a billing issue. Local checks above passed; the three-platform CI matrix is configured but has not run for this PR. The macOS application is packaged and installed locally.
