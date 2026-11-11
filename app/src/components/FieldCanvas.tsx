@@ -1,10 +1,11 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { FieldArt } from "./FieldArt";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import {
   applyWaypointKind, centroid, circlePoints, deleteWaypoint, distToSegment, footprint, intakeFootprint, intakeWaypoints, newConstraint, newObstacle, newWaypoint, resolveWaypoint,
   obstaclePoints, pointInPolygon, sampleAt, totalTime,
 } from "../model";
-import type { Constraint, Decoration, Field, FuelSimConfig, Obstacle, RobotConfig, SimRobot, Trajectory, TrajectoryOutput, Vec2 } from "../types";
+import type { Constraint, Field, FuelSimConfig, Obstacle, RobotConfig, SimRobot, Trajectory, TrajectoryOutput, Vec2 } from "../types";
 import { blocksFuel, DEFAULT_FUEL_SIM, simRobotPathD, simRobotPose, simRobotTrack, type FuelSim, type SimTrack } from "../fuelsim";
 import { useFuelSim } from "../useFuelSim";
 
@@ -46,40 +47,6 @@ const regionColor = (kind: RegionKind) => (kind === "out" ? "var(--red)" : kind 
 
 const pts = (p: Vec2[]) => p.map(([x, y]) => `${x},${y}`).join(" ");
 
-const DECO_STYLE: Record<string, { fill?: string; stroke?: string; op?: number }> = {
-  blueZone: { fill: "var(--blue-alliance)", op: 0.045 },
-  redZone: { fill: "var(--red-alliance)", op: 0.045 },
-  tape: { stroke: "var(--field-line)" },
-  blueTape: { stroke: "var(--blue-alliance)", op: 0.7 },
-  redTape: { stroke: "var(--red-alliance)", op: 0.7 },
-  fuel: { fill: "#e3b341", op: 0.22 },
-  structure: { fill: "var(--structure)", stroke: "var(--structure-stroke)" },
-  blue: { fill: "var(--blue-alliance)", stroke: "var(--blue-alliance)", op: 0.12 },
-  red: { fill: "var(--red-alliance)", stroke: "var(--red-alliance)", op: 0.12 },
-};
-
-const FieldArt = memo(function FieldArt({ field, hideFuel }: { field: Field; hideFuel?: boolean }) {
-  const d = (field.decorations ?? []).filter((x) => !(hideFuel && x.style === "fuel"));
-  const draw = (dec: Decoration, i: number) => {
-    const st = DECO_STYLE[dec.style] ?? {};
-    if (dec.kind === "circle")
-      return <circle key={i} cx={dec.center[0]} cy={dec.center[1]} r={dec.radius} fill={st.fill} opacity={st.op} />;
-    if (dec.kind === "line")
-      return <polyline key={i} points={pts(dec.points)} stroke={st.stroke ?? st.fill} strokeWidth={dec.width} opacity={st.op} fill="none" />;
-    return (
-      <polygon key={i} points={pts(dec.points)} fill={st.fill ?? "none"} fillOpacity={st.op ?? 1} stroke={st.stroke}
-        strokeWidth={1} vectorEffect="non-scaling-stroke" strokeOpacity={st.stroke ? 0.9 : 0} />
-    );
-  };
-  return (
-    <g>
-      <rect x={0} y={0} width={field.length} height={field.width} fill="var(--carpet)" />
-      {d.filter((x) => x.style.endsWith("Zone")).map(draw)}
-      {d.filter((x) => !x.style.endsWith("Zone")).map(draw)}
-      <rect x={0} y={0} width={field.length} height={field.width} fill="none" stroke="var(--border-strong)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
-    </g>
-  );
-});
 
 function RobotShape({ robot, x, y, h, stroke, fill = "none", dash, width = 1.5, opacity = 1 }: {
   robot: RobotConfig; x: number; y: number; h: number; stroke: string; fill?: string; dash?: string; width?: number; opacity?: number;

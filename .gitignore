@@ -17,10 +17,12 @@ app/src-tauri/binaries/*
 # Java
 lib/build/
 lib/.gradle/
+lib-cpp/build/
 lib/*/build/
 .gradle/
 
 # OS / editors
+artifacts/
 .DS_Store
 .idea/
 .vscode/

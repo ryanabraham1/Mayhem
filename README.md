@@ -1,6 +1,28 @@
 # Mayhem
 
-Time-optimal swerve trajectory planning for FRC (2026 REBUILT), with on-robot bump recovery.
+A robot software workspace for humans and coding agents: pose-based autonomous tools, state-machine inspection, and robot log playback/analysis.
+
+The new suite is in active development. The original trajectory planner and Java library remain available through **Legacy trajectory planner**. Current release downloads still contain the older planner; they do not contain this unshipped rewrite.
+
+## New suite (development)
+
+- **Autos:** original Mayhem vector field, click/double-click placement, draggable goals and starting poses, heading handles, typed transitions, moving handoffs, per-goal limits, and measured-state preview.
+- **States:** review auto transitions or arbitrary robot state-machine manifests; inspect live NetworkTables inputs/guards and replay logged state/input values.
+- **Logs & power:** local WPILOG import/playback and field replay, power findings and evidence-linked diagnostics. Desktop collection selects robot files over SFTP, optionally syncs/uploads them, and opens each log in an installed external viewer.
+- **Agents/C++:** shared JSON and revision-checked files, CLI/MCP tools, standalone C++ controller and optional executor/observers. Robot code can use arbitrary custom behavior and architectures.
+- **Team sharing:** companion 3256-Tools web library/viewer source, private cloud uploads, and deployment instructions. Live at https://3256tools.vercel.app/logs, with actual hosted AdvantageScope Lite and selected-log handoff.
+
+```sh
+cd app
+pnpm install
+pnpm dev
+```
+
+Open http://localhost:5173. The new browser suite needs no Python solver. Desktop builds retain the sidecar for the legacy planner; see the existing build instructions below.
+
+Read [suite status and remaining work](docs/SUITE_STATUS.md), [agent/tool usage](docs/SUITE_AGENTS.md), [C++ integration](lib-cpp/README.md), and [team log setup](docs/TEAM_LOGS.md). Physical robot tests and production cloud verification remain outstanding.
+
+## Legacy trajectory planner
 
 **Documentation: <https://ryanabraham1.github.io/Mayhem/>**
 

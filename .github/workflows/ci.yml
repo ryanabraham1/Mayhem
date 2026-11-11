@@ -93,6 +93,19 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+  cpp:
+    name: C++ pose tools (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: cmake -S lib-cpp -B lib-cpp/build -DBUILD_TESTING=ON
+      - run: cmake --build lib-cpp/build --config Debug
+      - run: ctest --test-dir lib-cpp/build -C Debug --output-on-failure
+
   desktop:
     name: Tauri shell (clippy, ${{ matrix.os }})
     strategy:

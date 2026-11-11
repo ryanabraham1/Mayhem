@@ -2,18 +2,37 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Main window: run the bundled solver sidecar, pick project folders, install app updates, close after stopping the solver",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-destroy",
     "dialog:allow-open",
+    "dialog:allow-save",
     {
       "identifier": "shell:allow-spawn",
-      "allow": [{ "name": "binaries/mayhem-solver", "sidecar": true, "args": ["serve"] }]
+      "allow": [
+        {
+          "name": "binaries/mayhem-solver",
+          "sidecar": true,
+          "args": [
+            "serve"
+          ]
+        }
+      ]
     },
     {
       "identifier": "shell:allow-execute",
-      "allow": [{ "name": "binaries/mayhem-solver", "sidecar": true, "args": ["serve"] }]
+      "allow": [
+        {
+          "name": "binaries/mayhem-solver",
+          "sidecar": true,
+          "args": [
+            "serve"
+          ]
+        }
+      ]
     },
     "shell:allow-stdin-write",
     "shell:allow-kill",
