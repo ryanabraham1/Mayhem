@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeAll, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -15,6 +15,8 @@ import {
 import { sampleProject } from "../src/suite/core/sample.ts";
 import {
   control,
+  isIntermediate,
+  pathAhead,
   initialFrame,
   step,
   simulate,
@@ -28,6 +30,7 @@ import {
 } from "../src/suite/core/analysis.ts";
 import { parseWPILog } from "../src/suite/core/wpilog.ts";
 import { routeSegments } from "../src/suite/core/routes.ts";
+import { exportCpp } from "../src/suite/core/export-cpp.ts";
 import { plotSeries } from "../src/suite/core/plot.ts";
 import {
   exampleMachine,
@@ -146,11 +149,11 @@ describe("measured-state autonomy", () => {
     expect(result.frame.events.at(-1)?.message).toContain("1000 execution events");
     expect(result.frame.events.length).toBeLessThanOrEqual(1001);
   });
-  it("requires a low measured speed and settling before final arrival", () => {
+  it("requires a low measured speed when a settle time is set", () => {
     const result = control(
       DEFAULT_GOAL,
       { vx: 2, vy: 0, omega: 0 },
-      DEFAULT_GOAL,
+      { ...DEFAULT_GOAL, settleTime: 0.12 },
       DEFAULT_CONSTRAINTS,
       { vx: 2, vy: 0, omega: 0, settled: 0 },
       0.02,
@@ -177,6 +180,120 @@ describe("measured-state autonomy", () => {
       0.02,
     );
     expect(result.command.omega).toBeGreaterThan(0);
+  });
+});
+describe("BLine-style path following", () => {
+  const anchor = (id: string, x: number, y: number, extra: Partial<typeof DEFAULT_GOAL> = {}) => ({
+    id, name: id, kind: "pose" as const, timeout: 15,
+    goal: { ...DEFAULT_GOAL, x, y, ...extra },
+  });
+  const chain = () => {
+    const p = clone();
+    const routine = {
+      id: "chain", name: "Chain", initial: "a",
+      nodes: [
+        anchor("a", 4, 1, { headingMode: "free" }),
+        anchor("b", 6, 3, {
+          markers: [
+            { kind: "event", t: 0.3, key: "intake" },
+            { kind: "rotation", t: 0.6, heading: 1.2 },
+          ],
+        }),
+        anchor("c", 9, 3, { heading: Math.PI / 2 }),
+        { id: "f", name: "F", kind: "finish" as const, timeout: 1 },
+      ],
+      transitions: [
+        { id: "1", from: "a", to: "b", condition: { kind: "always" as const } },
+        { id: "2", from: "b", to: "c", condition: { kind: "always" as const } },
+        { id: "3", from: "c", to: "f", condition: { kind: "always" as const } },
+      ],
+    };
+    p.robot.start = { x: 1, y: 1, heading: 0 };
+    p.routines = [routine as any];
+    return { p, routine: p.routines[0] };
+  };
+  it("drives through intermediate anchors without slowing to a stop", () => {
+    const { p, routine } = chain();
+    const result = simulate(p, routine, {});
+    expect(result.status).toBe("completed");
+    const handoffs = result.frames.filter((f, i) => i > 0 && f.node !== result.frames[i - 1].node && f.node !== "f");
+    expect(handoffs.map((f) => f.node)).toEqual(["b", "c"]);
+    for (const f of handoffs) expect(Math.hypot(f.velocity.vx, f.velocity.vy)).toBeGreaterThan(1.5);
+    expect(Math.hypot(result.frame.pose.x - 9, result.frame.pose.y - 3)).toBeLessThanOrEqual(0.03);
+    expect(Math.abs(wrap(result.frame.pose.heading - Math.PI / 2))).toBeLessThanOrEqual(DEFAULT_GOAL.rotationTolerance);
+  });
+  it("fires event triggers once by segment progress", () => {
+    const { p, routine } = chain();
+    const events = simulate(p, routine, {}).frame.events.filter((e) => e.kind === "event");
+    expect(events.map((e) => e.message)).toEqual(["Event trigger intake"]);
+    expect(events[0].node).toBe("b");
+  });
+  it("stops at an anchor marked stop or with a conditional exit", () => {
+    const { p, routine } = chain();
+    routine.nodes[0].goal!.stop = true;
+    const stopped = simulate(p, routine, {});
+    const at = stopped.frames.findIndex((f) => f.node === "b");
+    expect(Math.hypot(stopped.frames[at].velocity.vx, stopped.frames[at].velocity.vy)).toBeLessThan(0.3);
+    expect(isIntermediate(routine, routine.nodes[0])).toBe(false);
+    expect(isIntermediate(routine, routine.nodes[1])).toBe(true);
+    expect(pathAhead(routine, routine.nodes[1]).anchors.length).toBe(2);
+  });
+  it("interpolates heading toward rotation markers by progress", () => {
+    const { p, routine } = chain();
+    const frames = simulate(p, routine, {}).frames.filter((f) => f.node === "b");
+    const headings = frames.map((f) => f.pose.heading);
+    expect(Math.max(...headings)).toBeGreaterThan(0.6);
+  });
+  it("exports chain links, markers, and path settings to C++", () => {
+    const { p } = chain();
+    const cpp = exportCpp(p);
+    expect(cpp).toContain("mayhem::MarkerKind::Event");
+    expect(cpp).toContain('"intake"');
+    expect(cpp).toMatch(/\{"a",mayhem::NodeKind::Pose,.*,1,true\},/);
+    expect(cpp).toMatch(/\{"c",mayhem::NodeKind::Pose,.*,-1,false\},/);
+  });
+  it("generated C++ drives the chain through the native runner like the preview", () => {
+    const { p } = chain();
+    const dir = mkdtempSync(resolve(tmpdir(), "mayhem-chain-"));
+    writeFileSync(resolve(dir, "routine.hpp"), exportCpp(p));
+    writeFileSync(
+      resolve(dir, "main.cpp"),
+      `#include "routine.hpp"
+#include <cstdio>
+#include <string>
+struct Hooks : mayhem::RobotHooks { std::string events; void PathEvent(std::string_view k) override { events += std::string(k) + ";"; } };
+int main() {
+  Hooks hooks; mayhem::AutoRunner runner(mayhem_generated::routine_0::routine, hooks);
+  mayhem::Pose pose{1, 1, 0}; mayhem::Velocity v; runner.Start();
+  double minHandoff = 1e9; std::string_view last = runner.ActiveState();
+  for (int i = 0; i < 3000 && runner.Status() == mayhem::RunStatus::Running; ++i) {
+    v = runner.Tick(pose, v, .02);
+    if (runner.ActiveState() != last && runner.ActiveState() != "f") minHandoff = std::min(minHandoff, std::hypot(v.vx, v.vy));
+    last = runner.ActiveState();
+    pose.x += v.vx * .02; pose.y += v.vy * .02; pose.heading = mayhem::Wrap(pose.heading + v.omega * .02);
+  }
+  std::printf("%d %.3f %.3f %.3f %s\\n", int(runner.Status()), pose.x, pose.y, minHandoff, hooks.events.c_str());
+}`,
+    );
+    const exe = resolve(dir, "chain");
+    execFileSync(process.env.CXX ?? "clang++", [
+      "-std=c++17", "-Wall", "-Wextra", "-Werror",
+      `-I${fileURLToPath(new URL("../../lib-cpp/include", import.meta.url))}`,
+      resolve(dir, "main.cpp"), "-o", exe,
+    ]);
+    const [status, x, y, minHandoff, events] = execFileSync(exe, { encoding: "utf8" }).trim().split(" ");
+    expect(status).toBe("2"); // Completed
+    expect(Math.hypot(Number(x) - 9, Number(y) - 3)).toBeLessThanOrEqual(0.03);
+    expect(Number(minHandoff)).toBeGreaterThan(1.5);
+    expect(events).toBe("intake;");
+    const preview = simulate(p, p.routines[0], {}).frame.pose;
+    expect(Number(x)).toBeCloseTo(preview.x, 2);
+    expect(Number(y)).toBeCloseTo(preview.y, 2);
+  });
+  it("validates marker progress and kind", () => {
+    const { p } = chain();
+    (p.routines[0].nodes[1].goal!.markers as any[])[0].t = 1.5;
+    expect(validateProject(p).some((i) => i.path.endsWith("markers.0"))).toBe(true);
   });
 });
 describe("public project format", () => {

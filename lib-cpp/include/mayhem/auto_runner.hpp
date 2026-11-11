@@ -36,12 +36,17 @@ class RobotHooks {
   virtual void StateEntered(std::string_view) {}
   virtual void GuardEvaluated(std::string_view, bool) {}
   virtual void Transitioned(std::string_view, std::string_view, std::string_view) {}
+  // A path event trigger was passed (fires once per path run, in marker order).
+  virtual void PathEvent(std::string_view) {}
 };
 enum class NodeKind { Pose, Action, Custom, Finish };
 struct AutoNode {
   std::string_view id; NodeKind kind; Goal goal; double timeout;
   std::string_view action; Constraints constraints;
   const std::string_view* during = nullptr; std::size_t duringCount = 0;
+  // Pass-through anchor: the robot hands off here instead of stopping. `next` is
+  // the pose node reached through this node's single "Always" transition, or -1.
+  int next = -1; bool intermediate = false;
 };
 struct AutoTransition { std::string_view id, from, to; bool (*guard)(const RobotHooks&); };
 struct RoutineView {
@@ -58,7 +63,7 @@ class AutoRunner {
   }
   bool Start(Velocity measured = {}) {
     if(status_ == RunStatus::Running) Leave(true);
-    current_ = Find(routine_.initial); elapsed_ = 0; controller_.Reset(measured);
+    current_ = Find(routine_.initial); elapsed_ = 0; follower_.Restart(measured);
     if(!current_) {status_=RunStatus::Failed; return false;}
     status_=RunStatus::Running; Enter(); return true;
   }
@@ -75,9 +80,21 @@ class AutoRunner {
       duringSucceeded_[i]=result==ActionStatus::Succeeded;
     }
     Velocity command; bool ready=false;
+    bool handedOff=false;
     if(current_->kind==NodeKind::Pose) {
-      const auto result=controller_.Calculate(pose,measured,current_->goal,current_->constraints,dt);
-      if(!result.valid) return Fail(); command=result.command;ready=result.reached;
+      std::array<const Goal*,kMaxLookahead> anchors{}; std::size_t count=0;
+      const AutoNode* walk=current_; bool final=true;
+      while(walk && count<anchors.size()) {
+        anchors[count++]=&walk->goal;
+        if(!walk->intermediate) {final=true;break;}
+        final=false;
+        walk=walk->next>=0 && static_cast<std::size_t>(walk->next)<routine_.nodeCount ? &routine_.nodes[walk->next] : nullptr;
+        if(walk==current_) break;
+      }
+      const auto result=follower_.Calculate(pose,measured,anchors.data(),count,final,current_->constraints,dt);
+      if(!result.valid) return Fail(); command=result.command;ready=result.reached;handedOff=result.handoff;
+      for(std::size_t i=result.eventsBegin;i<result.eventsEnd && i<current_->goal.markerCount;i++)
+        if(current_->goal.markers[i].kind==MarkerKind::Event) hooks_.PathEvent(current_->goal.markers[i].key);
     } else {
       const auto result=actionSucceeded_ ? ActionStatus::Succeeded : hooks_.TickAction(current_->action);
       if(result==ActionStatus::Failed) return Fail(); actionSucceeded_=result==ActionStatus::Succeeded; ready=actionSucceeded_;
@@ -88,7 +105,8 @@ class AutoRunner {
       const bool accepted=transition.guard && transition.guard(hooks_); hooks_.GuardEvaluated(transition.id,accepted);
       if(!accepted) continue;
       const auto* next=Find(transition.to); if(!next) return Fail();
-      const auto previous=current_->id; Leave(false);current_=next;elapsed_=0;controller_.Reset(measured);
+      const auto previous=current_->id; Leave(false);current_=next;elapsed_=0;
+      if(!(handedOff && next->kind==NodeKind::Pose)) follower_.Restart(command);
       hooks_.Transitioned(transition.id,previous,next->id);Enter();
       return current_->kind==NodeKind::Pose ? command : Velocity{};
     }
@@ -113,10 +131,14 @@ class AutoRunner {
     for(std::size_t i=0;i<current_->duringCount;i++) hooks_.EndAction(current_->during[i],cancelled);
   }
   Velocity Fail() {Leave(true);status_=RunStatus::Failed;return {};}
-  RoutineView routine_;RobotHooks& hooks_;PoseController controller_;const AutoNode* current_=nullptr;
+  static constexpr std::size_t kMaxLookahead=64;
+  RoutineView routine_;RobotHooks& hooks_;PathFollower follower_;const AutoNode* current_=nullptr;
   std::vector<bool> duringSucceeded_;
   bool actionSucceeded_=false;
   double elapsed_=0;RunStatus status_=RunStatus::Idle;
 };
+// Alliance transforms. Flip: rotate the field 180 degrees (opposite alliance).
+// Mirror: reflect across the long centerline (left/right variant).
 inline Pose FlipPose(Pose pose,double fieldLength,double fieldWidth) {return {fieldLength-pose.x,fieldWidth-pose.y,Wrap(pose.heading+3.14159265358979323846)};}
+inline Pose MirrorPose(Pose pose,double fieldWidth) {return {pose.x,fieldWidth-pose.y,Wrap(-pose.heading)};}
 } // namespace mayhem

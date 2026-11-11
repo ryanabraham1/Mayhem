@@ -15,7 +15,38 @@ export interface Constraints {
   maxAngularAcceleration: number;
   translationKp: number;
   rotationKp: number;
+  /** Default intermediate handoff circle radius (BLine default 0.45 m). */
+  handoffRadius?: number;
+  /** Gain on signed perpendicular distance from the active path segment. */
+  crossTrackKp?: number;
+  /** Speed floor while outside the end tolerance; 0 disables it. */
+  minVelocity?: number;
 }
+/** Path-follower settings applied when a project omits them (BLine-style defaults). */
+export const PATH_DEFAULTS = {
+  handoffRadius: 0.45,
+  crossTrackKp: 2,
+  minVelocity: 0,
+} as const;
+export type ResolvedConstraints = Required<Constraints>;
+export const resolveConstraints = (
+  ...layers: (Partial<Constraints> | undefined)[]
+): ResolvedConstraints =>
+  Object.assign(
+    { ...DEFAULT_CONSTRAINTS, ...PATH_DEFAULTS },
+    ...layers.map((l) =>
+      Object.fromEntries(
+        Object.entries(l ?? {}).filter(([, v]) => v !== undefined),
+      ),
+    ),
+  );
+/**
+ * Marker placed on the segment that leads into its pose step, by projected
+ * geometric progress t in [0, 1] (0 = previous anchor, 1 = this anchor).
+ */
+export type PathMarker =
+  | { kind: "rotation"; t: number; heading: number; profiled?: boolean }
+  | { kind: "event"; t: number; key: string };
 export interface Goal extends Pose {
   headingMode?: "fixed" | "pointAt" | "motion" | "free";
   aimX?: number;
@@ -24,8 +55,20 @@ export interface Goal extends Pose {
   rotationTolerance: number;
   velocityTolerance: number;
   settleTime: number;
-  /** A nonzero radius hands off while moving; final goals should settle instead. */
+  /**
+   * Intermediate handoff circle radius. 0 uses the robot default. A pose step
+   * whose only exit is an "Always" transition to another pose step is an
+   * intermediate anchor: the robot drives through it without slowing.
+   */
   handoffRadius: number;
+  /** Force this anchor to be the end of the path (decelerate and settle here). */
+  stop?: boolean;
+  /** Also hand off once projected progress reaches 1 - radius / segment length (default on). */
+  projectedHandoff?: boolean;
+  /** Interpolate heading by path progress (default) or switch immediately. */
+  profiled?: boolean;
+  /** Rotation targets and event triggers on the segment leading into this anchor. */
+  markers?: PathMarker[];
 }
 export interface AutoNode {
   id: string;
@@ -101,10 +144,10 @@ export const DEFAULT_GOAL: Goal = {
   x: 2,
   y: 2,
   heading: 0,
-  translationTolerance: 0.06,
-  rotationTolerance: 0.04,
+  translationTolerance: 0.03,
+  rotationTolerance: (2 * Math.PI) / 180,
   velocityTolerance: 0.15,
-  settleTime: 0.12,
+  settleTime: 0,
   handoffRadius: 0,
 };
 export function evaluate(condition: Condition, signals: Signals): boolean {
@@ -193,6 +236,11 @@ export function validateProject(input: unknown): Issue[] {
       input.robot.constraints[key] <= 0
     )
       error(`robot.constraints.${key}`, "Expected a positive finite number.");
+  for (const key of Object.keys(PATH_DEFAULTS)) {
+    const v = input.robot?.constraints?.[key];
+    if (v !== undefined && (!finite(v) || v < 0 || (key !== "minVelocity" && v === 0)))
+      error(`robot.constraints.${key}`, "Expected a valid path-follower setting.");
+  }
   const signals = new Map<string, string>();
   if (!Array.isArray(input.signals))
     error("signals", "Expected a signal array.");
@@ -310,7 +358,12 @@ export function validateProject(input: unknown): Issue[] {
             error(p + ".constraints", "Expected per-step constraints.");
           else
             for (const [key, value] of Object.entries(n.constraints))
-              if (!(key in DEFAULT_CONSTRAINTS) || !finite(value) || value <= 0)
+              if (
+                !(key in DEFAULT_CONSTRAINTS || key in PATH_DEFAULTS) ||
+                !finite(value) ||
+                value < 0 ||
+                (key !== "minVelocity" && value === 0)
+              )
                 error(
                   p + ".constraints." + key,
                   "Expected a known positive control constraint.",
@@ -356,6 +409,40 @@ export function validateProject(input: unknown): Issue[] {
               n.goal.y > input.field?.height)
           )
             error(p + ".goal", "Goal is outside the field.");
+          for (const k of ["stop", "projectedHandoff", "profiled"])
+            if (n.goal?.[k] !== undefined && typeof n.goal[k] !== "boolean")
+              error(p + ".goal." + k, "Expected true or false.");
+          if (n.goal?.markers !== undefined) {
+            if (!Array.isArray(n.goal.markers))
+              error(p + ".goal.markers", "Expected a marker list.");
+            else
+              n.goal.markers.forEach((m: any, mi: number) => {
+                const mp = `${p}.goal.markers.${mi}`;
+                if (!record(m) || !finite(m.t) || m.t < 0 || m.t > 1)
+                  error(mp, "Marker progress t must be within 0 to 1.");
+                else if (m.kind === "rotation") {
+                  if (!finite(m.heading))
+                    error(mp + ".heading", "Expected a finite heading.");
+                  if (m.profiled !== undefined && typeof m.profiled !== "boolean")
+                    error(mp + ".profiled", "Expected true or false.");
+                } else if (m.kind === "event") {
+                  if (typeof m.key !== "string" || !m.key.trim())
+                    error(mp + ".key", "Event triggers need a key.");
+                } else error(mp, "Marker kind must be rotation or event.");
+                if (
+                  record(m) &&
+                  mi > 0 &&
+                  finite(m.t) &&
+                  record(n.goal.markers[mi - 1]) &&
+                  m.t < n.goal.markers[mi - 1].t
+                )
+                  issues.push({
+                    severity: "warning",
+                    path: mp,
+                    message: "Markers should be in ascending progress order.",
+                  });
+              });
+          }
         }
         if (
           (n.kind === "action" || n.kind === "custom") &&

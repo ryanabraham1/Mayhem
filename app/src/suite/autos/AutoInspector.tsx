@@ -2,15 +2,18 @@ import type { ReactNode } from "react";
 import { Check, Circle, Copy, Plus, Trash2, X } from "lucide-react";
 import {
   DEFAULT_GOAL,
+  PATH_DEFAULTS,
   autoStepLabel,
   conditionLabel,
   evaluate,
   type AutoNode,
   type Goal,
+  type PathMarker,
 } from "../core/model.ts";
+import { isIntermediate } from "../core/runtime.ts";
 import { ConditionEditor } from "../ConditionEditor";
 import type { SuiteState } from "../useSuiteProject";
-import { Button, Field, IconButton, NumberField, deg, rad } from "../ui";
+import { Button, Field, IconButton, NumberField, Toggle, deg, rad } from "../ui";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -66,6 +69,85 @@ function StartInspector({ s, close }: { s: SuiteState; close: () => void }) {
         </Button>
       </Section>
     </>
+  );
+}
+
+function MarkerSection({ goal, setGoal }: { goal: Goal; setGoal: (patch: Partial<Goal>) => void }) {
+  const markers = goal.markers ?? [];
+  const update = (i: number, patch: Partial<PathMarker>) =>
+    setGoal({
+      markers: markers
+        .map((m, j) => (j === i ? ({ ...m, ...patch } as PathMarker) : m))
+        .sort((a, b) => a.t - b.t),
+    });
+  const add = (marker: PathMarker) =>
+    setGoal({ markers: [...markers, marker].sort((a, b) => a.t - b.t) });
+  return (
+    <Section title="On the way here">
+      <p className="mx-help">
+        Rotation targets and event triggers sit on the segment leading into this step, placed by progress (0 = previous step, 1 = this step). They do not bend the route.
+      </p>
+      {markers.map((m, i) => (
+        <div
+          className="mx-marker"
+          key={i}
+          style={{ borderTop: "1px solid var(--mx-line, rgba(127,127,127,.25))", paddingTop: 8, marginTop: 8 }}
+        >
+          <div className="mx-pair">
+            <NumberField
+              label={m.kind === "rotation" ? "Rotation at progress" : "Event at progress"}
+              value={m.t}
+              step={0.05}
+              change={(t) => update(i, { t: Math.min(1, t) })}
+            />
+            {m.kind === "rotation" ? (
+              <NumberField
+                label="Heading"
+                value={deg(m.heading)}
+                min={-3600}
+                unit="°"
+                step={5}
+                change={(v) => update(i, { heading: rad(v) })}
+              />
+            ) : (
+              <Field label="Event key">
+                <input
+                  className="mx-mono-input"
+                  key={i + m.key}
+                  defaultValue={m.key}
+                  onBlur={(e) => {
+                    const key = e.target.value.trim();
+                    if (key && key !== m.key) update(i, { key });
+                  }}
+                />
+              </Field>
+            )}
+          </div>
+          <div className="mx-marker-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            {m.kind === "rotation" && (
+              <Toggle
+                label="Smooth"
+                checked={m.profiled ?? true}
+                onChange={(profiled) => update(i, { profiled })}
+              />
+            )}
+            <IconButton
+              label={`Remove ${m.kind === "rotation" ? "rotation target" : "event trigger"}`}
+              icon={Trash2}
+              onClick={() => setGoal({ markers: markers.filter((_, j) => j !== i) })}
+            />
+          </div>
+        </div>
+      ))}
+      <div className="mx-pair">
+        <Button size="sm" icon={Plus} onClick={() => add({ kind: "rotation", t: 0.5, heading: goal.heading, profiled: true })}>
+          Rotation target
+        </Button>
+        <Button size="sm" icon={Plus} onClick={() => add({ kind: "event", t: 0.5, key: "robot.event" })}>
+          Event trigger
+        </Button>
+      </div>
+    </Section>
   );
 }
 
@@ -197,6 +279,56 @@ export function AutoInspector({ s, close }: { s: SuiteState; close: () => void }
               </div>
             )}
           </Section>
+          <Section title="Path">
+            <p className="mx-help">
+              {isIntermediate(routine, node)
+                ? "Pass-through anchor: the robot drives through without slowing and hands off to the next step inside the handoff circle."
+                : "End of path: the robot slows to this pose and finishes once position and heading are within tolerance."}
+            </p>
+            <Toggle
+              label="Stop here"
+              checked={!!goal.stop}
+              onChange={(stop) => setGoal({ stop })}
+              hint="End the path at this step even if the next step is another pose. A step with a conditional exit always ends the path."
+            />
+            <div className="mx-pair">
+              <NumberField
+                label="Handoff radius"
+                value={goal.handoffRadius}
+                unit="m"
+                step={0.05}
+                change={(v) => setGoal({ handoffRadius: v })}
+              />
+              <NumberField
+                label="Max speed"
+                value={node.constraints?.maxVelocity ?? project.robot.constraints.maxVelocity}
+                min={0.01}
+                unit="m/s"
+                change={(v) =>
+                  s.editNode((n) => {
+                    n.constraints = { ...n.constraints, maxVelocity: v };
+                  })
+                }
+              />
+            </div>
+            <p className="mx-help">
+              Handoff radius 0 uses the robot default ({project.robot.constraints.handoffRadius ?? PATH_DEFAULTS.handoffRadius} m). Max speed applies to the segment leading into this step.
+            </p>
+            <Toggle
+              label="Hand off by progress"
+              checked={goal.projectedHandoff ?? true}
+              onChange={(projectedHandoff) => setGoal({ projectedHandoff })}
+              hint="Also move on once the robot is past 1 − radius ÷ segment length, so a wide corner never circles back. Turn off for anchors the robot must physically reach."
+            />
+            {(goal.headingMode ?? "fixed") === "fixed" && (
+              <Toggle
+                label="Smooth rotation"
+                checked={goal.profiled ?? true}
+                onChange={(profiled) => setGoal({ profiled })}
+                hint="Blend toward this heading by path progress. Off turns to it immediately."
+              />
+            )}
+          </Section>
           <Section title="Arrival">
             <div className="mx-pair">
               <NumberField
@@ -216,29 +348,12 @@ export function AutoInspector({ s, close }: { s: SuiteState; close: () => void }
                 change={(v) => setGoal({ rotationTolerance: rad(v) })}
               />
             </div>
-            <div className="mx-pair">
-              <NumberField label="Settle time" value={goal.settleTime} unit="s" change={(v) => setGoal({ settleTime: v })} />
-              <NumberField label="Handoff radius" value={goal.handoffRadius} unit="m" change={(v) => setGoal({ handoffRadius: v })} />
-            </div>
+            <NumberField label="Settle time" value={goal.settleTime} unit="s" change={(v) => setGoal({ settleTime: v })} />
             <p className="mx-help">
-              {goal.handoffRadius
-                ? "Moves on without stopping once inside the handoff radius and heading tolerance."
-                : "Stops at the pose: position, heading and speed must settle before moving on."}
+              Used only when the path ends here. Settle time 0 finishes as soon as both tolerances are met; above 0 the robot must also be nearly still for that long.
             </p>
           </Section>
-          <Section title="Speed limit">
-            <NumberField
-              label="Maximum speed"
-              value={node.constraints?.maxVelocity ?? project.robot.constraints.maxVelocity}
-              min={0.01}
-              unit="m/s"
-              change={(v) =>
-                s.editNode((n) => {
-                  n.constraints = { ...n.constraints, maxVelocity: v };
-                })
-              }
-            />
-          </Section>
+          <MarkerSection goal={goal} setGoal={setGoal} />
         </>
       )}
 

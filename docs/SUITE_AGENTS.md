@@ -4,7 +4,7 @@ Mayhem is a visual workspace and a set of optional tools. Robot code is the sour
 
 ## Default autonomous approach
 
-Use BLine-style live-pose goals as the normal movement tool. The current implementation is original point-to-point control with proportional correction, braking, acceleration limits, independent heading, and measured arrival. It is not a copy of BLine and is not a time-parameterized trajectory solver.
+Use BLine-style live-pose paths as the normal movement tool. Pose steps joined by a single "Always" transition form one path: intermediate anchors hand off inside a radius (default 0.45 m) or by projected progress without slowing; speed comes from remaining polyline distance with cross-track correction and acceleration limits; heading blends between rotation targets by path progress; rotation targets and event triggers sit on segments by progress t. A step marked `stop`, or with a conditional exit, ends the path. This is an original implementation written from BLine's public documentation, not a copy of BLine, and not a time-parameterized trajectory solver.
 
 - Coordinates are blue-origin meters, radians, seconds, and field-relative velocities. Explicitly convert any vendor API that expects robot-relative speeds. Apply alliance transformations once, consistently, including point-at targets.
 - Final goals require translation and heading tolerance, measured low speed, and a settling interval. Intermediate goals can use a moving handoff radius. Translation goals may leave heading unconstrained.

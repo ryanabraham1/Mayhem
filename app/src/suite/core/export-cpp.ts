@@ -1,4 +1,5 @@
-import type { Condition, SuiteProject } from "./model.ts";
+import { resolveConstraints, type Condition, type SuiteProject } from "./model.ts";
+import { autoNext, isIntermediate } from "./runtime.ts";
 /** Original header-only runtime export. No optimizer output or fixed trajectory clock. */
 export function exportCpp(project: SuiteProject): string {
   const quoted = (text: string) =>
@@ -49,6 +50,17 @@ export function exportCpp(project: SuiteProject): string {
       ),
     );
     r.nodes.forEach((n, i) => {
+      const markers = n.goal?.markers ?? [];
+      if (markers.length)
+        output.push(
+          `inline constexpr std::array<mayhem::PathMarker,${markers.length}> markers_${i} = {{${markers
+            .map((m) =>
+              m.kind === "rotation"
+                ? `{mayhem::MarkerKind::Rotation,${m.t},${m.heading},{},${m.profiled ?? true}}`
+                : `{mayhem::MarkerKind::Event,${m.t},0,std::string_view{${quoted(m.key)}},true}`,
+            )
+            .join(",")}}};`,
+        );
       if (n.during?.length)
         output.push(
           `inline constexpr std::array<std::string_view,${n.during.length}> during_${i} = {${n.during.map(quoted).join(",")}};`,
@@ -59,12 +71,15 @@ export function exportCpp(project: SuiteProject): string {
     );
     r.nodes.forEach((n, i) => {
       const g = n.goal,
-        c = { ...project.robot.constraints, ...n.constraints };
+        c = resolveConstraints(project.robot.constraints, n.constraints);
+      const markers = g?.markers?.length ? `markers_${i}.data(),markers_${i}.size()` : "nullptr,0";
       const goal = g
-        ? `{{${g.x},${g.y},${g.heading}},${g.translationTolerance},${g.rotationTolerance},${g.velocityTolerance},${g.settleTime},${g.handoffRadius},mayhem::HeadingMode::${g.headingMode === "pointAt" ? "PointAt" : g.headingMode === "motion" ? "Motion" : g.headingMode === "free" ? "Free" : "Fixed"},${g.aimX ?? 0},${g.aimY ?? 0}}`
+        ? `{{${g.x},${g.y},${g.heading}},${g.translationTolerance},${g.rotationTolerance},${g.velocityTolerance},${g.settleTime},${g.handoffRadius},mayhem::HeadingMode::${g.headingMode === "pointAt" ? "PointAt" : g.headingMode === "motion" ? "Motion" : g.headingMode === "free" ? "Free" : "Fixed"},${g.aimX ?? 0},${g.aimY ?? 0},${!!g.stop},${g.projectedHandoff ?? true},${g.profiled ?? true},${markers}}`
         : "{}";
+      const next = autoNext(r, n);
+      const nextIndex = next ? r.nodes.indexOf(next) : -1;
       output.push(
-        `  {${quoted(n.id)},mayhem::NodeKind::${n.kind === "pose" ? "Pose" : n.kind === "finish" ? "Finish" : n.kind === "custom" ? "Custom" : "Action"},${goal},${n.timeout},${quoted(n.action ?? "")},{${c.maxVelocity},${c.maxAcceleration},${c.maxAngularVelocity},${c.maxAngularAcceleration},${c.translationKp},${c.rotationKp}}${n.during?.length ? `,during_${i}.data(),during_${i}.size()` : ""}},`,
+        `  {${quoted(n.id)},mayhem::NodeKind::${n.kind === "pose" ? "Pose" : n.kind === "finish" ? "Finish" : n.kind === "custom" ? "Custom" : "Action"},${goal},${n.timeout},${quoted(n.action ?? "")},{${c.maxVelocity},${c.maxAcceleration},${c.maxAngularVelocity},${c.maxAngularAcceleration},${c.translationKp},${c.rotationKp},${c.handoffRadius},${c.crossTrackKp},${c.minVelocity}},${n.during?.length ? `during_${i}.data(),during_${i}.size()` : "nullptr,0"},${nextIndex},${isIntermediate(r, n)}},`,
       );
     });
     output.push(

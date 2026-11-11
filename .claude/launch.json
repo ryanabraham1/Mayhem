@@ -64,6 +64,18 @@
       ],
       "port": 5203,
       "autoPort": false
+    },
+    {
+      "name": "app-vite-2",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "app/node_modules/vite/bin/vite.js",
+        "app",
+        "--port",
+        "5213"
+      ],
+      "port": 5213,
+      "autoPort": false
     }
   ]
 }
