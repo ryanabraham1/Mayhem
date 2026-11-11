@@ -63,7 +63,7 @@ export interface Goal extends Pose {
   handoffRadius: number;
   /** Force this anchor to be the end of the path (decelerate and settle here). */
   stop?: boolean;
-  /** Also hand off once projected progress reaches 1 - radius / segment length (default on). */
+  /** Also hand off once projected progress reaches 1 - radius / segment length (BLine t-ratio handoff, default off). */
   projectedHandoff?: boolean;
   /** Interpolate heading by path progress (default) or switch immediately. */
   profiled?: boolean;
@@ -132,13 +132,14 @@ export interface Issue {
   path: string;
   message: string;
 }
+/** BLine-Lib defaults: 4.5 m/s, 12 m/s², 720°/s, 1500°/s²; README gains 5 / 3. */
 export const DEFAULT_CONSTRAINTS: Constraints = {
-  maxVelocity: 3.5,
-  maxAcceleration: 3,
-  maxAngularVelocity: 5,
-  maxAngularAcceleration: 10,
-  translationKp: 3.2,
-  rotationKp: 4,
+  maxVelocity: 4.5,
+  maxAcceleration: 12,
+  maxAngularVelocity: (720 * Math.PI) / 180,
+  maxAngularAcceleration: (1500 * Math.PI) / 180,
+  translationKp: 5,
+  rotationKp: 3,
 };
 export const DEFAULT_GOAL: Goal = {
   x: 2,

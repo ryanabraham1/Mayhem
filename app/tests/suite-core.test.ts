@@ -328,6 +328,26 @@ int main() {
       ] }], final: true }, DEFAULT_CONSTRAINTS, { ...freshState({ x: 0, y: 0, heading: 0 }) }, 0.02);
     expect(r.fired).toEqual(["early"]);
   });
+  it("drives through every point of a tight zigzag instead of cutting past it", () => {
+    const p = clone();
+    const pts: [number, number, Partial<typeof DEFAULT_GOAL>?][] = [
+      [9, 2], [9.6, 5], [7.4, 5.1], [7.6, 4.3, { headingMode: "free" }], [7.5, 2.4], [4.4, 2.6],
+    ];
+    const nodes: any[] = pts.map(([x, y, extra], i) => ({
+      id: `p${i}`, name: `p${i}`, kind: "pose", timeout: 30, goal: { ...DEFAULT_GOAL, x, y, ...extra },
+    }));
+    nodes.push({ id: "f", name: "f", kind: "finish", timeout: 1 });
+    const routine: any = {
+      id: "zig", name: "Zig", initial: "p0", nodes,
+      transitions: nodes.slice(0, -1).map((n, i) => ({ id: `t${i}`, from: n.id, to: nodes[i + 1].id, condition: { kind: "always" } })),
+    };
+    p.robot.start = { x: 2.4, y: 2, heading: 0 };
+    p.robot.constraints = { ...DEFAULT_CONSTRAINTS };
+    const result = simulate(p, routine, {}, { maxSeconds: 60 });
+    expect(result.status).toBe("completed");
+    for (const [x, y] of pts)
+      expect(Math.min(...result.frames.map((f) => Math.hypot(f.pose.x - x, f.pose.y - y)))).toBeLessThanOrEqual(0.45);
+  });
   it("validates marker progress and kind", () => {
     const { p } = chain();
     (p.routines[0].nodes[1].goal!.markers as any[])[0].t = 1.5;

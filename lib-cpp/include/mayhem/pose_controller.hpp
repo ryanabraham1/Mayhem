@@ -1,4 +1,37 @@
 #pragma once
+/*
+ * Portions ported from BLine-Lib (https://github.com/edanliahovetsky/BLine-Lib):
+ *
+ * BSD 3-Clause License
+ *
+ * Copyright (c) 2025, Edan Liahovetsky
+ * Copyright (c) 2025, Rebel Robotics (FRC 2638)
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -10,8 +43,9 @@ namespace mayhem {
 struct Pose { double x = 0, y = 0, heading = 0; };
 struct Velocity { double vx = 0, vy = 0, omega = 0; };
 struct Constraints {
-  double maxVelocity = 3.5, maxAcceleration = 3, maxAngularVelocity = 5;
-  double maxAngularAcceleration = 10, translationKp = 3.2, rotationKp = 4;
+  // BLine-Lib defaults: 4.5 m/s, 12 m/s^2, 720 deg/s, 1500 deg/s^2; README gains 5 / 3.
+  double maxVelocity = 4.5, maxAcceleration = 12, maxAngularVelocity = 12.566370614359172;
+  double maxAngularAcceleration = 26.179938779914941, translationKp = 5, rotationKp = 3;
   // Default intermediate handoff radius, cross-track gain, and speed floor (0 = off).
   double handoffRadius = .45, crossTrackKp = 2, minVelocity = 0;
 };
@@ -29,13 +63,13 @@ struct Goal {
   double velocityTolerance = .15, settleTime = 0, handoffRadius = 0;
   HeadingMode headingMode = HeadingMode::Fixed;
   double aimX = 0, aimY = 0;
-  bool stop = false, projectedHandoff = true, profiled = true;
+  bool stop = false, projectedHandoff = false, profiled = true;
   const PathMarker* markers = nullptr; std::size_t markerCount = 0;
 };
 struct ControlState {
   Velocity previous; double settled = 0;
   double sx = 0, sy = 0, rotHeading = 0, rotRemaining = NAN;
-  std::size_t events = 0; bool started = false;
+  std::size_t events = 0; bool started = false; double acceptedRemaining = INFINITY;
 };
 struct ControlResult {
   Velocity command; bool reached = false; bool valid = true; bool handoff = false;
@@ -44,15 +78,15 @@ struct ControlResult {
   double progress = 0, remaining = 0;
 };
 inline double Wrap(double angle) { return std::atan2(std::sin(angle), std::cos(angle)); }
-inline constexpr double kBrakingShare = .75;
-
-// Original BLine-style path follower; mirrors follow() in app/src/suite/core/runtime.ts.
+// Path follower ported from BLine-Lib's FollowPath, RotationProgress and ChassisRateLimiter
+// (BSD 3-Clause, Copyright (c) 2025 Edan Liahovetsky and Rebel Robotics (FRC 2638); see
+// THIRD_PARTY_NOTICES.md). Mirrors follow() in app/src/suite/core/runtime.ts.
 // anchors[0] is the active translation target; `final` means anchors[count-1] ends the
 // path. No scheduler, vendor, network, file IO, allocation, or agent dependency.
 class PathFollower {
  public:
   void Reset(Pose pose, Velocity measured = {}) {
-    state_ = {measured, 0, pose.x, pose.y, pose.heading, NAN, 0, true};
+    state_ = {measured, 0, pose.x, pose.y, pose.heading, NAN, 0, true, INFINITY};
   }
   ControlResult Calculate(Pose pose, Velocity measured, const Goal* const* anchors,
                           std::size_t count, bool final, const Constraints& c, double dt) {
@@ -107,6 +141,7 @@ class PathFollower {
     for (; events < T.markerCount; ++events)
       if (T.markers[events].kind == MarkerKind::Event && T.markers[events].t > progress && !handoff) break;
     out.eventsEnd = events;
+    const double progressAlong = std::min(along, state_.acceptedRemaining);
     double fromHeading = state_.rotHeading;
     double fromRemaining = std::isfinite(state_.rotRemaining) ? state_.rotRemaining : along;
     for (std::size_t m = 0; m < T.markerCount; ++m)
@@ -140,7 +175,7 @@ class PathFollower {
       if (!nextProfiled) desiredHeading = nextHeading;
       else {
         const double span = fromRemaining - nextRemaining;
-        const double f = span > 1e-9 ? std::clamp((fromRemaining - along) / span, 0.0, 1.0) : 1;
+        const double f = span > 1e-9 ? std::clamp((fromRemaining - progressAlong) / span, 0.0, 1.0) : 1;
         desiredHeading = fromHeading + Wrap(nextHeading - fromHeading) * f;
       }
     }
@@ -158,35 +193,34 @@ class PathFollower {
       state_.previous = {}; state_.settled = settled; state_.events = events;
       out.reached = true; return out;
     }
-    double speed = std::min({c.maxVelocity, c.translationKp * remaining,
-      std::sqrt(2 * kBrakingShare * c.maxAcceleration * std::max(0.0, remaining - T.translationTolerance / 2))});
+    // Translation: P on remaining distance clamped to max velocity, optional floor,
+    // aimed at the target, plus cross-track correction along the segment's right normal.
+    double speed = std::min(c.translationKp * remaining, c.maxVelocity);
     if (c.minVelocity > 0 && remaining > T.translationTolerance)
       speed = std::max(speed, std::min(c.minVelocity, c.maxVelocity));
     double vx = distance > 1e-9 ? speed * dx / distance : 0;
     double vy = distance > 1e-9 ? speed * dy / distance : 0;
-    if (L > 1e-9 && distance > T.translationTolerance) {
-      vx += c.crossTrackKp * crossTrack * uy; vy -= c.crossTrackKp * crossTrack * ux;
-    }
+    if (L > 1e-9) { vx += c.crossTrackKp * crossTrack * uy; vy -= c.crossTrackKp * crossTrack * ux; }
+    // Rotation: P on heading error clamped to max angular velocity.
+    double omega = std::clamp(c.rotationKp * angle, -c.maxAngularVelocity, c.maxAngularVelocity);
+    // Rate limiting: cap speed, then limit the change of each command by the accelerations.
     const double mag = std::hypot(vx, vy);
-    if (mag > speed && mag > 1e-9) { vx *= speed / mag; vy *= speed / mag; }
+    if (mag > c.maxVelocity) { vx *= c.maxVelocity / mag; vy *= c.maxVelocity / mag; }
     const auto& p = state_.previous;
     const double change = std::hypot(vx - p.vx, vy - p.vy), maxChange = c.maxAcceleration * dt;
     if (change > maxChange) {
       vx = p.vx + (vx - p.vx) * maxChange / change; vy = p.vy + (vy - p.vy) * maxChange / change;
     }
-    const double angularSpeed = std::min({c.maxAngularVelocity, c.rotationKp * std::abs(angle),
-      std::sqrt(2 * c.maxAngularAcceleration * std::abs(angle))});
-    const double desired = angle == 0 ? 0 : std::copysign(angularSpeed, angle);
-    const double omega = p.omega + std::clamp(desired - p.omega,
-      -c.maxAngularAcceleration * dt, c.maxAngularAcceleration * dt);
+    omega = p.omega + std::clamp(omega - p.omega, -c.maxAngularAcceleration * dt, c.maxAngularAcceleration * dt);
     if (!std::isfinite(vx) || !std::isfinite(vy) || !std::isfinite(omega)) return Invalid();
     state_.previous = {vx, vy, omega};
     if (handoff) {
       state_.rotHeading = interpolated; state_.rotRemaining = tail;
       state_.sx = T.pose.x; state_.sy = T.pose.y; state_.events = 0; state_.settled = 0;
+      state_.acceptedRemaining = std::min(progressAlong, tail);
     } else {
       if (!std::isfinite(state_.rotRemaining)) state_.rotRemaining = along;
-      state_.events = events; state_.settled = settled;
+      state_.events = events; state_.settled = settled; state_.acceptedRemaining = progressAlong;
     }
     out.command = state_.previous; out.reached = handoff; out.handoff = handoff;
     return out;

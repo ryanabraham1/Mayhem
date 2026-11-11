@@ -74,7 +74,7 @@ export function exportCpp(project: SuiteProject): string {
         c = resolveConstraints(project.robot.constraints, n.constraints);
       const markers = g?.markers?.length ? `markers_${i}.data(),markers_${i}.size()` : "nullptr,0";
       const goal = g
-        ? `{{${g.x},${g.y},${g.heading}},${g.translationTolerance},${g.rotationTolerance},${g.velocityTolerance},${g.settleTime},${g.handoffRadius},mayhem::HeadingMode::${g.headingMode === "pointAt" ? "PointAt" : g.headingMode === "motion" ? "Motion" : g.headingMode === "free" ? "Free" : "Fixed"},${g.aimX ?? 0},${g.aimY ?? 0},${!!g.stop},${g.projectedHandoff ?? true},${g.profiled ?? true},${markers}}`
+        ? `{{${g.x},${g.y},${g.heading}},${g.translationTolerance},${g.rotationTolerance},${g.velocityTolerance},${g.settleTime},${g.handoffRadius},mayhem::HeadingMode::${g.headingMode === "pointAt" ? "PointAt" : g.headingMode === "motion" ? "Motion" : g.headingMode === "free" ? "Free" : "Fixed"},${g.aimX ?? 0},${g.aimY ?? 0},${!!g.stop},${g.projectedHandoff ?? false},${g.profiled ?? true},${markers}}`
         : "{}";
       const next = autoNext(r, n);
       const nextIndex = next ? r.nodes.indexOf(next) : -1;

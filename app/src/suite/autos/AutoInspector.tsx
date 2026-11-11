@@ -316,9 +316,9 @@ export function AutoInspector({ s, close }: { s: SuiteState; close: () => void }
             </p>
             <Toggle
               label="Hand off by progress"
-              checked={goal.projectedHandoff ?? true}
+              checked={goal.projectedHandoff ?? false}
               onChange={(projectedHandoff) => setGoal({ projectedHandoff })}
-              hint="Also move on once the robot is past 1 − radius ÷ segment length, so a wide corner never circles back. Turn off for anchors the robot must physically reach."
+              hint="Off (BLine default): the robot must enter the handoff circle, so it really drives through this point. On: also move on once it is past 1 − radius ÷ segment length, which cuts corners."
             />
             {(goal.headingMode ?? "fixed") === "fixed" && (
               <Toggle

@@ -20,7 +20,8 @@ import { routeSegments, routeWarnings } from "./core/routes.ts";
 import { FieldArt } from "../components/FieldArt";
 import seasonField from "./core/rebuilt-2026.json";
 import type { Field } from "../types";
-import type { AutoRoutine, SuiteProject, Pose } from "./core/model.ts";
+import { PATH_DEFAULTS, type AutoRoutine, type SuiteProject, type Pose } from "./core/model.ts";
+import { isIntermediate } from "./core/runtime.ts";
 export type FieldTool = "select" | "pose" | "translation" | "handoff";
 interface View {
   x: number;
@@ -400,7 +401,15 @@ export function FieldView({
         </g>
         {goals.map((node, i) => {
           const goal = positions[i],
-            active = node.id === selected;
+            active = node.id === selected,
+            translationOnly = node.goal?.headingMode === "free",
+            // The circle the robot must enter: handoff radius for pass-through
+            // points, end tolerance where the path stops.
+            ringRadius = isIntermediate(routine, node)
+              ? goal.handoffRadius > 0
+                ? goal.handoffRadius
+                : (project.robot.constraints.handoffRadius ?? PATH_DEFAULTS.handoffRadius)
+              : goal.translationTolerance;
           return (
             <g
               key={node.id}
@@ -441,15 +450,22 @@ export function FieldView({
               <circle
                 cx={goal.x}
                 cy={height - goal.y}
-                r={Math.max(
-                  0.24,
-                  goal.handoffRadius || goal.translationTolerance,
-                )}
+                r={Math.max(translationOnly ? 0.18 : 0.24, ringRadius)}
                 fill={active ? "var(--mx-path-soft)" : "transparent"}
                 stroke="var(--mx-path)"
                 strokeWidth=".018"
                 strokeDasharray=".05 .05"
               />
+              {translationOnly ? (
+                <circle
+                  cx={goal.x}
+                  cy={height - goal.y}
+                  r=".13"
+                  fill="var(--mx-path)"
+                  stroke="var(--mx-halo)"
+                  strokeWidth=".035"
+                />
+              ) : (
               <g
                 transform={`translate(${goal.x},${height - goal.y}) rotate(${(-goal.heading * 180) / Math.PI})`}
               >
@@ -504,9 +520,10 @@ export function FieldView({
                   />
                 </g>
               </g>
+              )}
               <text
                 x={goal.x}
-                y={height - goal.y - 0.63}
+                y={height - goal.y - (translationOnly ? 0.36 : 0.63)}
                 textAnchor="middle"
                 className="mx-goal-label"
               >

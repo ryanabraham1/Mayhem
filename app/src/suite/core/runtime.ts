@@ -1,3 +1,36 @@
+/*
+ * Portions ported from BLine-Lib (https://github.com/edanliahovetsky/BLine-Lib):
+ *
+ * BSD 3-Clause License
+ *
+ * Copyright (c) 2025, Edan Liahovetsky
+ * Copyright (c) 2025, Rebel Robotics (FRC 2638)
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice, this
+ *    list of conditions and the following disclaimer.
+ *
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3. Neither the name of the copyright holder nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 import {
   evaluate,
   type SuiteProject,
@@ -21,6 +54,8 @@ export interface ControllerState extends Velocity {
   rotRemaining?: number;
   /** Event markers already fired on the active segment. */
   events?: number;
+  /** Smallest remaining path distance reached; rotation progress is monotonic. */
+  acceptedRemaining?: number;
 }
 export interface ControlResult {
   command: Velocity;
@@ -55,20 +90,19 @@ export const freshState = (pose: Pose, v: Velocity = { vx: 0, vy: 0, omega: 0 })
   rotRemaining: Number.NaN,
   events: 0,
 });
-/** Fraction of max acceleration used for the stopping-distance limit. */
-export const BRAKING_SHARE = 0.75;
 const hasHeading = (g: Goal) => !g.headingMode || g.headingMode === "fixed";
 /**
- * BLine-style path follower. Browser reference implementation; the native
+ * Path follower ported from BLine-Lib's FollowPath, RotationProgress and
+ * ChassisRateLimiter (BSD 3-Clause, Copyright (c) 2025 Edan Liahovetsky and
+ * Rebel Robotics (FRC 2638); see THIRD_PARTY_NOTICES.md). The native
  * counterpart is PathFollower in lib-cpp/include/mayhem/pose_controller.hpp.
  *
- * Translation: speed from remaining polyline distance (P gain, capped by max
- * velocity and a stopping-distance limit), pointed at the active anchor, plus a
- * cross-track correction toward the active segment; the change in command is
- * limited by max acceleration. Intermediate anchors hand off inside their
- * radius (or, optionally, at projected progress 1 - r/L) without slowing.
- * Rotation: heading interpolates between rotation targets by path progress.
- * Completion: final anchor within translation and rotation tolerance.
+ * Translation: P on remaining polyline distance clamped to max velocity,
+ * pointed at the active target, plus cross-track correction; speeds are capped
+ * and their change limited by the accelerations. Intermediate targets hand off
+ * once the robot enters their radius (projected-progress handoff is opt-in).
+ * Rotation: heading interpolates between rotation targets by monotonic path
+ * progress. Completion: final target within translation and rotation tolerance.
  */
 export function follow(
   pose: Pose,
@@ -155,7 +189,7 @@ export function follow(
     !isFinal &&
     (L <= 1e-9 ||
       distance <= radius ||
-      ((T.projectedHandoff ?? true) && L > 1e-9 && progress >= Math.min(1, Math.max(0, 1 - radius / L))));
+      ((T.projectedHandoff ?? false) && L > 1e-9 && progress >= Math.min(1, Math.max(0, 1 - radius / L))));
   // Event triggers on this segment fire in list order once progress passes t.
   const fired: string[] = [];
   let events = prior.events ?? 0;
@@ -166,6 +200,8 @@ export function follow(
     if (m.kind === "event") fired.push(m.key);
   }
   // Rotation: from the last passed target to the next target ahead, by progress.
+  // Rotation progress never moves backward along the path (BLine RotationProgress).
+  const progressAlong = Math.min(along, prior.acceptedRemaining ?? along);
   let fromHeading = prior.rotHeading ?? pose.heading;
   let fromRemaining = Number.isFinite(prior.rotRemaining ?? Number.NaN)
     ? (prior.rotRemaining as number)
@@ -201,7 +237,7 @@ export function follow(
     if (!next.profiled) desiredHeading = next.heading;
     else {
       const span = fromRemaining - next.remaining;
-      const f = span > 1e-9 ? Math.min(1, Math.max(0, (fromRemaining - along) / span)) : 1;
+      const f = span > 1e-9 ? Math.min(1, Math.max(0, (fromRemaining - progressAlong) / span)) : 1;
       desiredHeading = fromHeading + wrap(next.heading - fromHeading) * f;
     }
   }
@@ -236,26 +272,27 @@ export function follow(
       remaining,
       targetHeading: desiredHeading,
     };
-  // Translation command.
-  let speed = Math.min(
-    k.maxVelocity,
-    k.translationKp * remaining,
-    // Brake on part of the acceleration budget so steering still has headroom.
-    Math.sqrt(2 * BRAKING_SHARE * k.maxAcceleration * Math.max(0, remaining - T.translationTolerance / 2)),
-  );
+  // Translation (BLine FollowPath phase 4): P on remaining polyline distance,
+  // clamped to max velocity, with an optional speed floor, pointed at the
+  // active target, plus cross-track correction along the segment normal.
+  let speed = Math.min(k.translationKp * remaining, k.maxVelocity);
   if (k.minVelocity > 0 && remaining > T.translationTolerance)
     speed = Math.max(speed, Math.min(k.minVelocity, k.maxVelocity));
   let vx = distance > 1e-9 ? (speed * dx) / distance : 0,
     vy = distance > 1e-9 ? (speed * dy) / distance : 0;
-  if (L > 1e-9 && distance > T.translationTolerance) {
+  if (L > 1e-9) {
+    // Positive cross-track is left of the segment; correct along its right normal.
     vx += k.crossTrackKp * crossTrack * uy;
     vy -= k.crossTrackKp * crossTrack * ux;
   }
-  // Cross-track steers; it never adds speed beyond the profiled request.
+  // Rotation: P on heading error, clamped to max angular velocity.
+  let omegaDesired = Math.max(-k.maxAngularVelocity, Math.min(k.maxAngularVelocity, k.rotationKp * angle));
+  // Rate limiting (BLine ChassisRateLimiter): cap speeds, then limit the change
+  // in the translation vector and in angular velocity by the accelerations.
   const mag = Math.hypot(vx, vy);
-  if (mag > speed && mag > 1e-9) {
-    vx *= speed / mag;
-    vy *= speed / mag;
+  if (mag > k.maxVelocity) {
+    vx *= k.maxVelocity / mag;
+    vy *= k.maxVelocity / mag;
   }
   const change = Math.hypot(vx - prior.vx, vy - prior.vy),
     maxChange = k.maxAcceleration * dt;
@@ -263,18 +300,8 @@ export function follow(
     vx = prior.vx + ((vx - prior.vx) * maxChange) / change;
     vy = prior.vy + ((vy - prior.vy) * maxChange) / change;
   }
-  const angularSpeed = Math.min(
-    k.maxAngularVelocity,
-    k.rotationKp * Math.abs(angle),
-    Math.sqrt(2 * k.maxAngularAcceleration * Math.abs(angle)),
-  );
-  const desired = Math.sign(angle) * angularSpeed;
-  const omega =
-    prior.omega +
-    Math.max(
-      -k.maxAngularAcceleration * dt,
-      Math.min(k.maxAngularAcceleration * dt, desired - prior.omega),
-    );
+  omegaDesired = prior.omega + Math.max(-k.maxAngularAcceleration * dt, Math.min(k.maxAngularAcceleration * dt, omegaDesired - prior.omega));
+  const omega = omegaDesired;
   if (![vx, vy, omega].every(Number.isFinite)) return invalid();
   // On handoff, the next segment starts at T and inherits the rotation context.
   // An early handoff continues from the heading requested right now, so the
@@ -285,8 +312,8 @@ export function follow(
   return {
     command: { vx, vy, omega },
     state: handoff
-      ? { vx, vy, omega, settled: 0, sx: T.x, sy: T.y, events: 0, ...carry }
-      : { vx, vy, omega, settled, sx, sy, events, ...carry },
+      ? { vx, vy, omega, settled: 0, sx: T.x, sy: T.y, events: 0, acceptedRemaining: Math.min(progressAlong, tail), ...carry }
+      : { vx, vy, omega, settled, sx, sy, events, acceptedRemaining: progressAlong, ...carry },
     reached: handoff,
     handoff,
     valid: true,
