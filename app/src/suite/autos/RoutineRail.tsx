@@ -1,17 +1,20 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
   Code2,
   Copy,
+  FolderOpen,
   Flag,
   GripVertical,
   MoreHorizontal,
   Pencil,
   Plus,
+  RotateCcw,
   Trash2,
   Zap,
 } from "lucide-react";
+import { openContextMenu } from "../ContextMenu";
 import { autoStepLabel, type AutoNode } from "../core/model.ts";
 import type { SuiteState } from "../useSuiteProject";
 import { IconButton } from "../ui";
@@ -36,6 +39,9 @@ export function RoutineRail({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  // Menu actions run after a re-render (right-click selects first), so read the latest state.
+  const live = useRef(s);
+  live.current = s;
   return (
     <aside className="mx-rail" aria-label="Autonomous routines">
       <div className="mx-rail-head">
@@ -46,7 +52,34 @@ export function RoutineRail({
         {project.routines.map((r) => {
           const active = r.id === routine.id;
           return (
-            <div key={r.id} className={`mx-routine ${active ? "is-active" : ""}`}>
+            <div
+              key={r.id}
+              className={`mx-routine ${active ? "is-active" : ""}`}
+              onContextMenu={(e) => {
+                if (renaming === r.id) return;
+                setMenu(null);
+                openContextMenu(
+                  e,
+                  [
+                    !active && { label: "Open", icon: FolderOpen, onSelect: () => live.current.selectRoutine(r.id) },
+                    { label: "Rename", icon: Pencil, onSelect: () => setRenaming(r.id) },
+                    { label: "Duplicate", icon: Copy, onSelect: () => live.current.duplicateRoutine(r.id) },
+                    { label: "New routine", icon: Plus, onSelect: create },
+                    "separator",
+                    {
+                      label: "Delete",
+                      icon: Trash2,
+                      danger: true,
+                      disabled: project.routines.length <= 1,
+                      onSelect: () => {
+                        if (window.confirm(`Delete routine "${r.name}"?`)) live.current.deleteRoutine(r.id);
+                      },
+                    },
+                  ],
+                  r.name,
+                );
+              }}
+            >
               {renaming === r.id ? (
                 <input
                   autoFocus
@@ -120,6 +153,25 @@ export function RoutineRail({
             aria-label="Starting pose"
             className={`mx-step is-start ${s.selected === "@start" ? "is-selected" : ""}`}
             onClick={() => inspect("@start")}
+            onContextMenu={(e) => {
+              inspect("@start");
+              openContextMenu(
+                e,
+                [
+                  { label: "Edit starting pose", icon: Pencil, onSelect: () => inspect("@start") },
+                  { label: "Add goal after start", icon: Plus, onSelect: () => live.current.addGoal("pose") },
+                  routine.start && {
+                    label: "Use robot default start",
+                    icon: RotateCcw,
+                    onSelect: () =>
+                      live.current.editRoutine((r) => {
+                        delete r.start;
+                      }),
+                  },
+                ],
+                "Starting pose",
+              );
+            }}
           >
             <span className="mx-step-glyph">S</span>
             <span className="mx-step-text">
@@ -151,6 +203,63 @@ export function RoutineRail({
                 aria-label={`${i + 1} ${n.name}`}
                 className={`mx-step is-${n.kind === "pose" && n.goal?.headingMode === "free" ? "translation" : n.kind} ${n.id === s.selected ? "is-selected" : ""} ${running ? "is-running" : ""}`}
                 onClick={() => inspect(n.id)}
+                onContextMenu={(e) => {
+                  inspect(n.id);
+                  const last = routine.nodes.length - 2;
+                  openContextMenu(
+                    e,
+                    [
+                      { label: "Edit details", icon: Pencil, onSelect: () => inspect(n.id) },
+                      n.kind === "pose" && {
+                        label: "Duplicate",
+                        icon: Copy,
+                        onSelect: () => live.current.addGoal("pose", undefined, n.id),
+                      },
+                      n.kind !== "finish" && {
+                        label: "Add pose goal after",
+                        icon: Plus,
+                        onSelect: () => live.current.addGoal("pose"),
+                      },
+                      n.kind !== "finish" && {
+                        label: "Add action after",
+                        icon: Zap,
+                        onSelect: () => live.current.addActionStep("action"),
+                      },
+                      n.kind !== "finish" && {
+                        label: "Add custom C++ after",
+                        icon: Code2,
+                        onSelect: () => live.current.addActionStep("custom"),
+                      },
+                      "separator",
+                      n.kind !== "finish" && {
+                        label: "Move up",
+                        icon: ArrowUp,
+                        disabled: i === 0,
+                        onSelect: () => live.current.reorder(n.id, i - 1),
+                      },
+                      n.kind !== "finish" && {
+                        label: "Move down",
+                        icon: ArrowDown,
+                        disabled: i >= last,
+                        onSelect: () => live.current.reorder(n.id, i + 1),
+                      },
+                      n.kind !== "finish" && {
+                        label: "Move to top",
+                        disabled: i === 0,
+                        onSelect: () => live.current.reorder(n.id, 0),
+                      },
+                      "separator",
+                      n.kind !== "finish" && {
+                        label: "Delete step",
+                        icon: Trash2,
+                        danger: true,
+                        hint: "Del",
+                        onSelect: () => live.current.removeNode(n.id),
+                      },
+                    ],
+                    n.name,
+                  );
+                }}
               >
                 {n.kind !== "finish" && <GripVertical size={13} className="mx-grip" aria-hidden="true" />}
                 <span className="mx-step-glyph">

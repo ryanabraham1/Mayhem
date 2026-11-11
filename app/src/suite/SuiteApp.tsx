@@ -26,6 +26,7 @@ import { AgentsPage } from "./agents/AgentsPage";
 import { OverviewPage } from "./overview/OverviewPage";
 import { SettingsPage, type ThemeChoice } from "./settings/SettingsPage";
 import { desktop } from "./native";
+import { ContextMenuHost } from "./ContextMenu";
 import { installUpdate, startUpdateChecks, useUpdater } from "../updater";
 import "./suite.css";
 import appPackage from "../../package.json";
@@ -147,6 +148,7 @@ function Shell({
 
   return (
     <div className="mx-app" data-page={page}>
+      <ContextMenuHost />
       {projectPicker && (
         <ProjectPicker
           project={s.project}

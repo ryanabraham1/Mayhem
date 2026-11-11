@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import {
   AlertOctagon,
   AlertTriangle,
   Archive,
   ArrowDownToLine,
   BatteryCharging,
+  ClipboardCopy,
   Check,
   CheckCircle2,
   ExternalLink,
@@ -25,6 +26,7 @@ import { desktop, invoke } from "../native";
 import { download, type StoredLog } from "../storage";
 import { useLogLibrary } from "../logLibrary";
 import { loadSyncConfig } from "../logSync";
+import { copyText, openContextMenu } from "../ContextMenu";
 import {
   Badge,
   Button,
@@ -64,12 +66,7 @@ export function LogActions({
         }
         aria-label={`Open ${log.name} in AdvantageScope`}
         disabled={!desktop || !log.nativePath}
-        onClick={() => {
-          void invoke("open_log_viewer", {
-            path: log.nativePath,
-            viewer: loadSyncConfig().viewer || null,
-          }).catch((e) => notify(String(e)));
-        }}
+        onClick={() => openInViewer(log, notify)}
       >
         AdvantageScope
       </Button>
@@ -78,13 +75,7 @@ export function LogActions({
         title={log.uploadError ?? (log.upload === "uploaded" ? "Uploaded to team storage" : "Queue upload to team storage")}
         aria-label={`Upload ${log.name} to team cloud`}
         disabled={!desktop || !log.nativePath || log.upload === "uploaded" || log.upload === "queued"}
-        onClick={() => {
-          void update(log.id, {
-            upload: "queued",
-            uploadSite: loadSyncConfig().site,
-            retryAt: 0,
-          }).catch((e) => notify(String(e)));
-        }}
+        onClick={() => queueUpload(log, update, notify)}
       >
         {log.upload === "uploaded" ? "Uploaded" : log.upload === "queued" ? "Queued" : "Upload"}
       </Button>
@@ -92,10 +83,40 @@ export function LogActions({
   );
 }
 
-function LogRow({ log, active, open, busy }: { log: StoredLog; active: boolean; open: () => void; busy: boolean }) {
+const openInViewer = (log: StoredLog, notify: (m: string) => void) => {
+  void invoke("open_log_viewer", {
+    path: log.nativePath,
+    viewer: loadSyncConfig().viewer || null,
+  }).catch((e) => notify(String(e)));
+};
+const queueUpload = (
+  log: StoredLog,
+  update: (id: string, patch: Partial<Omit<StoredLog, "id">>) => Promise<void>,
+  notify: (m: string) => void,
+) => {
+  void update(log.id, {
+    upload: "queued",
+    uploadSite: loadSyncConfig().site,
+    retryAt: 0,
+  }).catch((e) => notify(String(e)));
+};
+
+function LogRow({
+  log,
+  active,
+  open,
+  busy,
+  menu,
+}: {
+  log: StoredLog;
+  active: boolean;
+  open: () => void;
+  busy: boolean;
+  menu: (e: MouseEvent) => void;
+}) {
   const sum = log.summary;
   return (
-    <button className={`mx-log ${active ? "is-active" : ""}`} disabled={busy} onClick={open}>
+    <button className={`mx-log ${active ? "is-active" : ""}`} disabled={busy} onClick={open} onContextMenu={menu}>
       <span className="mx-log-top">
         <strong>{log.name.replace(/\.wpilog$/i, "")}</strong>
         {sum ? (
@@ -229,7 +250,54 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
           </label>
           <div className="mx-log-list">
             {visible.map((l) => (
-              <LogRow key={l.id} log={l} active={l.id === current?.id} busy={lib.busy} open={() => void lib.open(l)} />
+              <LogRow
+                key={l.id}
+                log={l}
+                active={l.id === current?.id}
+                busy={lib.busy}
+                open={() => void lib.open(l)}
+                menu={(e) =>
+                  openContextMenu(
+                    e,
+                    [
+                      l.id !== current?.id && { label: "Open report", icon: FileChartColumn, onSelect: () => void lib.open(l) },
+                      {
+                        label: "Open in AdvantageScope",
+                        icon: ExternalLink,
+                        disabled: !desktop || !l.nativePath,
+                        onSelect: () => openInViewer(l, notify),
+                      },
+                      {
+                        label: l.upload === "uploaded" ? "Uploaded" : l.upload === "queued" ? "Upload queued" : "Upload to team storage",
+                        icon: l.upload === "uploaded" ? Check : UploadCloud,
+                        disabled: !desktop || !l.nativePath || l.upload === "uploaded" || l.upload === "queued",
+                        onSelect: () => queueUpload(l, lib.updateLog, notify),
+                      },
+                      {
+                        label: "Export original",
+                        icon: ArrowDownToLine,
+                        onSelect: async () => {
+                          try {
+                            download(l.name, await lib.bytesOf(l), "application/octet-stream");
+                          } catch (err) {
+                            notify(String(err));
+                          }
+                        },
+                      },
+                      "separator",
+                      { label: "Copy name", icon: ClipboardCopy, onSelect: () => void copyText(l.name) },
+                      l.nativePath && { label: "Copy file path", onSelect: () => void copyText(l.nativePath!) },
+                      "separator",
+                      {
+                        label: l.archived ? "Restore" : "Archive",
+                        icon: l.archived ? RotateCcw : Archive,
+                        onSelect: () => void lib.archive(l, !l.archived),
+                      },
+                    ],
+                    l.name.replace(/\.wpilog$/i, ""),
+                  )
+                }
+              />
             ))}
             {!visible.length && (
               <p className="mx-rail-note">

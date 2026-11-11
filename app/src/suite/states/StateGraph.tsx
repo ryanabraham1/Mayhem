@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Circle, Code2, Flag, Navigation, Zap } from "lucide-react";
 import {
   conditionLabel,
@@ -98,9 +98,12 @@ export function StateGraph({
   selected,
   active,
   select,
+  menu,
   machine = false,
 }: {
   machine?: boolean;
+  /** Right-click on a state. */
+  menu?: (event: MouseEvent, id: string) => void;
   graph: AutoRoutine;
   signals: Signals;
   selected: string;
@@ -228,6 +231,7 @@ export function StateGraph({
               className={`mx-state is-${machine ? "machine" : node.kind} ${selected === node.id ? "is-selected" : ""} ${active === node.id ? "is-active" : ""} ${graph.initial === node.id ? "is-initial" : ""}`}
               style={{ left: p.x, top: p.y, width: W, height: H }}
               onClick={() => select(node.id)}
+              onContextMenu={menu && ((e) => menu(e, node.id))}
             >
               {globals.chips.get(node.id)?.map((label, i) => {
                 const live = graph.transitions.some(

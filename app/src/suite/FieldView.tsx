@@ -1,5 +1,21 @@
 import { useMemo, useRef, useState, type PointerEvent } from "react";
-import { AlertTriangle, Maximize2, Minus, Plus } from "lucide-react";
+import {
+  AlertTriangle,
+  CircleDot,
+  ClipboardCopy,
+  Copy,
+  Maximize2,
+  Minus,
+  Navigation,
+  Pencil,
+  Plus,
+  RotateCcw,
+  RotateCw,
+  Route,
+  Trash2,
+  ZoomIn,
+} from "lucide-react";
+import { copyText, openContextMenu, type MenuItem } from "./ContextMenu";
 import { routeSegments, routeWarnings } from "./core/routes.ts";
 import { FieldArt } from "../components/FieldArt";
 import seasonField from "./core/rebuilt-2026.json";
@@ -33,6 +49,7 @@ export function FieldView({
   place,
   remove,
   duplicate,
+  resetStart,
   trail = [],
 }: {
   project: SuiteProject;
@@ -45,9 +62,12 @@ export function FieldView({
   move: (id: string, x: number, y: number) => void;
   moveStart: (pose: Pose) => void;
   rotate: (id: string, heading: number) => void;
-  place: (x: number, y: number) => void;
+  /** Add a goal at a field point; `kind` overrides the active tool (used by the context menu). */
+  place: (x: number, y: number, kind?: Exclude<FieldTool, "select">) => void;
   remove: (id: string) => void;
   duplicate: (id: string) => void;
+  /** Clear the routine's own start so it follows the robot default. Omit when there is none. */
+  resetStart?: () => void;
   /** Poses already driven in the preview, drawn behind the robot. */
   trail?: Pose[];
 }) {
@@ -63,9 +83,6 @@ export function FieldView({
     [drag, setDrag] = useState<Drag | null>(null);
   const dragStart = useRef({ x: 0, y: 0 });
   const pan = useRef<{ sx: number; sy: number; view: View } | null>(null);
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(
-    null,
-  );
   const [hover, setHover] = useState<Pose | null>(null);
   const segments = useMemo(
     () => routeSegments(project, routine),
@@ -101,12 +118,12 @@ export function FieldView({
     kind: Drag["kind"],
     goal: Pose,
   ) => {
+    if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     dragStart.current = { x: event.clientX, y: event.clientY };
     select(id);
-    setMenu(null);
     setDrag({ kind, id, ...goal });
   };
   const zoom = (factor: number) =>
@@ -117,7 +134,7 @@ export function FieldView({
       h: v.h * factor,
     }));
   return (
-    <div className="mx-field-wrap" onContextMenu={(e) => e.preventDefault()}>
+    <div className="mx-field-wrap">
       {warnings.length > 0 && (
         <details className="mx-field-warnings">
           <summary>
@@ -152,7 +169,6 @@ export function FieldView({
         }}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
-          setMenu(null);
           if (tool !== "select") {
             const p = fieldPoint(e);
             if (p) place(p.x, p.y);
@@ -204,6 +220,42 @@ export function FieldView({
           pan.current = null;
         }}
         onPointerLeave={() => setHover(null)}
+        onContextMenu={(e) => {
+          const p = fieldPoint(e);
+          if (!p) return;
+          const at = `${p.x.toFixed(2)}, ${p.y.toFixed(2)} m`;
+          openContextMenu(
+            e,
+            [
+              { label: "Add pose goal here", icon: Navigation, onSelect: () => place(p.x, p.y, "pose") },
+              { label: "Add translation here", icon: CircleDot, onSelect: () => place(p.x, p.y, "translation") },
+              { label: "Add handoff here", icon: Route, onSelect: () => place(p.x, p.y, "handoff") },
+              "separator",
+              {
+                label: "Move start here",
+                icon: Navigation,
+                onSelect: () => moveStart({ ...start, x: p.x, y: p.y }),
+              },
+              {
+                label: "Copy coordinates",
+                icon: ClipboardCopy,
+                onSelect: () => void copyText(`${p.x.toFixed(3)}, ${p.y.toFixed(3)}`),
+              },
+              "separator",
+              {
+                label: "Zoom in here",
+                icon: ZoomIn,
+                onSelect: () =>
+                  setView((v) => {
+                    const pt = { x: p.x, y: height - p.y };
+                    return { x: pt.x - (v.w * 0.6) / 2, y: pt.y - (v.h * 0.6) / 2, w: v.w * 0.6, h: v.h * 0.6 };
+                  }),
+              },
+              { label: "Fit field", icon: Maximize2, onSelect: () => setView(fit()) },
+            ],
+            at,
+          );
+        }}
         onDoubleClick={(e) => {
           if (tool === "select") {
             const p = fieldPoint(e);
@@ -281,6 +333,24 @@ export function FieldView({
           aria-label="Select starting pose"
           aria-pressed={selected === "@start"}
           onDoubleClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => {
+            select("@start");
+            openContextMenu(
+              e,
+              [
+                { label: "Edit starting pose", icon: Pencil, onSelect: () => inspect("@start") },
+                { label: "Copy pose", icon: ClipboardCopy, onSelect: () => void copyText(poseText(start)) },
+                ...turnItems(start, (heading) => moveStart({ x: start.x, y: start.y, heading })),
+                "separator",
+                resetStart && {
+                  label: "Use robot default start",
+                  icon: RotateCcw,
+                  onSelect: resetStart,
+                },
+              ],
+              "Starting pose",
+            );
+          }}
           onPointerDown={(e) => startGoalDrag(e, "@start", "position", start)}
           onKeyDown={(e) => {
             if (e.key === "Enter") inspect("@start");
@@ -352,10 +422,19 @@ export function FieldView({
               onPointerDown={(e) => startGoalDrag(e, node.id, "position", goal)}
               onDoubleClick={(e) => e.stopPropagation()}
               onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
                 select(node.id);
-                setMenu({ id: node.id, x: e.clientX, y: e.clientY });
+                openContextMenu(
+                  e,
+                  [
+                    { label: "Edit details", icon: Pencil, onSelect: () => inspect(node.id) },
+                    { label: "Duplicate goal", icon: Copy, onSelect: () => duplicate(node.id) },
+                    { label: "Copy pose", icon: ClipboardCopy, onSelect: () => void copyText(poseText(goal)) },
+                    ...turnItems(goal, (heading) => rotate(node.id, heading)),
+                    "separator",
+                    { label: "Delete goal", icon: Trash2, danger: true, hint: "Del", onSelect: () => remove(node.id) },
+                  ],
+                  node.name,
+                );
               }}
               className="mx-goal"
             >
@@ -513,38 +592,21 @@ export function FieldView({
             ? "Double-click to add a pose · drag to pan · scroll to zoom"
             : "Click to place · Esc to select"}
       </div>
-      {menu && (
-        <div
-          className="mx-menu is-floating"
-          role="menu"
-          style={{
-            left: Math.min(menu.x, window.innerWidth - 190),
-            top: Math.min(menu.y, window.innerHeight - 110),
-          }}
-        >
-          <button
-            role="menuitem"
-            onClick={() => {
-              duplicate(menu.id);
-              setMenu(null);
-            }}
-          >
-            Duplicate goal
-          </button>
-          <button
-            role="menuitem"
-            onClick={() => {
-              remove(menu.id);
-              setMenu(null);
-            }}
-          >
-            Delete goal
-          </button>
-          <button role="menuitem" onClick={() => setMenu(null)}>
-            Close
-          </button>
-        </div>
-      )}
     </div>
   );
+}
+
+const poseText = (p: Pose) =>
+  `${p.x.toFixed(3)}, ${p.y.toFixed(3)}, ${((p.heading * 180) / Math.PI).toFixed(1)}°`;
+
+/** Quick heading tweaks: turn 90° either way, or snap to face an alliance wall. */
+function turnItems(p: Pose, set: (heading: number) => void): MenuItem[] {
+  const wrap = (h: number) => Math.atan2(Math.sin(h), Math.cos(h));
+  return [
+    "separator",
+    { label: "Turn 90° left", icon: RotateCcw, onSelect: () => set(wrap(p.heading + Math.PI / 2)) },
+    { label: "Turn 90° right", icon: RotateCw, onSelect: () => set(wrap(p.heading - Math.PI / 2)) },
+    { label: "Face 0° (red wall)", onSelect: () => set(0) },
+    { label: "Face 180° (blue wall)", onSelect: () => set(Math.PI) },
+  ];
 }

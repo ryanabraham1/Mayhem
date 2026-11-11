@@ -1082,6 +1082,54 @@ label.mx-btn {
 .mx-menu button:disabled {
   opacity: 0.4;
 }
+.mx-menu.is-context {
+  z-index: 1000;
+  min-width: 200px;
+  max-width: 300px;
+  animation: mx-menu-in 90ms ease-out;
+}
+.mx-menu.is-context button {
+  height: 30px;
+}
+.mx-menu.is-context button:focus-visible {
+  outline: none;
+  background: var(--mx-surface-2);
+}
+.mx-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-menu-icon-gap {
+  width: 14px;
+  flex: none;
+}
+.mx-menu-hint {
+  font: inherit;
+  font-size: 11px;
+  color: var(--mx-muted, currentColor);
+  opacity: 0.7;
+}
+.mx-menu-title {
+  padding: 5px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--mx-muted, currentColor);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--mx-line);
+}
+@keyframes mx-menu-in {
+  from { opacity: 0; transform: scale(0.97); }
+}
 
 /* ---------- Rails (left lists inside a workspace) ---------- */
 .mx-rail {

@@ -138,7 +138,15 @@ export function AutosPage({ s }: { s: SuiteState }) {
             tool={tool}
             select={s.setSelected}
             inspect={inspect}
-            place={(x, y) => s.addGoal(tool, { x, y })}
+            place={(x, y, kind) => s.addGoal(kind ?? tool, { x, y })}
+            resetStart={
+              s.routine.start
+                ? () =>
+                    s.editRoutine((r) => {
+                      delete r.start;
+                    })
+                : undefined
+            }
             remove={s.removeNode}
             duplicate={(id) => s.addGoal(tool, undefined, id)}
             moveStart={(pose) =>

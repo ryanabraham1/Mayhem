@@ -3,6 +3,9 @@ import {
   ArrowDownToLine,
   Check,
   Circle,
+  ClipboardCopy,
+  Pencil,
+  RotateCcw,
   Code2,
   FileUp,
   GitBranch,
@@ -11,6 +14,7 @@ import {
   Play,
   Radio,
 } from "lucide-react";
+import { copyText, openContextMenu } from "../ContextMenu";
 import { conditionLabel, evaluate, type Signals } from "../core/model.ts";
 import {
   exampleMachine,
@@ -342,6 +346,41 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
             selected={node.id}
             active={active}
             select={setSelected}
+            menu={(e, id) => {
+              setSelected(id);
+              const target = graph.nodes.find((n) => n.id === id);
+              openContextMenu(
+                e,
+                [
+                  machine && source === "simulate" && {
+                    label: "Simulate from this state",
+                    icon: Play,
+                    disabled: active === id,
+                    onSelect: () => setSimState(id),
+                  },
+                  machine && source === "simulate" && simState !== null && {
+                    label: "Reset simulation",
+                    icon: RotateCcw,
+                    onSelect: () => {
+                      setSimState(null);
+                      setManualInputs({});
+                    },
+                  },
+                  !machine && {
+                    label: "Edit step in Autos",
+                    icon: Pencil,
+                    onSelect: () => {
+                      s.setSelected(id);
+                      openAutos();
+                    },
+                  },
+                  "separator",
+                  { label: "Copy name", icon: ClipboardCopy, onSelect: () => void copyText(target?.name ?? id) },
+                  { label: "Copy ID", onSelect: () => void copyText(id) },
+                ],
+                target?.name,
+              );
+            }}
           />
           {source === "replay" && recording && machine && (
             <div className="mx-dock-bar is-standalone">
