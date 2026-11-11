@@ -139,12 +139,15 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
   useEffect(() => {
     if (!playing || !recording) return;
     let last = performance.now();
-    const timer = setInterval(() => {
-      const now = performance.now();
-      setCursor((t) => Math.min(recording.duration, t + (now - last) / 1000));
+    let frame: number;
+    const tick = (now: number) => {
+      const elapsed = (now - last) / 1000;
       last = now;
-    }, 40);
-    return () => clearInterval(timer);
+      setCursor((t) => Math.min(recording.duration, t + elapsed));
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
   }, [playing, recording]);
   useEffect(() => {
     if (recording && cursor >= recording.duration) setPlaying(false);

@@ -3,6 +3,7 @@ import { FieldArt } from "../components/FieldArt";
 import type { Field as FieldModel } from "../types";
 import field from "./core/rebuilt-2026.json";
 import { valueAt, type Recording } from "./core/analysis.ts";
+import { replayValueAt } from "./core/replay";
 import { Field } from "./ui";
 
 const numeric = ["double", "float", "int64", "number"];
@@ -33,7 +34,7 @@ export function PoseReplay({
   const values = Object.fromEntries(
     Object.entries(mapping).map(([key, name]) => [
       key,
-      valueAt(channel(name), time),
+      replayValueAt(channel(name), time, key === "heading"),
     ]),
   );
   const pose =
