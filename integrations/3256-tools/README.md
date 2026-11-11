@@ -1,7 +1,7 @@
 # 3256-Tools companion changes
 
-The website log library is available as [draft PR #2](https://github.com/ryanabraham1/3256-Tools/pull/2) on branch `codex/robot-log-library`, commit `f7238e2`.
+The live website is [3256 Tools robot logs](https://3256tools.vercel.app/logs). Source and review history are in [PR #2](https://github.com/ryanabraham1/3256-Tools/pull/2), including actual hosted AdvantageScope Lite, selected-log handoff, private cloud storage and uploads from Mayhem.
 
-`robot-log-library.patch` preserves the complete change independently of the temporary implementation checkout. On a clean checkout of 3256-Tools without these changes, `git am /absolute/path/to/robot-log-library.patch` can recreate the commit. Prefer the PR branch when available. Do not apply the patch on top of an existing copy.
+`robot-log-library.patch` preserves the complete source difference independently of the temporary implementation checkout. On a clean checkout of the previous 3256-Tools main, use `git apply /absolute/path/to/robot-log-library.patch`. Prefer the repository source; do not apply the patch over changes already included there. Unified-diff context lines intentionally contain a space.
 
-The patch contains application source, the private-storage/database migration, tests, field asset, and `docs/ROBOT_LOGS.md` with production setup instructions. It contains no credentials. The production migration and upload round trip remain outstanding.
+The patch includes application source, the private-storage migration, tests and setup/provenance documentation. It contains no credentials. The production migration, native desktop upload, authenticated playback and actual AdvantageScope graphs were verified with a labeled synthetic recording. Physical robot collection remains unverified.

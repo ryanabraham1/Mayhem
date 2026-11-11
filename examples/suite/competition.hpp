@@ -30,4 +30,3 @@ inline constexpr std::array<mayhem::AutoTransition,5> transitions = {{
 inline constexpr mayhem::RoutineView routine{"collect-score","pickup",nodes.data(),nodes.size(),transitions.data(),transitions.size()};
 }
 } // namespace mayhem_generated
-
