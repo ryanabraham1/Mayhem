@@ -98,14 +98,14 @@ class PathFollower {
     const double remaining = final ? distance + tail : INFINITY;
     const double along = (1 - progress) * L + tail;
     const double radius = T.handoffRadius > 0 ? T.handoffRadius : c.handoffRadius;
-    const bool handoff = !isFinal && (distance <= radius ||
+    const bool handoff = !isFinal && (L <= 1e-9 || distance <= radius ||
       (T.projectedHandoff && L > 1e-9 && progress >= std::clamp(1 - radius / L, 0.0, 1.0)));
     ControlResult out;
     out.progress = progress; out.remaining = remaining;
     out.eventsBegin = state_.events;
     std::size_t events = state_.events;
     for (; events < T.markerCount; ++events)
-      if (T.markers[events].t > progress && !handoff) break;
+      if (T.markers[events].kind == MarkerKind::Event && T.markers[events].t > progress && !handoff) break;
     out.eventsEnd = events;
     double fromHeading = state_.rotHeading;
     double fromRemaining = std::isfinite(state_.rotRemaining) ? state_.rotRemaining : along;
@@ -134,6 +134,8 @@ class PathFollower {
       }
     }
     double desiredHeading = fromHeading;
+    bool rotationTargeted = haveNext;
+    for (std::size_t m = 0; m < T.markerCount; ++m) rotationTargeted |= T.markers[m].kind == MarkerKind::Rotation;
     if (haveNext) {
       if (!nextProfiled) desiredHeading = nextHeading;
       else {
@@ -142,12 +144,13 @@ class PathFollower {
         desiredHeading = fromHeading + Wrap(nextHeading - fromHeading) * f;
       }
     }
+    const double interpolated = desiredHeading;
     if (T.headingMode == HeadingMode::PointAt) desiredHeading = std::atan2(T.aimY - pose.y, T.aimX - pose.x);
     else if (T.headingMode == HeadingMode::Motion && distance > T.translationTolerance) desiredHeading = std::atan2(dy, dx);
     if (isFinal && T.headingMode == HeadingMode::Fixed && distance <= T.translationTolerance) desiredHeading = T.pose.heading;
     const double angle = Wrap(desiredHeading - pose.heading);
     const bool inPose = isFinal && distance <= T.translationTolerance &&
-                        (T.headingMode == HeadingMode::Free || std::abs(angle) <= T.rotationTolerance);
+                        ((T.headingMode == HeadingMode::Free && !rotationTargeted) || std::abs(angle) <= T.rotationTolerance);
     const bool slow = std::hypot(measured.vx, measured.vy) <= T.velocityTolerance &&
                       std::abs(measured.omega) <= T.velocityTolerance;
     const double settled = inPose && (T.settleTime <= 0 || slow) ? state_.settled + dt : 0;
@@ -179,8 +182,7 @@ class PathFollower {
     if (!std::isfinite(vx) || !std::isfinite(vy) || !std::isfinite(omega)) return Invalid();
     state_.previous = {vx, vy, omega};
     if (handoff) {
-      if (T.headingMode == HeadingMode::Fixed) { state_.rotHeading = T.pose.heading; state_.rotRemaining = tail; }
-      else { state_.rotHeading = fromHeading; state_.rotRemaining = fromRemaining; }
+      state_.rotHeading = interpolated; state_.rotRemaining = tail;
       state_.sx = T.pose.x; state_.sy = T.pose.y; state_.events = 0; state_.settled = 0;
     } else {
       if (!std::isfinite(state_.rotRemaining)) state_.rotRemaining = along;

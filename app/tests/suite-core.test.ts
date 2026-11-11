@@ -15,6 +15,8 @@ import {
 import { sampleProject } from "../src/suite/core/sample.ts";
 import {
   control,
+  follow,
+  freshState,
   isIntermediate,
   pathAhead,
   initialFrame,
@@ -289,6 +291,42 @@ int main() {
     const preview = simulate(p, p.routines[0], {}).frame.pose;
     expect(Number(x)).toBeCloseTo(preview.x, 2);
     expect(Number(y)).toBeCloseTo(preview.y, 2);
+  });
+  it("keeps the requested heading continuous across an early handoff", () => {
+    const a = { ...DEFAULT_GOAL, x: 4, y: 1, heading: 1.5 };
+    const b = { ...DEFAULT_GOAL, x: 4, y: 5, heading: 1.5 };
+    let pose = { x: 1, y: 1, heading: 0 };
+    let v = { vx: 0, vy: 0, omega: 0 };
+    let state = freshState(pose);
+    let anchors = [a, b];
+    let last: number | undefined;
+    let jump = 0;
+    for (let i = 0; i < 400 && anchors.length; i++) {
+      const r = follow(pose, v, { anchors, final: true }, DEFAULT_CONSTRAINTS, state, 0.02);
+      if (last !== undefined) jump = Math.max(jump, Math.abs(wrap(r.targetHeading - last)));
+      last = r.targetHeading;
+      state = r.state;
+      v = r.command;
+      if (r.handoff) anchors = anchors.slice(1);
+      else if (r.reached) break;
+      pose = { x: pose.x + v.vx * 0.02, y: pose.y + v.vy * 0.02, heading: wrap(pose.heading + v.omega * 0.02) };
+    }
+    expect(jump).toBeLessThan(0.1);
+  });
+  it("hands off immediately on a zero-length segment", () => {
+    const g = { ...DEFAULT_GOAL, x: 2, y: 2 };
+    const r = follow({ x: 2.05, y: 2, heading: 0 }, { vx: 0, vy: 0, omega: 0 },
+      { anchors: [{ ...g, handoffRadius: 0.001 }, { ...g, x: 5 }], final: true },
+      DEFAULT_CONSTRAINTS, freshState({ x: 2, y: 2, heading: 0 }), 0.02);
+    expect(r.handoff).toBe(true);
+  });
+  it("does not let an unreached rotation marker hold back a later event", () => {
+    const pose = { x: 3, y: 0, heading: 0 };
+    const r = follow(pose, { vx: 0, vy: 0, omega: 0 }, {
+      anchors: [{ ...DEFAULT_GOAL, x: 10, y: 0, markers: [
+        { kind: "rotation", t: 0.9, heading: 1 }, { kind: "event", t: 0.2, key: "early" },
+      ] }], final: true }, DEFAULT_CONSTRAINTS, { ...freshState({ x: 0, y: 0, heading: 0 }) }, 0.02);
+    expect(r.fired).toEqual(["early"]);
   });
   it("validates marker progress and kind", () => {
     const { p } = chain();

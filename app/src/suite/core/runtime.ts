@@ -34,6 +34,8 @@ export interface ControlResult {
   /** Projected progress on the active segment and remaining path distance. */
   progress: number;
   remaining: number;
+  /** Heading the follower is steering toward this tick. */
+  targetHeading: number;
 }
 /**
  * The anchors ahead of the robot: anchors[0] is the active translation target.
@@ -86,6 +88,7 @@ export function follow(
     fired: [],
     progress: 0,
     remaining: 0,
+    targetHeading: pose.heading,
   });
   const T = path.anchors[0];
   if (!T) return invalid();
@@ -150,7 +153,8 @@ export function follow(
   const radius = T.handoffRadius > 0 ? T.handoffRadius : k.handoffRadius;
   const handoff =
     !isFinal &&
-    (distance <= radius ||
+    (L <= 1e-9 ||
+      distance <= radius ||
       ((T.projectedHandoff ?? true) && L > 1e-9 && progress >= Math.min(1, Math.max(0, 1 - radius / L))));
   // Event triggers on this segment fire in list order once progress passes t.
   const fired: string[] = [];
@@ -158,7 +162,7 @@ export function follow(
   const markers = T.markers ?? [];
   for (; events < markers.length; events++) {
     const m = markers[events];
-    if (m.t > progress && !handoff) break;
+    if (m.kind === "event" && m.t > progress && !handoff) break;
     if (m.kind === "event") fired.push(m.key);
   }
   // Rotation: from the last passed target to the next target ahead, by progress.
@@ -192,6 +196,7 @@ export function follow(
     }
   }
   let desiredHeading = fromHeading;
+  const rotationTargeted = !!next || markers.some((m) => m.kind === "rotation");
   if (next) {
     if (!next.profiled) desiredHeading = next.heading;
     else {
@@ -200,6 +205,8 @@ export function follow(
       desiredHeading = fromHeading + wrap(next.heading - fromHeading) * f;
     }
   }
+  // The heading requested by path progress, before per-step overrides.
+  const interpolated = desiredHeading;
   if (T.headingMode === "pointAt")
     desiredHeading = Math.atan2((T.aimY ?? T.y) - pose.y, (T.aimX ?? T.x) - pose.x);
   else if (T.headingMode === "motion" && distance > T.translationTolerance)
@@ -211,7 +218,7 @@ export function follow(
   const inPose =
     isFinal &&
     distance <= T.translationTolerance &&
-    (T.headingMode === "free" || Math.abs(angle) <= T.rotationTolerance);
+    ((T.headingMode === "free" && !rotationTargeted) || Math.abs(angle) <= T.rotationTolerance);
   const slow =
     Math.hypot(measured.vx, measured.vy) <= T.velocityTolerance &&
     Math.abs(measured.omega) <= T.velocityTolerance;
@@ -227,6 +234,7 @@ export function follow(
       fired,
       progress,
       remaining,
+      targetHeading: desiredHeading,
     };
   // Translation command.
   let speed = Math.min(
@@ -269,10 +277,10 @@ export function follow(
     );
   if (![vx, vy, omega].every(Number.isFinite)) return invalid();
   // On handoff, the next segment starts at T and inherits the rotation context.
+  // An early handoff continues from the heading requested right now, so the
+  // heading target never jumps to an anchor heading the robot cut short of.
   const carry = handoff
-    ? hasHeading(T)
-      ? { rotHeading: T.heading, rotRemaining: tail }
-      : { rotHeading: fromHeading, rotRemaining: fromRemaining }
+    ? { rotHeading: interpolated, rotRemaining: tail }
     : { rotHeading: prior.rotHeading ?? pose.heading, rotRemaining: Number.isFinite(prior.rotRemaining ?? Number.NaN) ? prior.rotRemaining : along };
   return {
     command: { vx, vy, omega },
@@ -285,6 +293,7 @@ export function follow(
     fired,
     progress,
     remaining,
+    targetHeading: desiredHeading,
   };
 }
 /** Drive to a single pose (one-anchor path). Kept for robot code and tests. */
