@@ -1,8 +1,9 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import SuiteApp from "../src/suite/SuiteApp";
 import { PROJECT_KEY } from "../src/suite/storage";
 vi.mock("../src/suite/LogsView", () => ({ LogsView: () => null }));
+vi.mock("../src/suite/MachinesView", () => ({ MachinesView: () => null }));
 class Point {
   constructor(
     public x = 0,
@@ -101,4 +102,36 @@ it("edits the routine start without changing the robot default and inserts a fir
   expect(
     r.transitions.find((t: { from: string }) => t.from === r.initial).to,
   ).toBe("pickup");
+});
+it("keeps autonomous controls inside Autos and preserves the routine when switching tools", () => {
+  render(<SuiteApp />);
+  expect(screen.getByRole("complementary",{name:"Autonomous routines"})).toBeTruthy();
+  for(const name of ["State machines", "Logs & power", "Robot setup", "Agent tools"]){
+    fireEvent.click(screen.getByRole("button",{name,exact:true}));
+    expect(screen.queryByRole("complementary",{name:"Autonomous routines"})).toBeNull();
+    expect(screen.queryByRole("button",{name:"Export project",exact:true})).toBeNull();
+    expect(screen.queryByRole("button",{name:"Preview",exact:true})).toBeNull();
+  }
+  fireEvent.click(screen.getByRole("button",{name:"Autonomous",exact:true}));
+  expect(screen.getByRole("button",{name:"Collect & score",exact:true})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Open robot setup",exact:true}));
+  expect(screen.queryByRole("complementary",{name:"Autonomous routines"})).toBeNull();
+});
+
+it("replays recorded frames after scrubbing instead of jumping to the live end", async () => {
+  vi.useFakeTimers();
+  try {
+    render(<SuiteApp />);
+    fireEvent.click(screen.getByRole("button", {name:"Play simulation"}));
+    for(let i=0;i<8;i++) await act(()=>vi.advanceTimersByTimeAsync(45));
+    fireEvent.click(screen.getByRole("button", {name:"Pause simulation"}));
+    const slider=screen.getByRole("slider",{name:"Preview time"}) as HTMLInputElement;
+    const end=Number(slider.max);
+    expect(end).toBeGreaterThan(4);
+    fireEvent.change(slider,{target:{value:"0"}});
+    fireEvent.click(screen.getByRole("button", {name:"Play simulation"}));
+    await act(()=>vi.advanceTimersByTimeAsync(45));
+    expect(Number(slider.value)).toBeGreaterThan(0);
+    expect(Number(slider.value)).toBeLessThan(end);
+  } finally {vi.useRealTimers();}
 });

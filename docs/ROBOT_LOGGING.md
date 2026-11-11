@@ -28,3 +28,29 @@ The reviewed Robot.cpp records battery voltage but does not establish a total ba
 - Include a small logging profile/example manifest with each season's robot project so humans and agents can review mappings. Do not require teams to rename all channels or adopt this year's superstructure.
 
 The existing optional Mayhem C++ observers add visibility when useful, and can coexist with the reference logger. Their use is not mandatory. See [SUITE_AGENTS.md](SUITE_AGENTS.md) and [lib-cpp/README.md](../lib-cpp/README.md).
+
+## Project-owned findings
+
+Agents can put a `logRules` policy in project `extensions`; desktop imports and the CLI analyzer accept the same policy. No robot channel renaming is required. `defaultRules: false` replaces all generic findings; leave it true or omit it to add project checks. Power measurements remain available when generic findings are disabled.
+
+```json
+{
+  "defaultRules": false,
+  "rules": [
+    {
+      "id": "battery-sag",
+      "channel": "/RealOutputs/SystemStats/BatteryVoltage",
+      "op": "lt",
+      "value": 8.5,
+      "duration": 0.15,
+      "severity": "warning",
+      "title": "Battery below project limit",
+      "detail": "Voltage stayed below 8.5 V for at least 150 ms."
+    }
+  ]
+}
+```
+
+Comparisons are `lt`, `gt`, or `eq`; equality also accepts boolean/string values. Durations are seconds. IDs must be unique. Missing channels are reported as coverage gaps. Findings retain exact recording intervals and channel names, and custom IDs include the rule ID. Reopen the current recording after changing project rules to apply them. This first rule interface covers single-channel conditions; cross-channel/derived checks remain future work and are not claimed as implemented.
+
+The MCP `analyze_log` tool accepts this object in `policy`, letting an agent analyze recordings with project-specific rules without using the UI.

@@ -97,7 +97,7 @@ const tools = [
       "Read a local WPILOG 1.0 or recording JSON and return measured power findings and logging coverage. Optionally map voltage/current/brownout names.",
     inputSchema: {
       type: "object",
-      properties: { path: { type: "string" }, mapping: { type: "object" } },
+      properties: { path: { type: "string" }, mapping: { type: "object" }, policy: { type: "object" } },
       required: ["path"],
     },
   },
@@ -224,7 +224,7 @@ export async function execute(name, args) {
         samples: c.samples.length,
       })),
       warnings: recording.warnings,
-      ...analyze(recording, args.mapping),
+      ...analyze(recording, args.mapping, args.policy),
     };
   }
   throw new Error(`Unknown tool ${name}`);

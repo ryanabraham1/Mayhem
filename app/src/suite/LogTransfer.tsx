@@ -230,7 +230,7 @@ export function LogTransfer({
     return () => clearInterval(timer);
   }, [logs, token, config.site, config.cloudPaused, updateLog, notify]);
   return (
-    <details className="ms-transfer" open>
+    <details className="ms-transfer">
       <summary>Robot collection & cloud sync</summary>
       <div className="ms-transfer-grid">
         <div>

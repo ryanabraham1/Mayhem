@@ -233,6 +233,7 @@ export default function SuiteApp() {
   useEffect(() => {
     document.title = `${project.name} · Mayhem`;
   }, [project.name]);
+  useEffect(() => { if (workspace !== "autos") setPlaying(false); }, [workspace]);
   const issues = useMemo(() => validateProject(project), [project]);
   const frame = frames[Math.min(cursor, frames.length - 1)],
     latest = frames[frames.length - 1];
@@ -340,33 +341,25 @@ export default function SuiteApp() {
   }, [project]);
   useEffect(() => {
     if (!playing) return;
-    const timer = setInterval(
-      () =>
-        setFrames((previous) => {
-          const additions: Frame[] = [];
-          let current = previous[previous.length - 1];
-          for (let i = 0; i < 2 && current.status === "running"; i++) {
-            current = step(
-              project,
-              routine,
-              current,
-              signals,
-              0.02,
-              freezeDrive,
-            );
-            additions.push(current);
-          }
-          return additions.length ? [...previous, ...additions] : previous;
-        }),
-      40,
-    );
+    const timer = setInterval(() => {
+      if (cursor < frames.length - 1) {
+        setCursor(Math.min(cursor + 2, frames.length - 1));
+        return;
+      }
+      if (latest.status !== "running") { setPlaying(false); return; }
+      const additions: Frame[] = [];
+      let current = latest;
+      for (let i = 0; i < 2 && current.status === "running"; i++) {
+        current = step(project, routine, current, signals, 0.02, freezeDrive);
+        additions.push(current);
+      }
+      if (additions.length) {
+        setFrames([...frames, ...additions]);
+        setCursor(frames.length + additions.length - 1);
+      }
+    }, 40);
     return () => clearInterval(timer);
-  }, [playing, project, routine, signals, freezeDrive]);
-  useEffect(() => {
-    if (playing) setCursor(frames.length - 1);
-    if (latest.status !== "running" || frames.length >= 30000)
-      setPlaying(false);
-  }, [frames.length, latest.status, playing]);
+  }, [playing, project, routine, signals, freezeDrive, cursor, frames, latest]);
   useEffect(() => {
     if (!projectPath || !desktop || diskConflict) return;
     let cancelled = false,
@@ -743,16 +736,17 @@ export default function SuiteApp() {
             Mayhem
           </div>
           <span className="ms-top-divider" />
-          <span className="ms-project-name">
+          <button className="ms-project-name ms-project-settings" title="Open robot setup" aria-label="Open robot setup" onClick={() => setWorkspace("robot")}>
             {project.name}
-            <ChevronDown size={13} />
-          </span>
+            <Settings2 size={13} />
+          </button>
           <nav className="ms-suite-tabs" aria-label="Suite tools">
             {navigation.map(({ id, name, icon: Icon }) => (
               <button
                 key={id}
                 title={name}
                 aria-label={name}
+                aria-current={workspace === id ? "page" : undefined}
                 className={workspace === id ? "active" : ""}
                 onClick={() => setWorkspace(id)}
               >
@@ -780,6 +774,7 @@ export default function SuiteApp() {
             >
               {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
             </button>
+            {workspace === "autos" && <>
             <button
               className="ms-icon-button"
               aria-label="Undo last change"
@@ -845,11 +840,12 @@ export default function SuiteApp() {
               <ArrowDownToLine size={14} />
               Export project
             </button>
+            </>}
             {workspace === "autos" && (
               <button
                 className="ms-button ms-primary"
                 onClick={() => {
-                  if (latest.status !== "running") reset();
+                  if (latest.status !== "running" && cursor >= frames.length - 1) reset();
                   setPlaying((p) => !p);
                 }}
               >
@@ -860,7 +856,7 @@ export default function SuiteApp() {
           </div>
         </header>
         <div className="ms-body">
-          <aside className="ms-navigation">
+          {workspace === "autos" && <aside className="ms-navigation" aria-label="Autonomous routines">
             <div className="ms-project-tree">
               <div className="ms-workspace-label">
                 AUTONOMOUS ROUTINES
@@ -1028,7 +1024,7 @@ export default function SuiteApp() {
                 <ArrowRight size={13} />
               </button>
             </div>
-          </aside>
+          </aside>}
           <main className="ms-main">
             <div className="ms-page-heading">
               <div>
@@ -1041,16 +1037,16 @@ export default function SuiteApp() {
                   {workspace === "autos"
                     ? routine.name
                     : workspace === "states"
-                      ? "Behavior, made visible."
+                      ? "State machines"
                       : workspace === "logs"
-                        ? "Understand every run."
+                        ? "Robot logs"
                         : workspace === "agents"
-                          ? "Your code. Your approach."
-                          : "One model of your robot."}
+                          ? "Agent tools"
+                          : "Robot setup"}
                 </h1>
               </div>
               <div className="ms-heading-actions">
-                {(workspace === "autos" || workspace === "states") && (
+                {workspace === "autos" && (
                   <>
                     <button
                       className="ms-icon-button"
@@ -1083,7 +1079,7 @@ export default function SuiteApp() {
                     <button
                       className="ms-button ms-primary"
                       onClick={() => {
-                        if (latest.status !== "running") reset();
+                        if (latest.status !== "running" && cursor >= frames.length - 1) reset();
                         setPlaying((p) => !p);
                       }}
                     >
@@ -1695,6 +1691,9 @@ export default function SuiteApp() {
                   </aside>
                 </div>
                 <section className="ms-playback">
+                  <div className="ms-preview-status" role="status">
+                    {frame.status === "failed" ? frame.events.at(-1)?.message : frame.status === "completed" ? "Preview completed" : routine.nodes.find(n => n.id === frame.node)?.kind === "action" || routine.nodes.find(n => n.id === frame.node)?.kind === "custom" ? "Waiting for robot inputs — expand Inputs & execution events to set preview sensor values." : playing ? "Preview running · ideal simulated robot" : "Preview paused · press Play to simulate, or scrub recorded frames"}
+                  </div>
                   <div className="ms-playback-toolbar">
                     <div className="ms-playback-controls">
                       <button
@@ -1710,7 +1709,7 @@ export default function SuiteApp() {
                           playing ? "Pause simulation" : "Play simulation"
                         }
                         onClick={() => {
-                          if (latest.status !== "running") reset();
+                          if (latest.status !== "running" && cursor >= frames.length - 1) reset();
                           setPlaying((p) => !p);
                         }}
                       >
@@ -2070,11 +2069,12 @@ export default function SuiteApp() {
             )}
             <div className="ms-logs-host" hidden={workspace !== "logs"}>
               <LogsView
+                policy={project.extensions.logRules}
                 notify={notify}
                 active={!legacy && workspace === "logs"}
               />
             </div>
-            <footer className="ms-statusbar">
+            {workspace === "autos" && <footer className="ms-statusbar">
               <span>
                 <CheckCircle2 size={12} />
                 {issues.some((i) => i.severity === "error")
@@ -2094,7 +2094,7 @@ export default function SuiteApp() {
                 <span className="ms-status-divider">/</span>Mayhem suite ·{" "}
                 {appPackage.version}
               </span>
-            </footer>
+            </footer>}
           </main>
         </div>
       </div>

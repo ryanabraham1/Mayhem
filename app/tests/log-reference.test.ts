@@ -23,3 +23,10 @@ it("keeps custom future-season power mappings independent of reference names", (
   ]}, {voltage:"Electrical/BusVolts",current:"Electrical/BusAmps"});
   expect(result.power.energyWh).toBeCloseTo(0.4);
 });
+it("runs agent-authored project rules with durations and allows replacing defaults", () => {
+  const r:Recording={name:"custom",duration:2,warnings:[],channels:[{name:"Shooter/Ready",type:"boolean",samples:[{time:0,value:false},{time:1.2,value:true}]}]};
+  const policy={defaultRules:false,rules:[{id:"shooter-not-ready",channel:"Shooter/Ready",op:"eq",value:false,duration:1,severity:"warning",title:"Shooter took too long",detail:"Readiness stayed false for one second."}]};
+  expect(analyze(r,undefined,policy).findings).toMatchObject([{id:"rule:shooter-not-ready:0",start:0,end:1.2,title:"Shooter took too long"}]);
+  expect(analyze(r,undefined,{...policy,rules:[{...policy.rules[0],duration:1.5}]}).findings).toEqual([]);
+  expect(()=>analyze(r,undefined,{rules:[{...policy.rules[0],duration:-1}]})).toThrow(/rule/);
+});

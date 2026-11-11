@@ -43,6 +43,7 @@ it("keeps polling through library updates and skips robot recordings already sav
   const view = render(
     <LogTransfer {...{ logs, received, notify, updateLog }} />,
   );
+  fireEvent.click(screen.getByText("Robot collection & cloud sync"));
   for (let i = 0; i < 4; i++) {
     await act(() => vi.advanceTimersByTimeAsync(5000));
     logs = logs.map((log) => ({ ...log, attempts: i }));
@@ -74,6 +75,7 @@ it("continues collecting the remaining selected files after one robot transfer f
       updateLog={vi.fn(async () => {})}
     />,
   );
+  fireEvent.click(screen.getByText("Robot collection & cloud sync"));
   await act(async () =>
     fireEvent.click(screen.getByRole("button", { name: "List robot logs" })),
   );
@@ -92,6 +94,7 @@ it("accepts a custom season log folder and clears selection and polling when it 
   vi.mocked(invoke).mockResolvedValue([]);
   localStorage.setItem("mayhem.log-transfer.v1", JSON.stringify({selected:[files[0].path],autoPull:true}));
   render(<LogTransfer logs={[]} received={vi.fn(async()=>{})} notify={vi.fn()} updateLog={vi.fn(async()=>{})} />);
+  fireEvent.click(screen.getByText("Robot collection & cloud sync"));
   fireEvent.change(screen.getByLabelText("Log folder"), {target:{value:"/U/wpilogs"}});
   const saved=JSON.parse(localStorage.getItem("mayhem.log-transfer.v1")!);
   expect(saved.directory).toBe("/U/wpilogs");

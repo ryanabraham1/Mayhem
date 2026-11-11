@@ -27,6 +27,22 @@ export interface PowerMapping {
   current?: string;
   brownout?: string;
 }
+export interface LogRule {
+  id: string; channel: string; op: "lt" | "gt" | "eq"; value: number | boolean | string;
+  duration: number; severity: "error" | "warning"; title: string; detail: string;
+}
+export interface LogPolicy { defaultRules?: boolean; rules: LogRule[] }
+export function parseLogPolicy(value: unknown): LogPolicy {
+  if (value === undefined) return { rules: [] };
+  const p = value as LogPolicy;
+  if (!p || !Array.isArray(p.rules) || p.rules.length > 256 || (p.defaultRules !== undefined && typeof p.defaultRules !== "boolean")) throw new Error("Invalid project log policy: expected rules and optional defaultRules.");
+  const ids = new Set<string>();
+  for (const r of p.rules) {
+    if (!r || ![r.id,r.channel,r.title,r.detail].every(x => typeof x === "string" && x.length > 0) || ids.has(r.id) || !["lt","gt","eq"].includes(r.op) || !["number","boolean","string"].includes(typeof r.value) || (typeof r.value === "number" && !Number.isFinite(r.value)) || (r.op !== "eq" && typeof r.value !== "number") || !Number.isFinite(r.duration) || r.duration < 0 || !["warning","error"].includes(r.severity)) throw new Error("Invalid project log rule. Check IDs, channel, comparison, duration and severity.");
+    ids.add(r.id);
+  }
+  return p;
+}
 export interface Analysis {
   findings: Finding[];
   coverage: string[];
@@ -59,7 +75,9 @@ export function suggestMapping(channels: Channel[]): PowerMapping {
 export function analyze(
   recording: Recording,
   supplied?: PowerMapping,
+  policyInput?: unknown,
 ): Analysis {
+  const policy = parseLogPolicy(policyInput);
   const mapping = supplied ?? suggestMapping(recording.channels);
   const channels = new Map(recording.channels.map((c) => [c.name, c]));
   const findings: Finding[] = [],
@@ -221,6 +239,14 @@ export function analyze(
   coverage.push(
     "Rules flag recorded symptoms, not proven root causes. Custom mechanisms need suitable signals and team-specific checks.",
   );
+  if (policy.defaultRules === false) findings.length = 0;
+  for (const rule of policy.rules) {
+    const channel = channels.get(rule.channel);
+    if (!channel) { coverage.push(`Rule ${rule.id}: missing channel ${rule.channel}.`); continue; }
+    const before = findings.length;
+    excursions(channel, v => rule.op === "eq" ? v === rule.value : typeof v === "number" && typeof rule.value === "number" && (rule.op === "lt" ? v < rule.value : v > rule.value), rule.title, rule.detail, rule.severity, rule.duration);
+    for (let i = before; i < findings.length; i++) findings[i].id = `rule:${rule.id}:${findings[i].start}`;
+  }
   let energy = 0,
     covered = 0;
   // Zero-order-hold integration over both streams, restricted to their common time span.

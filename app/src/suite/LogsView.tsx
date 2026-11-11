@@ -36,9 +36,11 @@ const fmt = (n: number | undefined, unit: string) =>
 export function LogsView({
   notify,
   active = true,
+  policy,
 }: {
   notify: (message: string) => void;
   active?: boolean;
+  policy?: unknown;
 }) {
   const [logs, setLogs] = useState<StoredLog[]>([]),
     [recording, setRecording] = useState<Recording | null>(null),
@@ -114,10 +116,10 @@ export function LogsView({
           const id = ++sequence.current;
           requests.current.set(id, { resolve, reject });
           const copy = buffer.slice(0);
-          worker.current.postMessage({ buffer: copy, name, id }, [copy]);
+          worker.current.postMessage({ buffer: copy, name, id, policy }, [copy]);
         },
       ),
-    [],
+    [policy],
   );
   const show = useCallback(
     (result: { recording: Recording; analysis: Analysis }) => {
@@ -245,7 +247,7 @@ export function LogsView({
   const mapping = (key: keyof PowerMapping, value: string) => {
     if (recording && analysis)
       setAnalysis(
-        analyze(recording, { ...analysis.mapping, [key]: value || undefined }),
+        analyze(recording, { ...analysis.mapping, [key]: value || undefined }, policy),
       );
   };
   const channel = recording?.channels.find((c) => c.name === channelName);
@@ -357,7 +359,7 @@ export function LogsView({
         {!recording || !analysis ? (
           <div className="ms-empty">
             <FileChartColumn size={36} />
-            <h2>Every run has a story.</h2>
+            <h2>Open a robot log</h2>
             <p>
               Import a WPILOG to inspect signals, locate voltage sag, and
               understand power use.

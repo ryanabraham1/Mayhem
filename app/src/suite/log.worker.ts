@@ -1,7 +1,7 @@
 import { parseWPILog } from "./core/wpilog.ts";
 import { analyze, parseRecordingJSON } from "./core/analysis.ts";
 self.onmessage = (
-  event: MessageEvent<{ buffer: ArrayBuffer; name: string; id: number }>,
+  event: MessageEvent<{ buffer: ArrayBuffer; name: string; id: number; policy?: unknown }>,
 ) => {
   try {
     const { buffer, name } = event.data;
@@ -11,7 +11,7 @@ self.onmessage = (
     self.postMessage({
       id: event.data.id,
       recording,
-      analysis: analyze(recording),
+      analysis: analyze(recording, undefined, event.data.policy),
     });
   } catch (error) {
     self.postMessage({

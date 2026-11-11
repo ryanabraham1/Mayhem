@@ -2774,3 +2774,14 @@
 }
 
 .ms-step-handoff{font-size:9px;letter-spacing:.04em;text-transform:uppercase;color:var(--ms-muted);margin-left:auto}
+
+/* Each suite tool owns its workspace; project controls belong to Autos. */
+.ms-project-settings{border:0;background:transparent;cursor:pointer;color:inherit;display:flex;align-items:center;gap:8px;text-align:left}
+@media(min-width:621px) and (max-width:1000px){
+ .ms-topbar{height:auto;min-height:52px;flex-wrap:wrap;padding-block:8px}
+ .ms-suite-tabs{order:3;width:100%;justify-content:space-around;margin:0}
+ .ms-suite-tabs>button>span{display:inline}
+ .ms-top-actions{margin-left:auto}
+}
+
+.ms-preview-status{padding:6px 14px;font-size:11px;color:var(--ms-muted);border-bottom:1px solid var(--ms-line)}
