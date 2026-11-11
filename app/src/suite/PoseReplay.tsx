@@ -36,6 +36,18 @@ export function PoseReplay({
       valueAt(channel(name), time),
     ]),
   );
+  const pose =
+    typeof values.x === "number" &&
+    Number.isFinite(values.x) &&
+    typeof values.y === "number" &&
+    Number.isFinite(values.y)
+      ? { x: values.x, y: values.y }
+      : undefined;
+  const xs = channel(mapping.x), ys = channel(mapping.y);
+  const mapped = Boolean(xs?.samples.length && ys?.samples.length);
+  const firstPoseTime = mapped
+    ? Math.max(xs!.samples[0].time, ys!.samples[0].time)
+    : undefined;
   const path = useMemo(() => {
     const xs = channel(mapping.x),
       ys = channel(mapping.y);
@@ -45,7 +57,7 @@ export function PoseReplay({
     for (let i = 0; i < xs.samples.length; i += step) {
       const s = xs.samples[i];
       const y = valueAt(ys, s.time);
-      if (typeof s.value === "number" && typeof y === "number")
+      if (typeof s.value === "number" && Number.isFinite(s.value) && typeof y === "number" && Number.isFinite(y))
         points.push(`${s.value.toFixed(3)},${(field.width - y).toFixed(3)}`);
     }
     return points.join(" ");
@@ -70,28 +82,35 @@ export function PoseReplay({
           </Field>
         ))}
       </div>
-      {typeof values.x === "number" && typeof values.y === "number" ? (
-        <svg
-          className="mx-replay-field"
-          viewBox={`-.3 -.3 ${field.length + 0.6} ${field.width + 0.6}`}
-          aria-label="Recorded robot field replay"
-        >
-          <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
-            <FieldArt field={field as FieldModel} />
-          </g>
-          {path && (
-            <polyline points={path} fill="none" stroke="var(--mx-trail)" strokeWidth=".08" strokeLinejoin="round" />
-          )}
+      {!pose && (
+        <p className="mx-help" role="status">
+          {mapped
+            ? firstPoseTime !== undefined && time < firstPoseTime
+              ? `Position signals are mapped. Pose data starts at ${firstPoseTime.toFixed(2)} s; play or seek forward to replay the robot.`
+              : "The selected position signals have no valid pose at this time."
+            : "Choose recorded X and Y position signals to replay the robot on the field."}
+        </p>
+      )}
+      <svg
+        className="mx-replay-field"
+        viewBox={`-.3 -.3 ${field.length + 0.6} ${field.width + 0.6}`}
+        aria-label="Recorded robot field replay"
+      >
+        <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
+          <FieldArt field={field as FieldModel} />
+        </g>
+        {path && (
+          <polyline points={path} fill="none" stroke="var(--mx-trail)" strokeWidth=".08" strokeLinejoin="round" />
+        )}
+        {pose && (
           <g
-            transform={`translate(${values.x},${field.width - values.y}) rotate(${(-(typeof values.heading === "number" ? values.heading : 0) * 180) / Math.PI})`}
+            transform={`translate(${pose.x},${field.width - pose.y}) rotate(${(-(typeof values.heading === "number" && Number.isFinite(values.heading) ? values.heading : 0) * 180) / Math.PI})`}
           >
             <rect x="-.42" y="-.42" width=".84" height=".84" rx=".06" fill="var(--mx-path-soft)" stroke="var(--mx-path)" strokeWidth=".04" />
             <path d="M-.12,-.17 L.15,0 L-.12,.17" fill="none" stroke="var(--mx-path)" strokeWidth=".055" />
           </g>
-        </svg>
-      ) : (
-        <p className="mx-help">Choose recorded X and Y position signals to replay the robot on the field.</p>
-      )}
+        )}
+      </svg>
     </div>
   );
 }
