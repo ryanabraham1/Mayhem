@@ -52,6 +52,76 @@ export function saveProject(
   }
   localStorage.setItem(PROJECT_KEY, JSON.stringify(project));
 }
+export const PROJECT_LIBRARY_KEY = "mayhem.suite.library.v1";
+/** Snapshots of inactive projects. The active working copy remains in PROJECT_KEY. */
+export function listProjects(): SuiteProject[] {
+  const raw = localStorage.getItem(PROJECT_LIBRARY_KEY);
+  const saved: unknown = raw ? JSON.parse(raw) : [];
+  if (!Array.isArray(saved))
+    throw new Error(
+      "Project library is damaged. Export your active project before restoring the library.",
+    );
+  const projects = saved.map((p) => parseProject(JSON.stringify(p)));
+  const current = localStorage.getItem(PROJECT_KEY);
+  if (current) {
+    try {
+      const active = parseProject(current);
+      return [active, ...projects.filter((p) => p.id !== active.id)];
+    } catch {
+      /* A damaged active file is preserved by saveProject's recovery path. */
+    }
+  }
+  return projects;
+}
+export function activateProject(next: SuiteProject, current: SuiteProject) {
+  const projects = listProjects();
+  // Save the outgoing working copy before changing the active project. If storage
+  // fills up, the outgoing project stays active and the switch is aborted.
+  const existing = localStorage.getItem(PROJECT_KEY);
+  if (existing) {
+    let active: SuiteProject | undefined;
+    try {
+      active = parseProject(existing);
+    } catch {
+      /* Preserve through recovery below. */
+    }
+    if (
+      active &&
+      (active.id !== current.id || active.revision !== current.revision)
+    )
+      throw new Error(
+        "Another window changed this workspace. Reopen the latest project before switching.",
+      );
+  }
+  const library = [current, next, ...projects].filter(
+    (p, i, all) => all.findIndex((other) => other.id === p.id) === i,
+  );
+  localStorage.setItem(PROJECT_LIBRARY_KEY, JSON.stringify(library));
+  saveProject(next, current);
+}
+export function newProject(name: string, source?: SuiteProject): SuiteProject {
+  if (!name.trim()) throw new Error("Enter a project name.");
+  const project = structuredClone(source ?? sampleProject);
+  project.id = crypto.randomUUID();
+  project.name = name.trim();
+  project.revision = 0;
+  if (!source) {
+    project.signals = [];
+    project.extensions = {};
+    project.routines = [
+      {
+        id: "auto-1",
+        name: "Auto 1",
+        initial: "done",
+        nodes: [
+          { id: "done", name: "Auto complete", kind: "finish", timeout: 1 },
+        ],
+        transitions: [],
+      },
+    ];
+  }
+  return project;
+}
 export function recoverySnapshot(): string | null {
   const current = localStorage.getItem(PROJECT_KEY);
   if (current) {
@@ -118,6 +188,16 @@ export interface StoredLog {
   cloudUrl?: string;
   uploadError?: string;
   archived?: boolean;
+  /** Cached analysis headline so lists don't need to re-read the file. */
+  summary?: LogSummary;
+}
+export interface LogSummary {
+  duration: number;
+  channels: number;
+  errors: number;
+  warnings: number;
+  minVoltage?: number;
+  peakCurrent?: number;
 }
 export interface ReceiptOptions {
   queueSite?: string;

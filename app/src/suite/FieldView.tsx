@@ -1,11 +1,10 @@
 import { useMemo, useRef, useState, type PointerEvent } from "react";
-import { Crosshair, Maximize2, Minus, Plus } from "lucide-react";
+import { AlertTriangle, Maximize2, Minus, Plus } from "lucide-react";
 import { routeSegments, routeWarnings } from "./core/routes.ts";
 import { FieldArt } from "../components/FieldArt";
 import seasonField from "./core/rebuilt-2026.json";
 import type { Field } from "../types";
 import type { AutoRoutine, SuiteProject, Pose } from "./core/model.ts";
-import {autoStepLabel} from './core/model.ts';
 export type FieldTool = "select" | "pose" | "translation" | "handoff";
 interface View {
   x: number;
@@ -34,6 +33,7 @@ export function FieldView({
   place,
   remove,
   duplicate,
+  trail = [],
 }: {
   project: SuiteProject;
   routine: AutoRoutine;
@@ -48,6 +48,8 @@ export function FieldView({
   place: (x: number, y: number) => void;
   remove: (id: string) => void;
   duplicate: (id: string) => void;
+  /** Poses already driven in the preview, drawn behind the robot. */
+  trail?: Pose[];
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const { width, height } = project.field;
@@ -115,37 +117,29 @@ export function FieldView({
       h: v.h * factor,
     }));
   return (
-    <div className="ms-field-wrap" onContextMenu={(e) => e.preventDefault()}>
-      <div className="ms-canvas-caption">
-        <span>
-          <Crosshair size={14} />
-          {project.field.name === "Practice field"
-            ? "2026 REBUILT"
-            : project.field.name}
-        </span>
-        <span>
-          {tool === "select"
-            ? "Drag to pan · scroll to zoom · double-click to add a pose"
-            : "Click the field to place a goal · Esc to select"}
-        </span>
-      </div>
+    <div className="mx-field-wrap" onContextMenu={(e) => e.preventDefault()}>
       {warnings.length > 0 && (
-        <details className="ms-route-warnings">
-          <summary>{warnings.length} route clearance warnings</summary>
-          {warnings.map((w, i) => (
-            <button key={i} onClick={() => inspect(w.nodeId)}>
-              {w.message}
-            </button>
-          ))}
-          <p>
-            Conservative straight-segment checks. Playback does not simulate
-            contact or guarantee collision-free motion.
-          </p>
+        <details className="mx-field-warnings">
+          <summary>
+            <AlertTriangle size={14} />
+            {warnings.length} clearance {warnings.length === 1 ? "warning" : "warnings"}
+          </summary>
+          <div>
+            {warnings.map((w, i) => (
+              <button key={i} onClick={() => inspect(w.nodeId)}>
+                {w.message}
+              </button>
+            ))}
+            <p>
+              Straight-segment checks against field structures. The preview
+              does not simulate contact.
+            </p>
+          </div>
         </details>
       )}
       <svg
         ref={svg}
-        className="ms-field"
+        className="mx-field"
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         aria-label="Autonomous field editor"
         style={{
@@ -169,7 +163,7 @@ export function FieldView({
         }}
         onPointerMove={(e) => {
           const p = fieldPoint(e);
-          if (tool !== "select" && p) setHover({ ...p, heading: 0 });
+          if (p) setHover({ ...p, heading: 0 });
           if (drag && p) {
             if (drag.kind === "position") setDrag({ ...drag, ...p });
             else {
@@ -246,7 +240,7 @@ export function FieldView({
             x={i}
             y={height + 0.32}
             textAnchor="middle"
-            className="ms-field-tick"
+            className="mx-field-tick"
           >
             {i}
           </text>
@@ -268,15 +262,15 @@ export function FieldView({
               <path
                 d={d}
                 fill="none"
-                stroke="var(--ms-path-halo,#fff)"
+                stroke="var(--mx-halo)"
                 strokeWidth=".11"
               />
               <path
                 d={d}
                 fill="none"
-                stroke="var(--ms-blue)"
-                strokeWidth=".055"
-                strokeDasharray=".15 .09"
+                stroke="var(--mx-path)"
+                strokeWidth=".05"
+                strokeLinecap="round"
               />
             </g>
           );
@@ -301,15 +295,15 @@ export function FieldView({
               width={project.robot.length}
               height={project.robot.width}
               rx=".07"
-              fill="#15917c18"
-              stroke="#15917c"
+              fill="var(--mx-start-soft)"
+              stroke="var(--mx-start)"
               strokeWidth=".035"
             />
-            <path d="M0,0 H.78" stroke="#15917c" strokeWidth=".03" />
+            <path d="M0,0 H.78" stroke="var(--mx-start)" strokeWidth=".03" />
             <circle
               r=".15"
-              fill="#15917c"
-              stroke="var(--ms-path-halo,white)"
+              fill="var(--mx-start)"
+              stroke="var(--mx-halo)"
               strokeWidth=".03"
             />
             <g
@@ -324,13 +318,13 @@ export function FieldView({
               <circle
                 cx=".78"
                 r=".085"
-                fill="white"
-                stroke="#15917c"
+                fill="var(--mx-halo)"
+                stroke="var(--mx-start)"
                 strokeWidth=".035"
               />
             </g>
           </g>
-          <text y=".7" textAnchor="middle" className="ms-field-label">
+          <text y=".7" textAnchor="middle" className="mx-goal-label">
             Start
           </text>
         </g>
@@ -363,7 +357,7 @@ export function FieldView({
                 select(node.id);
                 setMenu({ id: node.id, x: e.clientX, y: e.clientY });
               }}
-              className="ms-goal"
+              className="mx-goal"
             >
               <circle
                 cx={goal.x}
@@ -372,8 +366,8 @@ export function FieldView({
                   0.24,
                   goal.handoffRadius || goal.translationTolerance,
                 )}
-                fill={active ? "#6b3fe612" : "transparent"}
-                stroke="var(--ms-blue)"
+                fill={active ? "var(--mx-path-soft)" : "transparent"}
+                stroke="var(--mx-path)"
                 strokeWidth=".018"
                 strokeDasharray=".05 .05"
               />
@@ -385,20 +379,20 @@ export function FieldView({
                   y={-project.robot.width / 2}
                   width={project.robot.length}
                   height={project.robot.width}
-                  fill={active ? "#6b3fe61a" : "transparent"}
-                  stroke="var(--ms-blue)"
+                  fill={active ? "var(--mx-path-soft)" : "transparent"}
+                  stroke="var(--mx-path)"
                   strokeWidth=".025"
                   rx=".04"
                 />
                 <path
                   d="M0,0 H.78"
-                  stroke="var(--ms-blue)"
+                  stroke="var(--mx-path)"
                   strokeWidth=".035"
                 />
                 <circle
                   r=".16"
-                  fill="var(--ms-blue)"
-                  stroke="var(--ms-path-halo,#fff)"
+                  fill="var(--mx-path)"
+                  stroke="var(--mx-halo)"
                   strokeWidth=".035"
                 />
                 <g
@@ -425,8 +419,8 @@ export function FieldView({
                   <circle
                     cx=".78"
                     r=".085"
-                    fill="#fff"
-                    stroke="var(--ms-blue)"
+                    fill="var(--mx-halo)"
+                    stroke="var(--mx-path)"
                     strokeWidth=".035"
                   />
                 </g>
@@ -435,30 +429,44 @@ export function FieldView({
                 x={goal.x}
                 y={height - goal.y - 0.63}
                 textAnchor="middle"
-                className="ms-field-label"
+                className="mx-goal-label"
               >
-                {routine.nodes.indexOf(node)+1} {autoStepLabel(node)}
+                {active
+                  ? `${routine.nodes.indexOf(node) + 1}. ${node.name.length > 22 ? `${node.name.slice(0, 21)}…` : node.name}`
+                  : routine.nodes.indexOf(node) + 1}
               </text>
             </g>
           );
         })}
-        {tool !== "select" && hover && (
+        {tool !== "select" && hover && !drag && (
           <g
             transform={`translate(${hover.x},${height - hover.y})`}
             pointerEvents="none"
             opacity=".4"
           >
-            <circle r=".16" fill="var(--ms-blue)" />
+            <circle r=".16" fill="var(--mx-path)" />
             <rect
               x="-.42"
               y="-.42"
               width=".84"
               height=".84"
               fill="none"
-              stroke="var(--ms-blue)"
+              stroke="var(--mx-path)"
               strokeWidth=".025"
             />
           </g>
+        )}
+        {trail.length > 1 && (
+          <polyline
+            className="mx-trail"
+            points={trail.map((p) => `${p.x},${height - p.y}`).join(" ")}
+            fill="none"
+            stroke="var(--mx-trail)"
+            strokeWidth=".09"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            pointerEvents="none"
+          />
         )}
         <g
           transform={`translate(${pose.x},${height - pose.y}) rotate(${(-pose.heading * 180) / Math.PI})`}
@@ -470,52 +478,44 @@ export function FieldView({
             width={project.robot.length}
             height={project.robot.width}
             rx=".1"
-            fill="#6b3fe630"
-            stroke="var(--ms-blue)"
+            fill="var(--mx-path-soft)"
+            stroke="var(--mx-path)"
             strokeWidth=".04"
           />
           <path
             d="M-.12,-.17 L.15,0 L-.12,.17"
             fill="none"
-            stroke="var(--ms-blue)"
+            stroke="var(--mx-path)"
             strokeWidth=".055"
           />
           <path
             d={`M${project.robot.length / 2},${-project.robot.width / 2 + 0.1} V${project.robot.width / 2 - 0.1}`}
-            stroke="var(--ms-blue)"
+            stroke="var(--mx-path)"
             strokeWidth=".08"
           />
         </g>
       </svg>
-      <div className="ms-field-foot">
-        <button className="ms-button" onClick={() => setView(fit())}>
-          <Maximize2 size={13} />
-          Fit
+      <div className="mx-field-zoom">
+        <button aria-label="Zoom in" onClick={() => zoom(0.8)}>
+          <Plus size={15} />
         </button>
-        <button
-          className="ms-icon-button"
-          aria-label="Zoom out"
-          onClick={() => zoom(1.2)}
-        >
-          <Minus size={14} />
+        <button aria-label="Zoom out" onClick={() => zoom(1.2)}>
+          <Minus size={15} />
         </button>
-        <button
-          className="ms-icon-button"
-          aria-label="Zoom in"
-          onClick={() => zoom(0.8)}
-        >
-          <Plus size={14} />
+        <button aria-label="Fit field" onClick={() => setView(fit())}>
+          <Maximize2 size={14} />
         </button>
-        <span className="ms-field-hint">
-          {tool === "select"
-            ? "Double-click to add · drag heading knob to rotate"
-            : "Click to place · V to select"}{" "}
-          · SI units
-        </span>
+      </div>
+      <div className="mx-field-readout" aria-hidden="true">
+        {hover
+          ? `${hover.x.toFixed(2)}, ${hover.y.toFixed(2)} m`
+          : tool === "select"
+            ? "Double-click to add a pose · drag to pan · scroll to zoom"
+            : "Click to place · Esc to select"}
       </div>
       {menu && (
         <div
-          className="ms-field-context"
+          className="mx-menu is-floating"
           role="menu"
           style={{
             left: Math.min(menu.x, window.innerWidth - 190),

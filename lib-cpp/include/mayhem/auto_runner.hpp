@@ -4,6 +4,7 @@
 #include <optional>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace mayhem {
 using SignalValue = std::variant<std::monostate, bool, double, std::string_view>;
@@ -50,7 +51,11 @@ struct RoutineView {
 enum class RunStatus { Idle, Running, Completed, Failed, Cancelled };
 class AutoRunner {
  public:
-  AutoRunner(RoutineView routine, RobotHooks& hooks) : routine_(routine), hooks_(hooks) {}
+  AutoRunner(RoutineView routine, RobotHooks& hooks) : routine_(routine), hooks_(hooks) {
+    std::size_t maximum=0;
+    for(std::size_t i=0;i<routine_.nodeCount;i++) maximum=std::max(maximum,routine_.nodes[i].duringCount);
+    duringSucceeded_.reserve(maximum);
+  }
   bool Start(Velocity measured = {}) {
     if(status_ == RunStatus::Running) Leave(true);
     current_ = Find(routine_.initial); elapsed_ = 0; controller_.Reset(measured);
@@ -63,14 +68,19 @@ class AutoRunner {
     elapsed_ += dt;
     if(current_->kind == NodeKind::Finish) {status_=RunStatus::Completed;return {};}
     if(!std::isfinite(current_->timeout) || elapsed_ >= current_->timeout) return Fail();
-    for(std::size_t i=0;i<current_->duringCount;i++) if(hooks_.TickAction(current_->during[i])==ActionStatus::Failed) return Fail();
+    for(std::size_t i=0;i<current_->duringCount;i++) {
+      if(duringSucceeded_[i]) continue;
+      const auto result=hooks_.TickAction(current_->during[i]);
+      if(result==ActionStatus::Failed) return Fail();
+      duringSucceeded_[i]=result==ActionStatus::Succeeded;
+    }
     Velocity command; bool ready=false;
     if(current_->kind==NodeKind::Pose) {
       const auto result=controller_.Calculate(pose,measured,current_->goal,current_->constraints,dt);
       if(!result.valid) return Fail(); command=result.command;ready=result.reached;
     } else {
-      const auto result=hooks_.TickAction(current_->action);
-      if(result==ActionStatus::Failed) return Fail(); ready=result==ActionStatus::Succeeded;
+      const auto result=actionSucceeded_ ? ActionStatus::Succeeded : hooks_.TickAction(current_->action);
+      if(result==ActionStatus::Failed) return Fail(); actionSucceeded_=result==ActionStatus::Succeeded; ready=actionSucceeded_;
     }
     if(!ready) return command;
     for(std::size_t i=0;i<routine_.transitionCount;i++) {
@@ -90,6 +100,8 @@ class AutoRunner {
  private:
   const AutoNode* Find(std::string_view id) const {for(std::size_t i=0;i<routine_.nodeCount;i++) if(routine_.nodes[i].id==id) return &routine_.nodes[i];return nullptr;}
   void Enter() {
+    actionSucceeded_=false;
+    duringSucceeded_.assign(current_->duringCount,false);
     hooks_.StateEntered(current_->id);
     if(current_->kind==NodeKind::Finish) {status_=RunStatus::Completed;return;}
     if(current_->kind==NodeKind::Action||current_->kind==NodeKind::Custom) hooks_.BeginAction(current_->action);
@@ -102,6 +114,8 @@ class AutoRunner {
   }
   Velocity Fail() {Leave(true);status_=RunStatus::Failed;return {};}
   RoutineView routine_;RobotHooks& hooks_;PoseController controller_;const AutoNode* current_=nullptr;
+  std::vector<bool> duringSucceeded_;
+  bool actionSucceeded_=false;
   double elapsed_=0;RunStatus status_=RunStatus::Idle;
 };
 inline Pose FlipPose(Pose pose,double fieldLength,double fieldWidth) {return {fieldLength-pose.x,fieldWidth-pose.y,Wrap(pose.heading+3.14159265358979323846)};}

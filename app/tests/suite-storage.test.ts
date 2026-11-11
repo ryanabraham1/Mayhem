@@ -3,6 +3,10 @@ import { IDBFactory } from "fake-indexeddb";
 import { sampleProject } from "../src/suite/core/sample";
 import {
   PROJECT_KEY,
+  PROJECT_LIBRARY_KEY,
+  listProjects,
+  activateProject,
+  newProject,
   PROJECT_BACKUP_KEY,
   PROJECT_RECOVERY_KEY,
   loadProject,
@@ -14,6 +18,7 @@ import {
   setLogArchived,
   patchLog,
 } from "../src/suite/storage";
+const originalSet = Storage.prototype.setItem;
 beforeEach(() => {
   localStorage.clear();
   vi.stubGlobal("indexedDB", new IDBFactory());
@@ -75,4 +80,36 @@ it("migrates version-one recording buffers without losing metadata", async () =>
   expect(logs[0].name).toBe("old.wpilog");
   expect("buffer" in logs[0]).toBe(false);
   expect(new Uint8Array(await readLog("v1"))).toEqual(new Uint8Array([7, 8]));
+});
+
+it("keeps edited projects isolated across switches and reloads", () => {
+  const first = structuredClone(sampleProject);
+  saveProject(first);
+  const second = newProject("Practice");
+  activateProject(second, first);
+  const edited = { ...second, revision: 1, name: "Practice edited" };
+  saveProject(edited, second);
+  activateProject(first, edited);
+  expect(loadProject().project).toEqual(first);
+  const saved = listProjects().find(p => p.id === second.id)!;
+  expect(saved.name).toBe("Practice edited");
+  activateProject(saved, first);
+  expect(loadProject().project).toEqual(edited);
+  const duplicate = newProject("Copy", first);
+  expect(duplicate.id).not.toBe(first.id);
+  duplicate.robot.start.x = 7;
+  expect(first.robot.start.x).not.toBe(7);
+});
+it("does not lose the active project if the library cannot be saved or another window changes it", () => {
+  saveProject(sampleProject);
+  const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function(key, value) {
+    if (key === PROJECT_LIBRARY_KEY) throw new Error("Storage full");
+    originalSet.call(this, key, value);
+  });
+  expect(() => activateProject(newProject("New"), sampleProject)).toThrow("Storage full");
+  expect(loadProject().project).toEqual(sampleProject);
+  set.mockRestore();
+  saveProject({ ...sampleProject, revision: 3 });
+  expect(() => activateProject(newProject("New"), sampleProject)).toThrow(/Another window/);
+  expect(loadProject().project.revision).toBe(3);
 });

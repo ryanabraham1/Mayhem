@@ -1,0 +1,2814 @@
+{
+  "format": "mayhem-suite",
+  "version": 1,
+  "revision": 0,
+  "id": "team3256-offseason-2026",
+  "name": "3256 Offseason 2026",
+  "field": {
+    "name": "2026 REBUILT",
+    "width": 16.541,
+    "height": 8.069
+  },
+  "robot": {
+    "name": "Offseason swerve (Kraken X60, 5.90:1)",
+    "length": 0.813,
+    "width": 0.813,
+    "start": {
+      "x": 4.441,
+      "y": 0.664,
+      "heading": 1.581
+    },
+    "constraints": {
+      "maxVelocity": 4.5,
+      "maxAcceleration": 4.0,
+      "maxAngularVelocity": 6.0,
+      "maxAngularAcceleration": 12.0,
+      "translationKp": 3.2,
+      "rotationKp": 4.0
+    }
+  },
+  "signals": [
+    {
+      "key": "superstructure.ready",
+      "name": "Ready to shoot",
+      "type": "boolean",
+      "initial": false
+    }
+  ],
+  "routines": [
+    {
+      "id": "outpost-sweep",
+      "name": "Outpost Trench Sweep",
+      "start": {
+        "x": 4.441,
+        "y": 0.664,
+        "heading": 1.581
+      },
+      "initial": "OutpostTrenchSweepBumpPt1-w1",
+      "nodes": [
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w1",
+          "name": "Outpost Pt1 1",
+          "kind": "pose",
+          "goal": {
+            "x": 6.809,
+            "y": 0.721,
+            "heading": 1.588,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-intake-1",
+          "name": "Superstructure \u2192 INTAKE",
+          "kind": "action",
+          "action": "superstructure.setState.INTAKE",
+          "description": "Path marker \"intake\" in OutpostTrenchSweepBumpPt1.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w2",
+          "name": "Outpost Pt1 2",
+          "kind": "pose",
+          "goal": {
+            "x": 8.095,
+            "y": 1.248,
+            "heading": 1.571,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w3",
+          "name": "Outpost Pt1 3",
+          "kind": "pose",
+          "goal": {
+            "x": 8.357,
+            "y": 3.038,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w4",
+          "name": "Outpost Pt1 4",
+          "kind": "pose",
+          "goal": {
+            "x": 7.862,
+            "y": 4.13,
+            "heading": -2.439,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w5",
+          "name": "Outpost Pt1 5",
+          "kind": "pose",
+          "goal": {
+            "x": 7.109,
+            "y": 3.196,
+            "heading": -1.667,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w6",
+          "name": "Outpost Pt1 6",
+          "kind": "pose",
+          "goal": {
+            "x": 6.477,
+            "y": 2.358,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w7",
+          "name": "Outpost Pt1 7",
+          "kind": "pose",
+          "goal": {
+            "x": 5.958,
+            "y": 2.494,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w8",
+          "name": "OutpostTrenchSweepBumpPt1 end",
+          "kind": "pose",
+          "goal": {
+            "x": 3.262,
+            "y": 2.281,
+            "heading": -1.571,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.05,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0,
+            "headingMode": "pointAt",
+            "aimX": 4.619,
+            "aimY": 4.035
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-idle-9",
+          "name": "Superstructure \u2192 IDLE",
+          "kind": "action",
+          "action": "superstructure.setState.IDLE",
+          "description": "Path marker \"idle\" in OutpostTrenchSweepBumpPt1.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "align-shoot-0",
+          "name": "Align and shoot",
+          "kind": "custom",
+          "action": "drivetrain.alignAndShoot",
+          "description": "Rotate to the shot lookahead; once within 3\u00b0, set SHOOT. Gives up after 3.5 s.",
+          "source": "MayhemAutosBase::AlignAndShoot",
+          "timeout": 3.5
+        },
+        {
+          "id": "done",
+          "name": "Auto complete",
+          "kind": "finish",
+          "timeout": 1
+        }
+      ],
+      "transitions": [
+        {
+          "id": "t0",
+          "from": "OutpostTrenchSweepBumpPt1-w1",
+          "to": "OutpostTrenchSweepBumpPt1-intake-1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t1",
+          "from": "OutpostTrenchSweepBumpPt1-intake-1",
+          "to": "OutpostTrenchSweepBumpPt1-w2",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t2",
+          "from": "OutpostTrenchSweepBumpPt1-w2",
+          "to": "OutpostTrenchSweepBumpPt1-w3",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t3",
+          "from": "OutpostTrenchSweepBumpPt1-w3",
+          "to": "OutpostTrenchSweepBumpPt1-w4",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t4",
+          "from": "OutpostTrenchSweepBumpPt1-w4",
+          "to": "OutpostTrenchSweepBumpPt1-w5",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t5",
+          "from": "OutpostTrenchSweepBumpPt1-w5",
+          "to": "OutpostTrenchSweepBumpPt1-w6",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t6",
+          "from": "OutpostTrenchSweepBumpPt1-w6",
+          "to": "OutpostTrenchSweepBumpPt1-w7",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t7",
+          "from": "OutpostTrenchSweepBumpPt1-w7",
+          "to": "OutpostTrenchSweepBumpPt1-w8",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t8",
+          "from": "OutpostTrenchSweepBumpPt1-w8",
+          "to": "OutpostTrenchSweepBumpPt1-idle-9",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t9",
+          "from": "OutpostTrenchSweepBumpPt1-idle-9",
+          "to": "align-shoot-0",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t10",
+          "from": "align-shoot-0",
+          "to": "done",
+          "condition": {
+            "kind": "always"
+          }
+        }
+      ]
+    },
+    {
+      "id": "outpost-sweep-x2",
+      "name": "Outpost Trench Sweep x2",
+      "start": {
+        "x": 4.441,
+        "y": 0.664,
+        "heading": 1.581
+      },
+      "initial": "OutpostTrenchSweepBumpPt1-w1",
+      "nodes": [
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w1",
+          "name": "Outpost Pt1 1",
+          "kind": "pose",
+          "goal": {
+            "x": 6.809,
+            "y": 0.721,
+            "heading": 1.588,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-intake-1",
+          "name": "Superstructure \u2192 INTAKE",
+          "kind": "action",
+          "action": "superstructure.setState.INTAKE",
+          "description": "Path marker \"intake\" in OutpostTrenchSweepBumpPt1.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w2",
+          "name": "Outpost Pt1 2",
+          "kind": "pose",
+          "goal": {
+            "x": 8.095,
+            "y": 1.248,
+            "heading": 1.571,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w3",
+          "name": "Outpost Pt1 3",
+          "kind": "pose",
+          "goal": {
+            "x": 8.357,
+            "y": 3.038,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w4",
+          "name": "Outpost Pt1 4",
+          "kind": "pose",
+          "goal": {
+            "x": 7.862,
+            "y": 4.13,
+            "heading": -2.439,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w5",
+          "name": "Outpost Pt1 5",
+          "kind": "pose",
+          "goal": {
+            "x": 7.109,
+            "y": 3.196,
+            "heading": -1.667,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w6",
+          "name": "Outpost Pt1 6",
+          "kind": "pose",
+          "goal": {
+            "x": 6.477,
+            "y": 2.358,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w7",
+          "name": "Outpost Pt1 7",
+          "kind": "pose",
+          "goal": {
+            "x": 5.958,
+            "y": 2.494,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-w8",
+          "name": "OutpostTrenchSweepBumpPt1 end",
+          "kind": "pose",
+          "goal": {
+            "x": 3.262,
+            "y": 2.281,
+            "heading": -1.571,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.05,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0,
+            "headingMode": "pointAt",
+            "aimX": 4.619,
+            "aimY": 4.035
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt1-idle-9",
+          "name": "Superstructure \u2192 IDLE",
+          "kind": "action",
+          "action": "superstructure.setState.IDLE",
+          "description": "Path marker \"idle\" in OutpostTrenchSweepBumpPt1.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "align-shoot-0",
+          "name": "Align and shoot",
+          "kind": "custom",
+          "action": "drivetrain.alignAndShoot",
+          "description": "Rotate to the shot lookahead; once within 3\u00b0, set SHOOT. Gives up after 3.5 s.",
+          "source": "MayhemAutosBase::AlignAndShoot",
+          "timeout": 3.5
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt2-w1",
+          "name": "Outpost Pt2 1",
+          "kind": "pose",
+          "goal": {
+            "x": 4.562,
+            "y": 0.584,
+            "heading": 1.582,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt2.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt2-w2",
+          "name": "Outpost Pt2 2",
+          "kind": "pose",
+          "goal": {
+            "x": 6.273,
+            "y": 0.711,
+            "heading": 1.571,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt2.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt2-w3",
+          "name": "Outpost Pt2 3",
+          "kind": "pose",
+          "goal": {
+            "x": 7.207,
+            "y": 1.302,
+            "heading": 1.571,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt2.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt2-w4",
+          "name": "Outpost Pt2 4",
+          "kind": "pose",
+          "goal": {
+            "x": 7.17,
+            "y": 3.82,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt2.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt2-w5",
+          "name": "Outpost Pt2 5",
+          "kind": "pose",
+          "goal": {
+            "x": 6.558,
+            "y": 4.17,
+            "heading": -2.439,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt2.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt2-w6",
+          "name": "Outpost Pt2 6",
+          "kind": "pose",
+          "goal": {
+            "x": 6.078,
+            "y": 2.493,
+            "heading": -1.571,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt2.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt2-w7",
+          "name": "Outpost Pt2 7",
+          "kind": "pose",
+          "goal": {
+            "x": 5.698,
+            "y": 2.339,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt2.mtraj"
+        },
+        {
+          "id": "OutpostTrenchSweepBumpPt2-w8",
+          "name": "OutpostTrenchSweepBumpPt2 end",
+          "kind": "pose",
+          "goal": {
+            "x": 3.096,
+            "y": 2.506,
+            "heading": -1.571,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.05,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0,
+            "headingMode": "pointAt",
+            "aimX": 4.619,
+            "aimY": 4.035
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/OutpostTrenchSweepBumpPt2.mtraj"
+        },
+        {
+          "id": "align-shoot-1",
+          "name": "Align and shoot",
+          "kind": "custom",
+          "action": "drivetrain.alignAndShoot",
+          "description": "Rotate to the shot lookahead; once within 3\u00b0, set SHOOT. Gives up after 3.5 s.",
+          "source": "MayhemAutosBase::AlignAndShoot",
+          "timeout": 3.5
+        },
+        {
+          "id": "done",
+          "name": "Auto complete",
+          "kind": "finish",
+          "timeout": 1
+        }
+      ],
+      "transitions": [
+        {
+          "id": "t0",
+          "from": "OutpostTrenchSweepBumpPt1-w1",
+          "to": "OutpostTrenchSweepBumpPt1-intake-1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t1",
+          "from": "OutpostTrenchSweepBumpPt1-intake-1",
+          "to": "OutpostTrenchSweepBumpPt1-w2",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t2",
+          "from": "OutpostTrenchSweepBumpPt1-w2",
+          "to": "OutpostTrenchSweepBumpPt1-w3",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t3",
+          "from": "OutpostTrenchSweepBumpPt1-w3",
+          "to": "OutpostTrenchSweepBumpPt1-w4",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t4",
+          "from": "OutpostTrenchSweepBumpPt1-w4",
+          "to": "OutpostTrenchSweepBumpPt1-w5",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t5",
+          "from": "OutpostTrenchSweepBumpPt1-w5",
+          "to": "OutpostTrenchSweepBumpPt1-w6",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t6",
+          "from": "OutpostTrenchSweepBumpPt1-w6",
+          "to": "OutpostTrenchSweepBumpPt1-w7",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t7",
+          "from": "OutpostTrenchSweepBumpPt1-w7",
+          "to": "OutpostTrenchSweepBumpPt1-w8",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t8",
+          "from": "OutpostTrenchSweepBumpPt1-w8",
+          "to": "OutpostTrenchSweepBumpPt1-idle-9",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t9",
+          "from": "OutpostTrenchSweepBumpPt1-idle-9",
+          "to": "align-shoot-0",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t10",
+          "from": "align-shoot-0",
+          "to": "OutpostTrenchSweepBumpPt2-w1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t11",
+          "from": "OutpostTrenchSweepBumpPt2-w1",
+          "to": "OutpostTrenchSweepBumpPt2-w2",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t12",
+          "from": "OutpostTrenchSweepBumpPt2-w2",
+          "to": "OutpostTrenchSweepBumpPt2-w3",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t13",
+          "from": "OutpostTrenchSweepBumpPt2-w3",
+          "to": "OutpostTrenchSweepBumpPt2-w4",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t14",
+          "from": "OutpostTrenchSweepBumpPt2-w4",
+          "to": "OutpostTrenchSweepBumpPt2-w5",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t15",
+          "from": "OutpostTrenchSweepBumpPt2-w5",
+          "to": "OutpostTrenchSweepBumpPt2-w6",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t16",
+          "from": "OutpostTrenchSweepBumpPt2-w6",
+          "to": "OutpostTrenchSweepBumpPt2-w7",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t17",
+          "from": "OutpostTrenchSweepBumpPt2-w7",
+          "to": "OutpostTrenchSweepBumpPt2-w8",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t18",
+          "from": "OutpostTrenchSweepBumpPt2-w8",
+          "to": "align-shoot-1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t19",
+          "from": "align-shoot-1",
+          "to": "done",
+          "condition": {
+            "kind": "always"
+          }
+        }
+      ]
+    },
+    {
+      "id": "depot-sweep",
+      "name": "Depot Trench Sweep",
+      "start": {
+        "x": 4.432,
+        "y": 7.418,
+        "heading": -1.573
+      },
+      "initial": "DepotTrenchSweepBumpPt1-w1",
+      "nodes": [
+        {
+          "id": "DepotTrenchSweepBumpPt1-w1",
+          "name": "Depot Pt1 1",
+          "kind": "pose",
+          "goal": {
+            "x": 6.809,
+            "y": 7.367,
+            "heading": -1.577,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-intake-1",
+          "name": "Superstructure \u2192 INTAKE",
+          "kind": "action",
+          "action": "superstructure.setState.INTAKE",
+          "description": "Path marker \"intake\" in DepotTrenchSweepBumpPt1.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w2",
+          "name": "Depot Pt1 2",
+          "kind": "pose",
+          "goal": {
+            "x": 8.134,
+            "y": 6.724,
+            "heading": -1.537,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w3",
+          "name": "Depot Pt1 3",
+          "kind": "pose",
+          "goal": {
+            "x": 8.29,
+            "y": 3.976,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w4",
+          "name": "Depot Pt1 4",
+          "kind": "pose",
+          "goal": {
+            "x": 7.452,
+            "y": 4.152,
+            "heading": 2.257,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w5",
+          "name": "Depot Pt1 5",
+          "kind": "pose",
+          "goal": {
+            "x": 7.292,
+            "y": 5.64,
+            "heading": 1.543,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w6",
+          "name": "Depot Pt1 6",
+          "kind": "pose",
+          "goal": {
+            "x": 6.357,
+            "y": 5.671,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w7",
+          "name": "Depot Pt1 7",
+          "kind": "pose",
+          "goal": {
+            "x": 5.803,
+            "y": 5.671,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w8",
+          "name": "DepotTrenchSweepBumpPt1 end",
+          "kind": "pose",
+          "goal": {
+            "x": 3.303,
+            "y": 5.701,
+            "heading": 1.565,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.05,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0,
+            "headingMode": "pointAt",
+            "aimX": 4.619,
+            "aimY": 4.035
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-idle-9",
+          "name": "Superstructure \u2192 IDLE",
+          "kind": "action",
+          "action": "superstructure.setState.IDLE",
+          "description": "Path marker \"idle\" in DepotTrenchSweepBumpPt1.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "align-shoot-0",
+          "name": "Align and shoot",
+          "kind": "custom",
+          "action": "drivetrain.alignAndShoot",
+          "description": "Rotate to the shot lookahead; once within 3\u00b0, set SHOOT. Gives up after 3.5 s.",
+          "source": "MayhemAutosBase::AlignAndShoot",
+          "timeout": 3.5
+        },
+        {
+          "id": "done",
+          "name": "Auto complete",
+          "kind": "finish",
+          "timeout": 1
+        }
+      ],
+      "transitions": [
+        {
+          "id": "t0",
+          "from": "DepotTrenchSweepBumpPt1-w1",
+          "to": "DepotTrenchSweepBumpPt1-intake-1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t1",
+          "from": "DepotTrenchSweepBumpPt1-intake-1",
+          "to": "DepotTrenchSweepBumpPt1-w2",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t2",
+          "from": "DepotTrenchSweepBumpPt1-w2",
+          "to": "DepotTrenchSweepBumpPt1-w3",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t3",
+          "from": "DepotTrenchSweepBumpPt1-w3",
+          "to": "DepotTrenchSweepBumpPt1-w4",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t4",
+          "from": "DepotTrenchSweepBumpPt1-w4",
+          "to": "DepotTrenchSweepBumpPt1-w5",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t5",
+          "from": "DepotTrenchSweepBumpPt1-w5",
+          "to": "DepotTrenchSweepBumpPt1-w6",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t6",
+          "from": "DepotTrenchSweepBumpPt1-w6",
+          "to": "DepotTrenchSweepBumpPt1-w7",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t7",
+          "from": "DepotTrenchSweepBumpPt1-w7",
+          "to": "DepotTrenchSweepBumpPt1-w8",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t8",
+          "from": "DepotTrenchSweepBumpPt1-w8",
+          "to": "DepotTrenchSweepBumpPt1-idle-9",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t9",
+          "from": "DepotTrenchSweepBumpPt1-idle-9",
+          "to": "align-shoot-0",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t10",
+          "from": "align-shoot-0",
+          "to": "done",
+          "condition": {
+            "kind": "always"
+          }
+        }
+      ]
+    },
+    {
+      "id": "depot-sweep-x2",
+      "name": "Depot Trench Sweep x2",
+      "start": {
+        "x": 4.432,
+        "y": 7.418,
+        "heading": -1.573
+      },
+      "initial": "DepotTrenchSweepBumpPt1-w1",
+      "nodes": [
+        {
+          "id": "DepotTrenchSweepBumpPt1-w1",
+          "name": "Depot Pt1 1",
+          "kind": "pose",
+          "goal": {
+            "x": 6.809,
+            "y": 7.367,
+            "heading": -1.577,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-intake-1",
+          "name": "Superstructure \u2192 INTAKE",
+          "kind": "action",
+          "action": "superstructure.setState.INTAKE",
+          "description": "Path marker \"intake\" in DepotTrenchSweepBumpPt1.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w2",
+          "name": "Depot Pt1 2",
+          "kind": "pose",
+          "goal": {
+            "x": 8.134,
+            "y": 6.724,
+            "heading": -1.537,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w3",
+          "name": "Depot Pt1 3",
+          "kind": "pose",
+          "goal": {
+            "x": 8.29,
+            "y": 3.976,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w4",
+          "name": "Depot Pt1 4",
+          "kind": "pose",
+          "goal": {
+            "x": 7.452,
+            "y": 4.152,
+            "heading": 2.257,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w5",
+          "name": "Depot Pt1 5",
+          "kind": "pose",
+          "goal": {
+            "x": 7.292,
+            "y": 5.64,
+            "heading": 1.543,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w6",
+          "name": "Depot Pt1 6",
+          "kind": "pose",
+          "goal": {
+            "x": 6.357,
+            "y": 5.671,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w7",
+          "name": "Depot Pt1 7",
+          "kind": "pose",
+          "goal": {
+            "x": 5.803,
+            "y": 5.671,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-w8",
+          "name": "DepotTrenchSweepBumpPt1 end",
+          "kind": "pose",
+          "goal": {
+            "x": 3.303,
+            "y": 5.701,
+            "heading": 1.565,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.05,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0,
+            "headingMode": "pointAt",
+            "aimX": 4.619,
+            "aimY": 4.035
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBumpPt1.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBumpPt1-idle-9",
+          "name": "Superstructure \u2192 IDLE",
+          "kind": "action",
+          "action": "superstructure.setState.IDLE",
+          "description": "Path marker \"idle\" in DepotTrenchSweepBumpPt1.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "align-shoot-0",
+          "name": "Align and shoot",
+          "kind": "custom",
+          "action": "drivetrain.alignAndShoot",
+          "description": "Rotate to the shot lookahead; once within 3\u00b0, set SHOOT. Gives up after 3.5 s.",
+          "source": "MayhemAutosBase::AlignAndShoot",
+          "timeout": 3.5
+        },
+        {
+          "id": "DepotTrenchSweepBump2xPt2-w1",
+          "name": "Depot 2xPt2 1",
+          "kind": "pose",
+          "goal": {
+            "x": 3.873,
+            "y": 7.394,
+            "heading": -0.008,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBump2xPt2.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBump2xPt2-w2",
+          "name": "Depot 2xPt2 2",
+          "kind": "pose",
+          "goal": {
+            "x": 7.223,
+            "y": 6.34,
+            "heading": -1.576,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBump2xPt2.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBump2xPt2-w3",
+          "name": "Depot 2xPt2 3",
+          "kind": "pose",
+          "goal": {
+            "x": 7.272,
+            "y": 4.328,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBump2xPt2.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBump2xPt2-w4",
+          "name": "Depot 2xPt2 4",
+          "kind": "pose",
+          "goal": {
+            "x": 6.926,
+            "y": 3.298,
+            "heading": 2.257,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBump2xPt2.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBump2xPt2-w5",
+          "name": "Depot 2xPt2 5",
+          "kind": "pose",
+          "goal": {
+            "x": 5.978,
+            "y": 3.333,
+            "heading": 1.571,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBump2xPt2.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBump2xPt2-w6",
+          "name": "Depot 2xPt2 6",
+          "kind": "pose",
+          "goal": {
+            "x": 6.01,
+            "y": 5.574,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBump2xPt2.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBump2xPt2-w7",
+          "name": "DepotTrenchSweepBump2xPt2 end",
+          "kind": "pose",
+          "goal": {
+            "x": 2.84,
+            "y": 5.628,
+            "heading": 1.571,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.05,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0,
+            "headingMode": "pointAt",
+            "aimX": 4.619,
+            "aimY": 4.035
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepBump2xPt2.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepBump2xPt2-idle2-18",
+          "name": "Superstructure \u2192 IDLE",
+          "kind": "action",
+          "action": "superstructure.setState.IDLE",
+          "description": "Path marker \"idle2\" in DepotTrenchSweepBump2xPt2.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "align-shoot-1",
+          "name": "Align and shoot",
+          "kind": "custom",
+          "action": "drivetrain.alignAndShoot",
+          "description": "Rotate to the shot lookahead; once within 3\u00b0, set SHOOT. Gives up after 3.5 s.",
+          "source": "MayhemAutosBase::AlignAndShoot",
+          "timeout": 3.5
+        },
+        {
+          "id": "done",
+          "name": "Auto complete",
+          "kind": "finish",
+          "timeout": 1
+        }
+      ],
+      "transitions": [
+        {
+          "id": "t0",
+          "from": "DepotTrenchSweepBumpPt1-w1",
+          "to": "DepotTrenchSweepBumpPt1-intake-1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t1",
+          "from": "DepotTrenchSweepBumpPt1-intake-1",
+          "to": "DepotTrenchSweepBumpPt1-w2",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t2",
+          "from": "DepotTrenchSweepBumpPt1-w2",
+          "to": "DepotTrenchSweepBumpPt1-w3",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t3",
+          "from": "DepotTrenchSweepBumpPt1-w3",
+          "to": "DepotTrenchSweepBumpPt1-w4",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t4",
+          "from": "DepotTrenchSweepBumpPt1-w4",
+          "to": "DepotTrenchSweepBumpPt1-w5",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t5",
+          "from": "DepotTrenchSweepBumpPt1-w5",
+          "to": "DepotTrenchSweepBumpPt1-w6",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t6",
+          "from": "DepotTrenchSweepBumpPt1-w6",
+          "to": "DepotTrenchSweepBumpPt1-w7",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t7",
+          "from": "DepotTrenchSweepBumpPt1-w7",
+          "to": "DepotTrenchSweepBumpPt1-w8",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t8",
+          "from": "DepotTrenchSweepBumpPt1-w8",
+          "to": "DepotTrenchSweepBumpPt1-idle-9",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t9",
+          "from": "DepotTrenchSweepBumpPt1-idle-9",
+          "to": "align-shoot-0",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t10",
+          "from": "align-shoot-0",
+          "to": "DepotTrenchSweepBump2xPt2-w1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t11",
+          "from": "DepotTrenchSweepBump2xPt2-w1",
+          "to": "DepotTrenchSweepBump2xPt2-w2",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t12",
+          "from": "DepotTrenchSweepBump2xPt2-w2",
+          "to": "DepotTrenchSweepBump2xPt2-w3",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t13",
+          "from": "DepotTrenchSweepBump2xPt2-w3",
+          "to": "DepotTrenchSweepBump2xPt2-w4",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t14",
+          "from": "DepotTrenchSweepBump2xPt2-w4",
+          "to": "DepotTrenchSweepBump2xPt2-w5",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t15",
+          "from": "DepotTrenchSweepBump2xPt2-w5",
+          "to": "DepotTrenchSweepBump2xPt2-w6",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t16",
+          "from": "DepotTrenchSweepBump2xPt2-w6",
+          "to": "DepotTrenchSweepBump2xPt2-w7",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t17",
+          "from": "DepotTrenchSweepBump2xPt2-w7",
+          "to": "DepotTrenchSweepBump2xPt2-idle2-18",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t18",
+          "from": "DepotTrenchSweepBump2xPt2-idle2-18",
+          "to": "align-shoot-1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t19",
+          "from": "align-shoot-1",
+          "to": "done",
+          "condition": {
+            "kind": "always"
+          }
+        }
+      ]
+    },
+    {
+      "id": "depot-sweep-depot",
+      "name": "Depot Trench Sweep Depot",
+      "start": {
+        "x": 4.402,
+        "y": 7.428,
+        "heading": -1.578
+      },
+      "initial": "DepotTrenchSweepDepotPt-w1",
+      "nodes": [
+        {
+          "id": "DepotTrenchSweepDepotPt-w1",
+          "name": "Depot DepotPt 1",
+          "kind": "pose",
+          "goal": {
+            "x": 5.917,
+            "y": 7.452,
+            "heading": 2.328,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt-w2",
+          "name": "Depot DepotPt 2",
+          "kind": "pose",
+          "goal": {
+            "x": 6.747,
+            "y": 7.469,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt-intake-2",
+          "name": "Superstructure \u2192 INTAKE",
+          "kind": "action",
+          "action": "superstructure.setState.INTAKE",
+          "description": "Path marker \"intake\" in DepotTrenchSweepDepotPt.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt-w3",
+          "name": "Depot DepotPt 3",
+          "kind": "pose",
+          "goal": {
+            "x": 7.962,
+            "y": 7.152,
+            "heading": -1.571,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt-w4",
+          "name": "Depot DepotPt 4",
+          "kind": "pose",
+          "goal": {
+            "x": 8.268,
+            "y": 5.518,
+            "heading": 2.328,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt-w5",
+          "name": "Depot DepotPt 5",
+          "kind": "pose",
+          "goal": {
+            "x": 8.009,
+            "y": 4.231,
+            "heading": -1.571,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt-w6",
+          "name": "Depot DepotPt 6",
+          "kind": "pose",
+          "goal": {
+            "x": 6.837,
+            "y": 3.844,
+            "heading": 1.722,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt-w7",
+          "name": "Depot DepotPt 7",
+          "kind": "pose",
+          "goal": {
+            "x": 5.908,
+            "y": 5.775,
+            "heading": 3.142,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt-w8",
+          "name": "Depot DepotPt 8",
+          "kind": "pose",
+          "goal": {
+            "x": 3.719,
+            "y": 5.775,
+            "heading": 2.328,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt-w9",
+          "name": "DepotTrenchSweepDepotPt end",
+          "kind": "pose",
+          "goal": {
+            "x": 2.373,
+            "y": 5.921,
+            "heading": -3.129,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.05,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0,
+            "headingMode": "pointAt",
+            "aimX": 4.619,
+            "aimY": 4.035
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt.mtraj"
+        },
+        {
+          "id": "align-shoot-0",
+          "name": "Align and shoot",
+          "kind": "custom",
+          "action": "drivetrain.alignAndShoot",
+          "description": "Rotate to the shot lookahead; once within 3\u00b0, set SHOOT. Gives up after 3.5 s.",
+          "source": "MayhemAutosBase::AlignAndShoot",
+          "timeout": 3.5
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt2-intake-11",
+          "name": "Superstructure \u2192 INTAKE",
+          "kind": "action",
+          "action": "superstructure.setState.INTAKE",
+          "description": "Path marker \"intake\" in DepotTrenchSweepDepotPt2.",
+          "source": "src/main/cpp/commands/MayhemAutos.cpp",
+          "timeout": 0.5
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt2-w1",
+          "name": "Depot DepotPt2 1",
+          "kind": "pose",
+          "goal": {
+            "x": 1.554,
+            "y": 5.939,
+            "heading": -3.135,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt2.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt2-w2",
+          "name": "Depot DepotPt2 2",
+          "kind": "pose",
+          "goal": {
+            "x": 0.822,
+            "y": 5.954,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt2.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt2-w3",
+          "name": "Depot DepotPt2 3",
+          "kind": "pose",
+          "goal": {
+            "x": 1.809,
+            "y": 5.944,
+            "heading": 0.0,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.35,
+            "headingMode": "free"
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt2.mtraj"
+        },
+        {
+          "id": "DepotTrenchSweepDepotPt2-w4",
+          "name": "DepotTrenchSweepDepotPt2 end",
+          "kind": "pose",
+          "goal": {
+            "x": 2.446,
+            "y": 5.393,
+            "heading": -3.126,
+            "translationTolerance": 0.12,
+            "rotationTolerance": 0.2,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0,
+            "headingMode": "pointAt",
+            "aimX": 4.619,
+            "aimY": 4.035
+          },
+          "timeout": 6,
+          "source": "src/main/deploy/mayhem/DepotTrenchSweepDepotPt2.mtraj"
+        },
+        {
+          "id": "align-shoot-1",
+          "name": "Align and shoot",
+          "kind": "custom",
+          "action": "drivetrain.alignAndShoot",
+          "description": "Rotate to the shot lookahead; once within 3\u00b0, set SHOOT. Gives up after 3.5 s.",
+          "source": "MayhemAutosBase::AlignAndShoot",
+          "timeout": 3.5
+        },
+        {
+          "id": "done",
+          "name": "Auto complete",
+          "kind": "finish",
+          "timeout": 1
+        }
+      ],
+      "transitions": [
+        {
+          "id": "t0",
+          "from": "DepotTrenchSweepDepotPt-w1",
+          "to": "DepotTrenchSweepDepotPt-w2",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t1",
+          "from": "DepotTrenchSweepDepotPt-w2",
+          "to": "DepotTrenchSweepDepotPt-intake-2",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t2",
+          "from": "DepotTrenchSweepDepotPt-intake-2",
+          "to": "DepotTrenchSweepDepotPt-w3",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t3",
+          "from": "DepotTrenchSweepDepotPt-w3",
+          "to": "DepotTrenchSweepDepotPt-w4",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t4",
+          "from": "DepotTrenchSweepDepotPt-w4",
+          "to": "DepotTrenchSweepDepotPt-w5",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t5",
+          "from": "DepotTrenchSweepDepotPt-w5",
+          "to": "DepotTrenchSweepDepotPt-w6",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t6",
+          "from": "DepotTrenchSweepDepotPt-w6",
+          "to": "DepotTrenchSweepDepotPt-w7",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t7",
+          "from": "DepotTrenchSweepDepotPt-w7",
+          "to": "DepotTrenchSweepDepotPt-w8",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t8",
+          "from": "DepotTrenchSweepDepotPt-w8",
+          "to": "DepotTrenchSweepDepotPt-w9",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t9",
+          "from": "DepotTrenchSweepDepotPt-w9",
+          "to": "align-shoot-0",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t10",
+          "from": "align-shoot-0",
+          "to": "DepotTrenchSweepDepotPt2-intake-11",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t11",
+          "from": "DepotTrenchSweepDepotPt2-intake-11",
+          "to": "DepotTrenchSweepDepotPt2-w1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t12",
+          "from": "DepotTrenchSweepDepotPt2-w1",
+          "to": "DepotTrenchSweepDepotPt2-w2",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t13",
+          "from": "DepotTrenchSweepDepotPt2-w2",
+          "to": "DepotTrenchSweepDepotPt2-w3",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t14",
+          "from": "DepotTrenchSweepDepotPt2-w3",
+          "to": "DepotTrenchSweepDepotPt2-w4",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t15",
+          "from": "DepotTrenchSweepDepotPt2-w4",
+          "to": "align-shoot-1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "t16",
+          "from": "align-shoot-1",
+          "to": "done",
+          "condition": {
+            "kind": "always"
+          }
+        }
+      ]
+    }
+  ],
+  "extensions": {
+    "machines": [
+      {
+        "format": "mayhem-machine",
+        "version": 1,
+        "id": "Superstructure",
+        "name": "Superstructure",
+        "initial": "IDLE",
+        "stateChannel": "/RealOutputs/Superstructure/State",
+        "states": [
+          {
+            "id": "IDLE",
+            "name": "Idle",
+            "description": "Everything off: rollers, shooter, indexer, feeder, slide. Hood to 0.05.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          },
+          {
+            "id": "INTAKE",
+            "name": "Intake",
+            "description": "Rollers at 8 V. Hood clears the slide, then the slide runs its intake sequence.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          },
+          {
+            "id": "SHOOT",
+            "name": "Shoot",
+            "description": "Shooter spins for the hub (or corner feed); indexer and feeder run once the flywheel is at speed.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          },
+          {
+            "id": "REV",
+            "name": "Rev",
+            "description": "In the alliance zone: spin the shooter for the hub without feeding.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          },
+          {
+            "id": "REV_AND_INTAKE",
+            "name": "Rev And Intake",
+            "description": "Revving while intaking; slide to ground intake.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          },
+          {
+            "id": "SHOOT_AND_INTAKE",
+            "name": "Shoot And Intake",
+            "description": "Shooting and intaking together; slide to ground intake.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          },
+          {
+            "id": "JITTER",
+            "name": "Jitter",
+            "description": "Rollers on and the slide jitters to unjam pieces.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          },
+          {
+            "id": "JITTER_AND_SHOOT",
+            "name": "Jitter And Shoot",
+            "description": "Jitter while shooting.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          },
+          {
+            "id": "HOME",
+            "name": "Home",
+            "description": "Hood 0.05, everything off, slide to ground intake position.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          },
+          {
+            "id": "OUTTAKE",
+            "name": "Outtake",
+            "description": "Rollers and feeder reverse.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          },
+          {
+            "id": "CANCEL_ALL",
+            "name": "Cancel All",
+            "description": "Kill all mechanisms.",
+            "source": "src/main/cpp/subsystems/Superstructure.cpp"
+          }
+        ],
+        "inputs": [
+          {
+            "key": "driver.a",
+            "name": "Driver A (shoot)",
+            "type": "boolean",
+            "initial": false
+          },
+          {
+            "key": "driver.x",
+            "name": "Driver X (intake)",
+            "type": "boolean",
+            "initial": false
+          },
+          {
+            "key": "driver.y",
+            "name": "Driver Y (jitter)",
+            "type": "boolean",
+            "initial": false
+          },
+          {
+            "key": "driver.b",
+            "name": "Driver B (home)",
+            "type": "boolean",
+            "initial": false
+          },
+          {
+            "key": "driver.leftTrigger",
+            "name": "Driver left trigger (outtake)",
+            "type": "boolean",
+            "initial": false
+          },
+          {
+            "key": "enteredAllianceZone",
+            "name": "Just entered alliance zone (event)",
+            "type": "boolean",
+            "initial": false
+          },
+          {
+            "key": "inAllianceZone",
+            "name": "In alliance zone (blue x < 4 m, red x > 12.5 m)",
+            "type": "boolean",
+            "initial": false
+          },
+          {
+            "key": "ready",
+            "name": "Ready to shoot",
+            "type": "boolean",
+            "initial": false,
+            "channel": "/RealOutputs/Superstructure/ReadyToShoot"
+          },
+          {
+            "key": "flywheelReady",
+            "name": "Flywheel at speed",
+            "type": "boolean",
+            "initial": false,
+            "channel": "/RealOutputs/Superstructure/ReadyToShoot/Flywheel"
+          },
+          {
+            "key": "pivotReady",
+            "name": "Hood at angle",
+            "type": "boolean",
+            "initial": false,
+            "channel": "/RealOutputs/Superstructure/ReadyToShoot/Pivot"
+          }
+        ],
+        "transitions": [
+          {
+            "id": "IDLE-SHOOT-0",
+            "from": "IDLE",
+            "to": "SHOOT",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.a",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "IDLE-INTAKE-1",
+            "from": "IDLE",
+            "to": "INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.x",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "IDLE-JITTER-2",
+            "from": "IDLE",
+            "to": "JITTER",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.y",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "IDLE-HOME-3",
+            "from": "IDLE",
+            "to": "HOME",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.b",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "IDLE-OUTTAKE-4",
+            "from": "IDLE",
+            "to": "OUTTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.leftTrigger",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "IDLE-REV-5",
+            "from": "IDLE",
+            "to": "REV",
+            "condition": {
+              "kind": "signal",
+              "key": "enteredAllianceZone",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "INTAKE-SHOOT_AND_INTAKE-6",
+            "from": "INTAKE",
+            "to": "SHOOT_AND_INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.a",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "INTAKE-JITTER-7",
+            "from": "INTAKE",
+            "to": "JITTER",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.y",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "INTAKE-HOME-8",
+            "from": "INTAKE",
+            "to": "HOME",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.b",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "INTAKE-OUTTAKE-9",
+            "from": "INTAKE",
+            "to": "OUTTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.leftTrigger",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "INTAKE-REV_AND_INTAKE-10",
+            "from": "INTAKE",
+            "to": "REV_AND_INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "enteredAllianceZone",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "SHOOT-SHOOT_AND_INTAKE-11",
+            "from": "SHOOT",
+            "to": "SHOOT_AND_INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.x",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "SHOOT-JITTER_AND_SHOOT-12",
+            "from": "SHOOT",
+            "to": "JITTER_AND_SHOOT",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.y",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "SHOOT-HOME-13",
+            "from": "SHOOT",
+            "to": "HOME",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.b",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "SHOOT-OUTTAKE-14",
+            "from": "SHOOT",
+            "to": "OUTTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.leftTrigger",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "SHOOT-REV-15",
+            "from": "SHOOT",
+            "to": "REV",
+            "condition": {
+              "kind": "signal",
+              "key": "enteredAllianceZone",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "REV-SHOOT-16",
+            "from": "REV",
+            "to": "SHOOT",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.a",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "REV-REV_AND_INTAKE-17",
+            "from": "REV",
+            "to": "REV_AND_INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.x",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "REV-JITTER-18",
+            "from": "REV",
+            "to": "JITTER",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.y",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "REV-HOME-19",
+            "from": "REV",
+            "to": "HOME",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.b",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "REV-OUTTAKE-20",
+            "from": "REV",
+            "to": "OUTTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.leftTrigger",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "REV_AND_INTAKE-SHOOT_AND_INTAKE-21",
+            "from": "REV_AND_INTAKE",
+            "to": "SHOOT_AND_INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.a",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "REV_AND_INTAKE-JITTER-22",
+            "from": "REV_AND_INTAKE",
+            "to": "JITTER",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.y",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "REV_AND_INTAKE-HOME-23",
+            "from": "REV_AND_INTAKE",
+            "to": "HOME",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.b",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "REV_AND_INTAKE-OUTTAKE-24",
+            "from": "REV_AND_INTAKE",
+            "to": "OUTTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.leftTrigger",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "SHOOT_AND_INTAKE-JITTER_AND_SHOOT-25",
+            "from": "SHOOT_AND_INTAKE",
+            "to": "JITTER_AND_SHOOT",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.y",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "SHOOT_AND_INTAKE-HOME-26",
+            "from": "SHOOT_AND_INTAKE",
+            "to": "HOME",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.b",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "SHOOT_AND_INTAKE-OUTTAKE-27",
+            "from": "SHOOT_AND_INTAKE",
+            "to": "OUTTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.leftTrigger",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "SHOOT_AND_INTAKE-REV-28",
+            "from": "SHOOT_AND_INTAKE",
+            "to": "REV",
+            "condition": {
+              "kind": "signal",
+              "key": "enteredAllianceZone",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "JITTER-JITTER_AND_SHOOT-29",
+            "from": "JITTER",
+            "to": "JITTER_AND_SHOOT",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.a",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "JITTER-INTAKE-30",
+            "from": "JITTER",
+            "to": "INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.x",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "JITTER-HOME-31",
+            "from": "JITTER",
+            "to": "HOME",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.b",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "JITTER-OUTTAKE-32",
+            "from": "JITTER",
+            "to": "OUTTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.leftTrigger",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "JITTER-REV-33",
+            "from": "JITTER",
+            "to": "REV",
+            "condition": {
+              "kind": "signal",
+              "key": "enteredAllianceZone",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "JITTER_AND_SHOOT-INTAKE-34",
+            "from": "JITTER_AND_SHOOT",
+            "to": "INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.x",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "JITTER_AND_SHOOT-HOME-35",
+            "from": "JITTER_AND_SHOOT",
+            "to": "HOME",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.b",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "JITTER_AND_SHOOT-OUTTAKE-36",
+            "from": "JITTER_AND_SHOOT",
+            "to": "OUTTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.leftTrigger",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "JITTER_AND_SHOOT-REV-37",
+            "from": "JITTER_AND_SHOOT",
+            "to": "REV",
+            "condition": {
+              "kind": "signal",
+              "key": "enteredAllianceZone",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "HOME-SHOOT-38",
+            "from": "HOME",
+            "to": "SHOOT",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.a",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "HOME-INTAKE-39",
+            "from": "HOME",
+            "to": "INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.x",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "HOME-JITTER-40",
+            "from": "HOME",
+            "to": "JITTER",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.y",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "HOME-OUTTAKE-41",
+            "from": "HOME",
+            "to": "OUTTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.leftTrigger",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "HOME-REV-42",
+            "from": "HOME",
+            "to": "REV",
+            "condition": {
+              "kind": "signal",
+              "key": "enteredAllianceZone",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "OUTTAKE-SHOOT-43",
+            "from": "OUTTAKE",
+            "to": "SHOOT",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.a",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "OUTTAKE-INTAKE-44",
+            "from": "OUTTAKE",
+            "to": "INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.x",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "OUTTAKE-JITTER-45",
+            "from": "OUTTAKE",
+            "to": "JITTER",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.y",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "OUTTAKE-HOME-46",
+            "from": "OUTTAKE",
+            "to": "HOME",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.b",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "OUTTAKE-REV-47",
+            "from": "OUTTAKE",
+            "to": "REV",
+            "condition": {
+              "kind": "signal",
+              "key": "enteredAllianceZone",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "CANCEL_ALL-SHOOT-48",
+            "from": "CANCEL_ALL",
+            "to": "SHOOT",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.a",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "CANCEL_ALL-INTAKE-49",
+            "from": "CANCEL_ALL",
+            "to": "INTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.x",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "CANCEL_ALL-JITTER-50",
+            "from": "CANCEL_ALL",
+            "to": "JITTER",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.y",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "CANCEL_ALL-HOME-51",
+            "from": "CANCEL_ALL",
+            "to": "HOME",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.b",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "CANCEL_ALL-OUTTAKE-52",
+            "from": "CANCEL_ALL",
+            "to": "OUTTAKE",
+            "condition": {
+              "kind": "signal",
+              "key": "driver.leftTrigger",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "CANCEL_ALL-REV-53",
+            "from": "CANCEL_ALL",
+            "to": "REV",
+            "condition": {
+              "kind": "signal",
+              "key": "enteredAllianceZone",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "REV-IDLE-54",
+            "from": "REV",
+            "to": "IDLE",
+            "condition": {
+              "kind": "not",
+              "condition": {
+                "kind": "signal",
+                "key": "inAllianceZone",
+                "op": "eq",
+                "value": true
+              }
+            }
+          },
+          {
+            "id": "REV_AND_INTAKE-INTAKE-55",
+            "from": "REV_AND_INTAKE",
+            "to": "INTAKE",
+            "condition": {
+              "kind": "not",
+              "condition": {
+                "kind": "signal",
+                "key": "inAllianceZone",
+                "op": "eq",
+                "value": true
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "logRules": {
+      "rules": [
+        {
+          "id": "resting-battery",
+          "channel": "/RealOutputs/SystemStats/BatteryVoltage",
+          "op": "lt",
+          "value": 11.5,
+          "duration": 2,
+          "severity": "warning",
+          "title": "Battery sagging for 2 s",
+          "detail": "Battery stayed under 11.5 V for two seconds. Swap or charge before the next match."
+        },
+        {
+          "id": "brownout",
+          "channel": "/RealOutputs/SystemStats/BrownedOut",
+          "op": "eq",
+          "value": true,
+          "duration": 0,
+          "severity": "error",
+          "title": "Robot browned out",
+          "detail": "The roboRIO reported a brownout. Check what was drawing current in the seconds before."
+        }
+      ]
+    },
+    "source": {
+      "repository": "Team3256/FRC_Offseason_2026",
+      "branch": "claude/friendly-tesla-o02ue3",
+      "converted": "Old time-optimal .mtraj paths converted to pose goals; markers mirror MayhemAutos.cpp.",
+      "markerWarnings": [
+        "Outpost Trench Sweep x2: OutpostTrenchSweepBumpPt2 has no \"intake2\" marker (it has idle, intake, shoot), so AtTime(\"intake2\") never fires and the superstructure never goes to INTAKE there.",
+        "Outpost Trench Sweep x2: OutpostTrenchSweepBumpPt2 has no \"idle2\" marker (it has idle, intake, shoot), so AtTime(\"idle2\") never fires and the superstructure never goes to IDLE there.",
+        "Depot Trench Sweep x2: DepotTrenchSweepBump2xPt2 has no \"intake2\" marker (it has idle2, shoot2), so AtTime(\"intake2\") never fires and the superstructure never goes to INTAKE there.",
+        "Depot Trench Sweep Depot: DepotTrenchSweepDepotPt has no \"idle\" marker (it has intake, shoot), so AtTime(\"idle\") never fires and the superstructure never goes to IDLE there."
+      ]
+    }
+  }
+}

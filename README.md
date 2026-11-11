@@ -2,14 +2,16 @@
 
 A robot software workspace for humans and coding agents: pose-based autonomous tools, state-machine inspection, and robot log playback/analysis.
 
-The new suite is in active development. The original trajectory planner and Java library remain available through **Legacy trajectory planner**. Current release downloads still contain the older planner; they do not contain this unshipped rewrite.
+The new suite is in active development. The original time-optimal trajectory planner stays available from **Settings → Classic trajectory planner**. Current release downloads still contain the older planner; they do not contain this unshipped rewrite.
 
 ## New suite (development)
 
-- **Autos:** original Mayhem vector field, click/double-click placement, draggable goals and starting poses, heading handles, typed transitions, moving handoffs, per-goal limits, and measured-state preview.
-- **States:** review auto transitions or arbitrary robot state-machine manifests; inspect live NetworkTables inputs/guards and replay logged state/input values.
-- **Logs & power:** local WPILOG import/playback and field replay, power findings and evidence-linked diagnostics. Desktop collection selects robot files over SFTP, optionally syncs/uploads them, and opens each log in an installed external viewer.
-- **Agents/C++:** shared JSON and revision-checked files, CLI/MCP tools, standalone C++ controller and optional executor/observers. Robot code can use arbitrary custom behavior and architectures.
+- **Overview:** every routine as a field thumbnail, robot connection and log collection status, the latest logs with their red flags, and project checks.
+- **Autonomous:** pose-to-pose routines on the REBUILT field: click to place, drag goals and the start, heading knobs, moving handoffs, robot actions between steps, per-step limits, and a preview with a driven-path trail. Inspector edits arrival, heading policy, watchdogs, concurrent callbacks and branches.
+- **State machines:** a layered graph of autonomous routines or any robot state machine. Simulate by toggling inputs (the machine steps through its transitions), watch it live over NetworkTables, or replay a recorded log. "From any state" bindings collapse into chips so large superstructures stay readable.
+- **Logs:** a library of recordings with red-flag badges, a verdict and finding timeline per log, Health / Power / Signals / Field tabs, per-mechanism current ranking, and battery sag against the brownout line.
+- **Robot:** team number, live connection, automatic log collection from the robot over Ethernet or from a folder (simulation output, USB sticks), team upload with retry, drive limits and robot inputs. Collection runs on every screen, not just Logs.
+- **Agents:** copy a plain-text brief of the project for an agent, MCP and CLI setup, a live file link agents edit, C++ export, and the raw project document.
 - **Team sharing:** companion 3256-Tools web library/viewer source, private cloud uploads, and deployment instructions. Live at https://3256tools.vercel.app/logs, with actual hosted AdvantageScope Lite and selected-log handoff.
 
 ```sh

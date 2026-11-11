@@ -16,7 +16,7 @@ pub fn run() {
         // Must be registered before tauri-plugin-shell: plugin `on_event` hooks run in
         // registration order, and the shell plugin SIGKILLs its children on `RunEvent::Exit`.
         // We get the first chance to stop the solver gracefully (see sidecar.rs).
-        .invoke_handler(tauri::generate_handler![logs::list_robot_logs, logs::download_robot_log, logs::read_log_file, logs::archive_log_file, logs::open_log_viewer, logs::upload_team_log, projects::read_suite_project, projects::write_suite_project])
+        .invoke_handler(tauri::generate_handler![logs::list_robot_logs, logs::list_local_logs, logs::download_robot_log, logs::read_log_file, logs::archive_log_file, logs::open_log_viewer, logs::upload_team_log, projects::read_suite_project, projects::write_suite_project])
         .plugin(sidecar::reaper())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())

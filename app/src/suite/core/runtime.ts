@@ -147,7 +147,16 @@ export interface TraceEvent {
   message: string;
   transition?: string;
 }
+export type ActionStatus = "running" | "succeeded" | "failed";
+export type PreviewMode = "path" | "routine";
+export interface PreviewOptions {
+  mode?: PreviewMode;
+  actions?: Record<string, ActionStatus>;
+}
+export const MAX_PREVIEW_SECONDS = 600;
+export const MAX_PREVIEW_EVENTS = 1000;
 export interface Frame {
+  actions: Record<string, ActionStatus>;
   time: number;
   node: string;
   pose: Pose;
@@ -164,13 +173,17 @@ export function initialFrame(
   routine: AutoRoutine,
 ): Frame {
   return {
+    actions: {},
     time: 0,
     node: routine.initial,
     pose: { ...(routine.start ?? project.robot.start) },
     velocity: { vx: 0, vy: 0, omega: 0 },
     controller: { vx: 0, vy: 0, omega: 0, settled: 0 },
     signals: Object.fromEntries(project.signals.map((s) => [s.key, s.initial])),
-    status: "running",
+    status:
+      routine.nodes.find((n) => n.id === routine.initial)?.kind === "finish"
+        ? "completed"
+        : "running",
     reached: false,
     enteredAt: 0,
     events: [
@@ -191,6 +204,7 @@ export function step(
   signals: Signals,
   dt = 0.02,
   freezeDrive = false,
+  options: PreviewOptions = {},
 ): Frame {
   if (frame.status !== "running") return frame;
   if (!Number.isFinite(dt) || dt <= 0 || dt > 0.1)
@@ -206,13 +220,28 @@ export function step(
   ) => {
     next.events = [
       ...next.events,
-      { time, kind, node: node.id, message, transition },
+      { time, kind, node: next.node, message, transition },
     ];
   };
   if (node.kind === "finish") {
     next.status = "completed";
     next.velocity = { vx: 0, vy: 0, omega: 0 };
     event("complete", "Routine completed");
+    return next;
+  }
+  if (frame.events.length >= MAX_PREVIEW_EVENTS) {
+    next.status = "failed";
+    next.velocity = { vx: 0, vy: 0, omega: 0 };
+    event("failure", "Preview stopped after 1000 execution events. Check for a transition cycle.");
+    return next;
+  }
+  if (time >= MAX_PREVIEW_SECONDS) {
+    next.status = "failed";
+    next.velocity = { vx: 0, vy: 0, omega: 0 };
+    event(
+      "failure",
+      "Preview stopped at the 600 second limit. Check for a transition cycle.",
+    );
     return next;
   }
   if (time - frame.enteredAt >= node.timeout) {
@@ -223,6 +252,28 @@ export function step(
       `${node.name}: watchdog expired; goal/condition was not satisfied`,
     );
     return next;
+  }
+  if (options.mode !== "path") {
+    next.actions = { ...frame.actions };
+    const callbacks = [
+      ...(node.during ?? []),
+      ...((node.kind === "action" || node.kind === "custom") && node.action
+        ? [node.action]
+        : []),
+    ];
+    for (const id of callbacks) {
+      const status =
+        frame.actions[id] === "succeeded"
+          ? "succeeded"
+          : (options.actions?.[id] ?? "running");
+      next.actions[id] = status;
+      if (status === "failed") {
+        next.status = "failed";
+        next.velocity = { vx: 0, vy: 0, omega: 0 };
+        event("failure", `${node.name}: action ${id} failed`);
+        return next;
+      }
+    }
   }
   if (node.kind === "pose" && node.goal) {
     const result = control(
@@ -248,12 +299,16 @@ export function step(
       heading: wrap(frame.pose.heading + next.velocity.omega * dt),
     };
   } else {
-    next.reached = true;
+    next.reached =
+      options.mode === "path" ||
+      (!!node.action && next.actions[node.action] === "succeeded");
     next.velocity = { vx: 0, vy: 0, omega: 0 };
   }
   if (next.reached) {
     const transition = routine.transitions.find(
-      (t) => t.from === node.id && evaluate(t.condition, signals),
+      (t) =>
+        t.from === node.id &&
+        (options.mode === "path" || evaluate(t.condition, signals)),
     );
     if (transition) {
       event(
@@ -264,6 +319,14 @@ export function step(
       next.node = transition.to;
       next.enteredAt = time;
       next.reached = false;
+      next.actions = {};
+      if (
+        routine.nodes.find((n) => n.id === transition.to)?.kind === "finish"
+      ) {
+        next.status = "completed";
+        next.velocity = { vx: 0, vy: 0, omega: 0 };
+        event("complete", "Routine completed");
+      }
       // Preserve velocity across intermediate pose handoffs, reset arrival settling.
       next.controller = { ...next.velocity, settled: 0 };
     }
@@ -274,13 +337,28 @@ export function simulate(
   project: SuiteProject,
   routine: AutoRoutine,
   signals: Signals,
-  options: { maxSeconds?: number; freezeDrive?: boolean } = {},
+  options: PreviewOptions & { maxSeconds?: number; freezeDrive?: boolean } = {},
 ) {
+  if (
+    options.maxSeconds !== undefined &&
+    (!Number.isFinite(options.maxSeconds) ||
+      options.maxSeconds <= 0 ||
+      options.maxSeconds > MAX_PREVIEW_SECONDS)
+  )
+    throw new Error("maxSeconds must be in (0,600].");
   let frame = initialFrame(project, routine);
   const frames: Frame[] = [frame];
   const count = Math.min(30000, Math.ceil((options.maxSeconds ?? 40) / 0.02));
   for (let i = 0; i < count && frame.status === "running"; i++) {
-    frame = step(project, routine, frame, signals, 0.02, options.freezeDrive);
+    frame = step(
+      project,
+      routine,
+      frame,
+      signals,
+      0.02,
+      options.freezeDrive,
+      options,
+    );
     frames.push(frame);
   }
   return { status: frame.status, frame, frames };

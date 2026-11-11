@@ -356,3 +356,49 @@ export function valueAt(
   }
   return channel.samples[lo].value;
 }
+
+export interface CurrentUse {
+  channel: string;
+  peak: number;
+  average: number;
+  /** Charge drawn over the recording, in milliamp-hours. */
+  mAh: number;
+}
+/**
+ * Rank individual current signals (motor controllers, PDH channels) by charge
+ * drawn. Excludes the mapped total so it doesn't dominate the list.
+ */
+export function currentBreakdown(
+  recording: Recording,
+  exclude?: string,
+  limit = 24,
+): CurrentUse[] {
+  const result: CurrentUse[] = [];
+  for (const channel of recording.channels) {
+    if (channel.name === exclude) continue;
+    // Ends in Current(s), CurrentLeft/Right or Amps, optionally with an array index.
+    if (!/(?:currents?(?:left|right)?|amps?)(?:\/\d+)?$/i.test(channel.name)) continue;
+    if (/stator/i.test(channel.name)) continue;
+    const samples = channel.samples.filter(
+      (s): s is Sample & { value: number } =>
+        typeof s.value === "number" && Number.isFinite(s.value),
+    );
+    if (samples.length < 2) continue;
+    let charge = 0,
+      peak = -Infinity;
+    for (let i = 0; i < samples.length; i++) {
+      const value = Math.abs(samples[i].value);
+      peak = Math.max(peak, value);
+      const next = samples[i + 1]?.time ?? samples[i].time;
+      charge += value * Math.max(0, next - samples[i].time);
+    }
+    const span = samples[samples.length - 1].time - samples[0].time;
+    result.push({
+      channel: channel.name,
+      peak,
+      average: span > 0 ? charge / span : 0,
+      mAh: (charge / 3600) * 1000,
+    });
+  }
+  return result.sort((a, b) => b.mAh - a.mAh).slice(0, limit);
+}

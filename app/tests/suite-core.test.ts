@@ -16,6 +16,7 @@ import { sampleProject } from "../src/suite/core/sample.ts";
 import {
   control,
   initialFrame,
+  step,
   simulate,
   wrap,
   type ControllerState,
@@ -34,6 +35,7 @@ import {
   parseMachineManifest,
 } from "../src/suite/core/machines.ts";
 const clone = () => structuredClone(sampleProject);
+const successfulActions = { "intake.acquire": "succeeded", "shooter.fire": "succeeded" } as const;
 const successSignals = {
   pieceDetected: true,
   shooterReady: true,
@@ -78,7 +80,7 @@ describe("measured-state autonomy", () => {
   });
   it("finishes only after reaching both goals and satisfying the sensor conditions", () => {
     const p = clone();
-    const r = simulate(p, p.routines[0], successSignals);
+    const r = simulate(p, p.routines[0], successSignals, { actions: successfulActions });
     expect(r.status).toBe("completed");
     expect(Math.hypot(r.frame.pose.x - 3.2, r.frame.pose.y - 5.6)).toBeLessThan(
       DEFAULT_GOAL.translationTolerance,
@@ -105,6 +107,44 @@ describe("measured-state autonomy", () => {
     expect(r.status).toBe("failed");
     expect(r.frame.node).toBe("collect");
     expect(r.frame.signals.pieceDetected).toBe(false);
+  });
+  it("previews the whole path without getting stuck on mechanism inputs", () => {
+    const p = clone();
+    const result = simulate(p, p.routines[0], {}, { mode: "path" });
+    expect(result.status).toBe("completed");
+    expect(result.frame.events.filter(e => e.kind === "transition").map(e => e.transition)).toEqual(["at-pickup", "has-piece", "lane-reached", "at-score", "shot"]);
+    expect(result.frame.pose.y).toBeCloseTo(5.6, 1);
+  });
+  it("requires action completion as well as passing guards in full routine mode", () => {
+    const p = clone(), routine = p.routines[0];
+    routine.initial = "collect";
+    let frame = step(p, routine, initialFrame(p, routine), successSignals);
+    expect(frame.node).toBe("collect");
+    frame = step(p, routine, frame, successSignals, .02, false, { actions: successfulActions });
+    expect(frame.node).toBe("return-lane");
+    const failure = step(p, routine, initialFrame(p, routine), successSignals, .02, false, { actions: { "intake.acquire": "failed" } });
+    expect(failure.status).toBe("failed");
+    expect(failure.events.at(-1)?.message).toContain("intake.acquire failed");
+  });
+  it("reports failed concurrent actions and latches success while guards are blocked", () => {
+    const p = clone(), routine = p.routines[0];
+    routine.initial = "collect";
+    routine.nodes.find(n => n.id === "collect")!.during = ["arm.hold"];
+    let frame = step(p, routine, initialFrame(p, routine), {}, .02, false, { actions: successfulActions });
+    expect(frame.node).toBe("collect");
+    frame = step(p, routine, frame, successSignals);
+    expect(frame.node).toBe("return-lane");
+    frame = step(p, routine, initialFrame(p, routine), {}, .02, false, { actions: { "arm.hold": "failed" } });
+    expect(frame.status).toBe("failed");
+  });
+  it("bounds fast transition cycles before trace history can exhaust memory", () => {
+    const p = clone(), routine = p.routines[0];
+    routine.initial = "collect";
+    routine.transitions.unshift({ id: "cycle", from: "collect", to: "collect", condition: { kind: "always" } });
+    const result = simulate(p, routine, {}, { mode: "path" });
+    expect(result.status).toBe("failed");
+    expect(result.frame.events.at(-1)?.message).toContain("1000 execution events");
+    expect(result.frame.events.length).toBeLessThanOrEqual(1001);
   });
   it("requires a low measured speed and settling before final arrival", () => {
     const result = control(
@@ -353,4 +393,35 @@ describe("native/browser controller agreement", () => {
       expect(pose.heading).toBeCloseTo(native[i][2], 11);
     }
   });
+});
+
+import { currentBreakdown } from "../src/suite/core/analysis";
+it("ranks individual current draws by charge and skips the total and stator signals", () => {
+  const ramp = (value: number) =>
+    Array.from({ length: 11 }, (_, i) => ({ time: i, value }));
+  const ranked = currentBreakdown(
+    {
+      name: "match",
+      duration: 10,
+      warnings: [],
+      channels: [
+        { name: "PDH/TotalCurrent", type: "double", samples: ramp(100) },
+        { name: "Drive/FL/SupplyCurrent", type: "double", samples: ramp(36) },
+        { name: "Intake/SupplyCurrent", type: "double", samples: ramp(-12) },
+        { name: "Drive/FL/StatorCurrent", type: "double", samples: ramp(80) },
+        { name: "Shooter/Velocity", type: "double", samples: ramp(5) },
+        { name: "Drive/currentEffectiveWheelRadius", type: "double", samples: ramp(500) },
+        { name: "/Shooter/shooterMotorSupplyCurrents/0", type: "double", samples: ramp(4) },
+      ],
+    },
+    "PDH/TotalCurrent",
+  );
+  expect(ranked.map((r) => r.channel)).toEqual([
+    "Drive/FL/SupplyCurrent",
+    "Intake/SupplyCurrent",
+    "/Shooter/shooterMotorSupplyCurrents/0",
+  ]);
+  expect(ranked[0].average).toBeCloseTo(36);
+  expect(ranked[0].mAh).toBeCloseTo(100);
+  expect(ranked[1].peak).toBe(12);
 });

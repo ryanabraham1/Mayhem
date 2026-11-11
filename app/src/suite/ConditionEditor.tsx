@@ -21,7 +21,7 @@ export function ConditionEditor({
   depth?: number;
 }) {
   return (
-    <div className="ms-condition-editor">
+    <div className="mx-cond">
       <select
         aria-label="Condition type"
         value={condition.kind}
@@ -41,15 +41,15 @@ export function ConditionEditor({
           );
         }}
       >
-        <option value="always">Always (after arrival for pose goals)</option>
+        <option value="always">Always</option>
         <option value="signal" disabled={!signals.length}>
-          Signal comparison
+          Input comparison
         </option>
         {depth < 6 && (
           <>
-            <option value="all">All conditions</option>
-            <option value="any">Any condition</option>
-            <option value="not">Not</option>
+            <option value="all">All of…</option>
+            <option value="any">Any of…</option>
+            <option value="not">Not…</option>
           </>
         )}
       </select>
@@ -69,7 +69,7 @@ export function ConditionEditor({
               </option>
             ))}
           </select>
-          <div className="ms-condition-comparison">
+          <div className="mx-cond-compare">
             <select
               aria-label="Comparison operator"
               value={condition.op}
@@ -126,7 +126,7 @@ export function ConditionEditor({
         />
       )}
       {(condition.kind === "all" || condition.kind === "any") && (
-        <div className="ms-condition-children">
+        <div className="mx-cond-children">
           {condition.conditions.map((c, i) => (
             <div key={i}>
               <ConditionEditor
@@ -144,6 +144,8 @@ export function ConditionEditor({
               />
               {condition.conditions.length > 1 && (
                 <button
+                  type="button"
+                  className="mx-icon-btn"
                   aria-label="Remove nested condition"
                   onClick={() =>
                     change({
@@ -160,7 +162,8 @@ export function ConditionEditor({
             </div>
           ))}
           <button
-            className="ms-button"
+            type="button"
+            className="mx-btn mx-btn-ghost mx-btn-sm"
             onClick={() =>
               change({
                 ...condition,
@@ -171,8 +174,8 @@ export function ConditionEditor({
               })
             }
           >
-            <Plus size={12} />
-            Condition
+            <Plus size={14} />
+            Add condition
           </button>
         </div>
       )}

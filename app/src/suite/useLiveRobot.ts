@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NT4Observer, type LiveSnapshot } from "./core/nt4.ts";
 export function useLiveRobot(host: string) {
   const client = useRef<NT4Observer | null>(null),
@@ -7,7 +7,15 @@ export function useLiveRobot(host: string) {
     status: "disconnected",
     topics: {},
   });
-  useEffect(() => () => client.current?.disconnect(), []);
+  useEffect(() => {
+    client.current?.disconnect();
+    client.current = null;
+    setSnapshot({ status: "disconnected", topics: {} });
+    return () => {
+      client.current?.disconnect();
+      client.current = null;
+    };
+  }, [host]);
   const setTopics = useCallback((next: string[]) => {
     topics.current = next;
     client.current?.setExtraTopics(next);
@@ -27,5 +35,8 @@ export function useLiveRobot(host: string) {
     client.current = null;
     setSnapshot({ status: "disconnected", topics: {} });
   }, []);
-  return { snapshot, connect, disconnect, setTopics };
+  return useMemo(
+    () => ({ snapshot, connect, disconnect, setTopics }),
+    [snapshot, connect, disconnect, setTopics],
+  );
 }

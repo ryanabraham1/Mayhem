@@ -105,6 +105,10 @@ jobs:
       - run: cmake -S lib-cpp -B lib-cpp/build -DBUILD_TESTING=ON
       - run: cmake --build lib-cpp/build --config Debug
       - run: ctest --test-dir lib-cpp/build -C Debug --output-on-failure
+      - run: cmake --install lib-cpp/build --config Debug --prefix "${{ runner.temp }}/mayhem-core"
+      - run: cmake -S lib-cpp/tests/package-consumer -B lib-cpp/consumer-build -DCMAKE_PREFIX_PATH="${{ runner.temp }}/mayhem-core"
+      - run: cmake --build lib-cpp/consumer-build --config Debug
+      - run: ctest --test-dir lib-cpp/consumer-build -C Debug --output-on-failure
 
   desktop:
     name: Tauri shell (clippy, ${{ matrix.os }})
@@ -134,4 +138,5 @@ jobs:
           mkdir -p binaries ../dist
           touch "binaries/mayhem-solver-$triple$ext" ../dist/index.html
           chmod +x "binaries/mayhem-solver-$triple$ext"
+      - run: cargo test --locked
       - run: cargo clippy --locked -- -D warnings

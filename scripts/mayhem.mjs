@@ -87,6 +87,8 @@ const tools = [
         signals: { type: "object" },
         freezeDrive: { type: "boolean" },
         maxSeconds: { type: "number" },
+        mode: { type: "string", enum: ["path", "routine"] },
+        actions: { type: "object", additionalProperties: { type: "string", enum: ["running", "succeeded", "failed"] } },
       },
       required: ["path"],
     },
@@ -195,8 +197,16 @@ export async function execute(name, args) {
         args.maxSeconds > 600)
     )
       throw new Error("maxSeconds must be in (0,600].");
+    if (args.mode !== undefined && !["path", "routine"].includes(args.mode)) throw new Error("mode must be path or routine.");
+    if (args.actions !== undefined) {
+      const callbacks = new Set(routine.nodes.flatMap(node => [...(node.during ?? []), ...(node.action ? [node.action] : [])]));
+      if (!args.actions || typeof args.actions !== "object" || Array.isArray(args.actions)) throw new Error("actions must map callback IDs to statuses.");
+      for (const [id, status] of Object.entries(args.actions))
+        if (!callbacks.has(id) || !["running", "succeeded", "failed"].includes(status)) throw new Error(`Invalid action status for ${id}`);
+    }
     const result = simulate(project, routine, signals, args);
     return {
+      mode: args.mode ?? "routine",
       status: result.status,
       time: result.frame.time,
       pose: result.frame.pose,

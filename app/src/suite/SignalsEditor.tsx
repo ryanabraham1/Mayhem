@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Plus, ToggleLeft, X } from "lucide-react";
 import type { SuiteProject } from "./core/model.ts";
+import { Button, IconButton, Panel } from "./ui";
+
 export function SignalsEditor({
   project,
   commit,
@@ -12,37 +14,36 @@ export function SignalsEditor({
     [name, setName] = useState(""),
     [type, setType] = useState<"boolean" | "number" | "string">("boolean");
   return (
-    <div className="ms-settings-card">
-      <h3>Inputs & observed signals</h3>
-      <p>
-        Declare the values the robot reports. Agents can add arbitrary signals
-        and custom predicates through this same project document.
+    <Panel title="Robot inputs" icon={ToggleLeft}>
+      <p className="mx-help">
+        Sensor values and flags the robot reports, like “has game piece” or
+        “shooter at speed”. Autonomous branches and state machines decide on
+        these.
       </p>
-      <div className="ms-signal-definitions">
+      <div className="mx-signal-table" role="table" aria-label="Robot inputs">
         {project.signals.map((s) => (
-          <div key={s.key}>
-            <code>{s.key}</code>
-            <span>{s.name}</span>
-            <small>
+          <div key={s.key} role="row">
+            <code role="cell">{s.key}</code>
+            <span role="cell">{s.name}</span>
+            <small role="cell">
               {s.type}
               {s.unit ? ` · ${s.unit}` : ""}
             </small>
-            <button
-              className="ms-icon-button"
-              aria-label={`Remove signal ${s.name}`}
+            <IconButton
+              label={`Remove signal ${s.name}`}
+              icon={X}
               onClick={() =>
                 commit((p) => {
                   p.signals = p.signals.filter((old) => old.key !== s.key);
                 })
               }
-            >
-              <X size={13} />
-            </button>
+            />
           </div>
         ))}
+        {!project.signals.length && <p className="mx-help">No inputs declared yet.</p>}
       </div>
       <form
-        className="ms-add-signal"
+        className="mx-add-signal"
         onSubmit={(e) => {
           e.preventDefault();
           if (!key.trim()) return;
@@ -60,7 +61,7 @@ export function SignalsEditor({
       >
         <input
           aria-label="New signal key"
-          placeholder="Signal key, e.g. intake.hasPiece"
+          placeholder="Key, e.g. intake.hasPiece"
           required
           value={key}
           onChange={(e) => setKey(e.target.value)}
@@ -76,15 +77,14 @@ export function SignalsEditor({
           value={type}
           onChange={(e) => setType(e.target.value as typeof type)}
         >
-          <option value="boolean">Boolean</option>
+          <option value="boolean">True/false</option>
           <option value="number">Number</option>
           <option value="string">Text</option>
         </select>
-        <button className="ms-button" type="submit">
-          <Plus size={13} />
+        <Button type="submit" icon={Plus}>
           Add input
-        </button>
+        </Button>
       </form>
-    </div>
+    </Panel>
   );
 }

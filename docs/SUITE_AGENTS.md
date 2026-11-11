@@ -16,7 +16,7 @@ Use BLine-style live-pose goals as the normal movement tool. The current impleme
 
 The public contract is `app/src/suite/core/model.ts`. The versioned JSON format is `mayhem-suite`, version 1. `extensions` is open and round-trips through the editor. Each routine can override the robot's default starting pose. Robot code owns the decision to reset odometry.
 
-In the desktop app, open or save a linked project file. Local edits save with revision checks; agent edits appear within about 1.5 seconds. Use the same lock/revision protocol to prevent competing writes. A conflict preserves local work and requires rereading/reconciling the file. Browser mode imports/exports snapshots and keeps its working copy locally.
+In the desktop app, open or save a linked project file. Local edits save with revision checks; agent edits appear within about 1.5 seconds. Use the same lock/revision protocol to prevent competing writes. A conflict preserves local work and requires rereading/reconciling the file. Browser mode imports/exports snapshots and keeps its working copy locally. Click the project name in the top bar to create, rename, duplicate, or switch projects. Saved projects are local snapshots; selecting one preserves the outgoing working copy and detaches any file link. Use Open project file to reconnect to an agent-edited file. Each project has independent undo history and preview state; the recording library is shared across projects.
 
 Requires Node 22.18+ (or a newer Node with TypeScript stripping and WebSocket support):
 
@@ -24,7 +24,8 @@ Requires Node 22.18+ (or a newer Node with TypeScript stripping and WebSocket su
 node scripts/mayhem.mjs example > robot.mayhem.json
 node scripts/mayhem.mjs inspect robot.mayhem.json
 node scripts/mayhem.mjs validate robot.mayhem.json
-node scripts/mayhem.mjs simulate robot.mayhem.json '{"signals":{"pieceDetected":true,"shooterReady":true,"shotComplete":true}}'
+node scripts/mayhem.mjs simulate robot.mayhem.json '{"mode":"path"}'
+node scripts/mayhem.mjs simulate robot.mayhem.json '{"signals":{"pieceDetected":true,"shooterReady":true,"shotComplete":true},"actions":{"intake.acquire":"succeeded","shooter.fire":"succeeded"}}'
 node scripts/mayhem.mjs simulate robot.mayhem.json '{"freezeDrive":true}'
 node scripts/mayhem.mjs cpp robot.mayhem.json > robot_autos.hpp
 node scripts/mayhem.mjs analyze run.wpilog
@@ -57,6 +58,10 @@ The defaults are `/Mayhem/States/<machine>/state` for state and the input's key 
 Use the live view to inspect actual values. Use recording playback to review prior transitions and values at the same cursor. Local input controls are for exploring a manifest; they do not change the robot.
 
 ## Evidence and limits
+
+The editor defaults to **Path only** playback: it follows the first outgoing edge in declared order, skips robot actions and sensor guards, and animates the reachable pose sequence. This is a geometric/control preview, not a successful autonomous execution claim. For branch or mechanism validation, select **Full routine with inputs**. Callback result selectors and typed sensor controls are visible beneath playback. A running callback blocks its action state; failure stops the routine; success is latched until the state exits. Concurrent callbacks can also fail the routine. Watchdogs still fail blocked states. Preview cycles stop at 600 seconds or 1000 execution events to bound trace memory.
+
+The CLI/MCP defaults to full routine behavior. Supply an `actions` map keyed by callback ID with `running`, `succeeded`, or `failed` values. Missing callbacks remain running. `mode: "path"` requests pose-only playback explicitly. Trace exports record the selected mode and action assumptions.
 
 The built-in preview uses an ideal kinematic plant. It does not run arbitrary C++ actions, model traction/contact, or prove a route is clear. Supply simulation sensor values deliberately. The field warnings are conservative straight-segment checks against enabled field obstacles, not an avoidance controller.
 

@@ -134,6 +134,40 @@ pub async fn list_robot_logs(host: String, directory: String) -> Result<Vec<Remo
         .await
         .map_err(|e| e.to_string())?
 }
+/// WPILOG files in a local folder and its direct subfolders (simulation output, USB sticks).
+fn local_listing(directory: &Path) -> Result<Vec<RemoteLog>, String> {
+    if !directory.is_dir() {
+        return Err(format!("{} is not a folder.", directory.display()));
+    }
+    let mut logs = Vec::new();
+    let mut folders = vec![(directory.to_path_buf(), 0)];
+    while let Some((folder, depth)) = folders.pop() {
+        let Ok(entries) = fs::read_dir(&folder) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.is_dir() && depth < 1 {
+                folders.push((path, depth + 1));
+            } else if meta.is_file()
+                && path.extension().and_then(|e| e.to_str()) == Some("wpilog")
+            {
+                logs.push(RemoteLog {
+                    name: entry.file_name().to_string_lossy().into_owned(),
+                    path: path.to_string_lossy().into_owned(),
+                    size: meta.len(),
+                });
+            }
+        }
+    }
+    logs.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(logs)
+}
+#[tauri::command]
+pub async fn list_local_logs(directory: String) -> Result<Vec<RemoteLog>, String> {
+    tauri::async_runtime::spawn_blocking(move || local_listing(Path::new(&directory)))
+        .await
+        .map_err(|e| e.to_string())?
+}
 fn log_file(path: &str) -> Result<PathBuf, String> {
     let path = fs::canonicalize(path).map_err(|e| e.to_string())?;
     if !path.is_file()
@@ -462,6 +496,23 @@ mod tests {
         assert_eq!(fs::read(&target).unwrap(), b"WPILOG test recording");
         assert_eq!(fs::read_dir(root.join("saved")).unwrap().count(), 1);
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn local_folders_list_wpilogs_one_level_deep() {
+        let root = std::env::temp_dir().join(format!("mayhem-local-{}", std::process::id()));
+        let nested = root.join("match1");
+        let deeper = nested.join("too-deep");
+        fs::create_dir_all(&deeper).unwrap();
+        fs::write(root.join("a.wpilog"), b"1").unwrap();
+        fs::write(nested.join("b.wpilog"), b"22").unwrap();
+        fs::write(nested.join("notes.txt"), b"x").unwrap();
+        fs::write(deeper.join("c.wpilog"), b"333").unwrap();
+        let logs = local_listing(&root).unwrap();
+        let names: Vec<_> = logs.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["a.wpilog", "b.wpilog"]);
+        assert_eq!(logs[1].size, 2);
+        assert!(local_listing(&root.join("missing")).is_err());
+        let _ = fs::remove_dir_all(&root);
     }
     #[test]
     fn robot_paths_cannot_be_commands() {

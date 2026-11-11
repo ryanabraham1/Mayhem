@@ -12,6 +12,19 @@ Use the pieces you need:
 | `wpilib.hpp` | `DriveToPose` command and WPILOG observer |
 | `networktables_observer.hpp` | NetworkTables observer and observer fanout |
 
+## CMake installation
+
+Use a source checkout with `add_subdirectory(lib-cpp)` and link `Mayhem::Core`, or install it:
+
+```sh
+cmake -S lib-cpp -B lib-cpp/build -DBUILD_TESTING=ON -DCMAKE_INSTALL_PREFIX=/your/install/prefix
+cmake --build lib-cpp/build
+ctest --test-dir lib-cpp/build --output-on-failure
+cmake --install lib-cpp/build
+```
+
+An independent CMake project can then use `find_package(MayhemCore 0.1 REQUIRED CONFIG)` and `target_link_libraries(your_target PRIVATE Mayhem::Core)`, with the install prefix in `CMAKE_PREFIX_PATH`. The installed target includes all headers. Optional WPILib headers still require your robot project's WPILib dependencies; they are not linked automatically.
+
 ## Controller in an existing architecture
 
 ```cpp
@@ -46,7 +59,7 @@ Generate a header with `node scripts/mayhem.mjs cpp project.mayhem.json > autos.
 
 Derive `RobotHooks` in your robot project. Return real typed `SignalValue`s; implement `BeginAction`, `TickAction`, and `EndAction` with your existing mechanism/scheduler code. `TickAction` explicitly returns Running, Succeeded, or Failed. `EndAction` also receives cancellation. Do not return success merely because time elapsed. String signal views must refer to storage that remains valid during guard evaluation.
 
-Construct `AutoRunner(routine, hooks)`, call `Start(measuredVelocity)` on autonomous start, and apply `Tick(measuredPose, measuredVelocity, dt)` each loop. On disable/interruption call `Cancel()` and explicitly stop outputs. Watch `Status()` for Completed/Failed/Cancelled. The runner owns neither your scheduler nor odometry resets; arbitrary robot code can bypass it entirely. Concurrent actions remain active until leaving their state, even if their callback reports success earlier.
+Construct `AutoRunner(routine, hooks)`, call `Start(measuredVelocity)` on autonomous start, and apply `Tick(measuredPose, measuredVelocity, dt)` each loop. On disable/interruption call `Cancel()` and explicitly stop outputs. Watch `Status()` for Completed/Failed/Cancelled. The runner owns neither your scheduler nor odometry resets; arbitrary robot code can bypass it entirely. Successful main and concurrent callbacks are latched and are not ticked again while transition guards wait. They receive exactly one EndAction on state exit. Concurrent actions remain owned by the state until it exits. The runner reserves callback-status storage on construction; its bookkeeping does not allocate during ticks or state transitions.
 
 ## Optional state observation
 

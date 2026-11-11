@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.20)
+project(MayhemPackageConsumer LANGUAGES CXX)
+find_package(MayhemCore 0.1 REQUIRED CONFIG)
+add_executable(package_consumer main.cpp)
+target_link_libraries(package_consumer PRIVATE Mayhem::Core)
+enable_testing()
+add_test(NAME installed_package COMMAND package_consumer)
