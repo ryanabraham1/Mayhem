@@ -63,6 +63,27 @@ const sourceKey = (origin: string, log: RemoteLog) =>
 
 export type RobotReach = "unknown" | "reachable" | "unreachable";
 
+/** A recording in the team website's shared library. */
+export interface TeamLog {
+  sha256: string;
+  name: string;
+  size: number;
+  /** ISO time the recording finished uploading. */
+  uploaded: string;
+  /** Name of the device that uploaded it, if known. */
+  device: string | null;
+}
+export interface TeamCloud {
+  logs: TeamLog[];
+  next: string | null;
+  loading: boolean;
+  loaded: boolean;
+  error: string;
+}
+const cloudEmpty: TeamCloud = { logs: [], next: null, loading: false, loaded: false, error: "" };
+export const cloudLink = (site: string, sha256: string) =>
+  new URL(`/logs?log=${sha256}`, site).toString();
+
 /**
  * Robot log collection and team upload. Runs at app level so collection
  * continues whichever screen is open.
@@ -105,6 +126,9 @@ export function useLogSync({
   const pulled = useRef(new Set<string>());
   const inFlight = useRef(false);
   const uploadInFlight = useRef(false);
+  const [cloud, setCloud] = useState<TeamCloud>(cloudEmpty);
+  const [saving, setSaving] = useState<string[]>([]);
+  const cloudRequest = useRef(0);
 
   const update = useCallback(
     (change: Partial<SyncConfig>) =>
@@ -150,6 +174,75 @@ export function useLogSync({
     setRemote([]);
     setReach("unknown");
   }, [target]);
+  // A different website or token sees a different library.
+  useEffect(() => {
+    cloudRequest.current++;
+    setCloud(cloudEmpty);
+  }, [config.site, token]);
+
+  const refreshCloud = useCallback(
+    async (more = false) => {
+      if (!token.trim()) {
+        setCloud({ ...cloudEmpty, loaded: true });
+        return;
+      }
+      const request = ++cloudRequest.current;
+      setCloud((c) => ({ ...c, loading: true, error: "" }));
+      try {
+        const page = await invoke<{ logs: TeamLog[]; next: string | null }>("list_team_logs", {
+          site: config.site,
+          token,
+          before: more ? cloud.next : null,
+        });
+        if (request !== cloudRequest.current) return;
+        setCloud((c) => {
+          const logs = more ? [...c.logs, ...page.logs] : page.logs;
+          return {
+            logs: logs.filter((log, i) => logs.findIndex((l) => l.sha256 === log.sha256) === i),
+            next: page.next,
+            loading: false,
+            loaded: true,
+            error: "",
+          };
+        });
+      } catch (e) {
+        if (request !== cloudRequest.current) return;
+        setCloud((c) => ({ ...c, loading: false, loaded: true, error: String(e) }));
+      }
+    },
+    [config.site, token, cloud.next],
+  );
+
+  /** Download a team recording, verify it, and add it to the local library. */
+  const saveFromCloud = async (log: TeamLog) => {
+    if (saving.includes(log.sha256)) return;
+    setSaving((s) => [...s, log.sha256]);
+    try {
+      const path = await invoke<string>("download_team_log", {
+        site: config.site,
+        token,
+        sha256: log.sha256,
+        name: log.name,
+      });
+      await received(await nativeRead(path), log.name, path, {
+        source: `cloud:${log.sha256}`,
+        background: true,
+      });
+      await updateLog(log.sha256, {
+        upload: "uploaded",
+        uploadSite: config.site,
+        cloudUrl: cloudLink(config.site, log.sha256),
+        uploadError: undefined,
+        retryAt: undefined,
+      });
+      notify(`Saved ${log.name} to the library.`);
+    } catch (e) {
+      notify(`Could not download ${log.name}: ${String(e)}`);
+    } finally {
+      setSaving((s) => s.filter((h) => h !== log.sha256));
+    }
+  };
+
   const changeDirectory = (directory: string) =>
     update({ directory, selected: [], autoPull: false });
 
@@ -359,6 +452,10 @@ export function useLogSync({
     queued,
     refresh,
     downloadSelected,
+    cloud,
+    refreshCloud,
+    saveFromCloud,
+    saving,
     toggleSelected: (path: string, on: boolean) =>
       update({
         selected: on

@@ -7,7 +7,7 @@ vi.mock("../src/suite/native", () => ({
 }));
 import { invoke } from "../src/suite/native";
 import { useLogSync, POLL_MS, SYNC_KEY } from "../src/suite/logSync";
-import { LogActions } from "../src/suite/logs/LogsPage";
+import { LogActions, TeamCloud } from "../src/suite/logs/LogsPage";
 import type { StoredLog } from "../src/suite/storage";
 
 const files = [
@@ -188,4 +188,73 @@ it("reports token save failures instead of silently losing the token", () => {
   } finally {
     write.mockRestore();
   }
+});
+
+const teamLog = (n: string, extra = {}) => ({
+  sha256: n.repeat(64),
+  name: `${n}.wpilog`,
+  size: 2048,
+  uploaded: "2026-11-11T00:00:00Z",
+  device: "Pit laptop",
+  ...extra,
+});
+
+it("lists the team cloud with the device token and pages without duplicates", async () => {
+  localStorage.setItem("mayhem.upload-token.v1", "mhm_token");
+  vi.mocked(invoke).mockImplementation(async (name, args) => {
+    if (name !== "list_team_logs") throw new Error(name);
+    return (args.before
+      ? { logs: [teamLog("b"), teamLog("c")], next: null }
+      : { logs: [teamLog("a"), teamLog("b")], next: "2026-11-10T00:00:00Z" }) as any;
+  });
+  const { view } = setup();
+  await act(() => view.result.current.refreshCloud());
+  expect(invoke).toHaveBeenCalledWith("list_team_logs", expect.objectContaining({ token: "mhm_token", before: null }));
+  await act(() => view.result.current.refreshCloud(true));
+  expect(invoke).toHaveBeenLastCalledWith("list_team_logs", expect.objectContaining({ before: "2026-11-10T00:00:00Z" }));
+  expect(view.result.current.cloud.logs.map((l) => l.name)).toEqual(["a.wpilog", "b.wpilog", "c.wpilog"]);
+  expect(view.result.current.cloud.next).toBeNull();
+});
+
+it("saves a downloaded team recording into the library, already marked as uploaded", async () => {
+  localStorage.setItem("mayhem.upload-token.v1", "mhm_token");
+  vi.mocked(invoke).mockResolvedValue("/data/logs/1-a.wpilog" as any);
+  const { view, received, updateLog, notify } = setup();
+  await act(() => view.result.current.saveFromCloud(teamLog("a")));
+  expect(invoke).toHaveBeenCalledWith("download_team_log", expect.objectContaining({ sha256: "a".repeat(64), name: "a.wpilog" }));
+  expect(received).toHaveBeenCalledWith(expect.any(ArrayBuffer), "a.wpilog", "/data/logs/1-a.wpilog", {
+    source: `cloud:${"a".repeat(64)}`,
+    background: true,
+  });
+  expect(updateLog).toHaveBeenCalledWith("a".repeat(64), expect.objectContaining({
+    upload: "uploaded",
+    cloudUrl: `https://3256tools.vercel.app/logs?log=${"a".repeat(64)}`,
+  }));
+  expect(notify).toHaveBeenCalledWith("Saved a.wpilog to the library.");
+  expect(view.result.current.saving).toEqual([]);
+});
+
+it("shows team cloud errors without touching the library", async () => {
+  localStorage.setItem("mayhem.upload-token.v1", "mhm_token");
+  vi.mocked(invoke).mockRejectedValue("The team website refused this device token.");
+  const { view, received } = setup();
+  await act(() => view.result.current.refreshCloud());
+  expect(view.result.current.cloud.error).toContain("refused");
+  await act(() => view.result.current.saveFromCloud(teamLog("a")));
+  expect(received).not.toHaveBeenCalled();
+});
+
+it("offers download for new team recordings and open for ones already in the library", async () => {
+  vi.useRealTimers();
+  localStorage.setItem("mayhem.upload-token.v1", "mhm_token");
+  vi.mocked(invoke).mockResolvedValue({ logs: [teamLog("a"), teamLog("b")], next: null } as any);
+  const { view } = setup();
+  const open = vi.fn();
+  const saved: StoredLog = { id: "b".repeat(64), name: "b.wpilog", bytes: 2048, added: 1 };
+  const { rerender } = render(<TeamCloud sync={view.result.current} logs={[saved]} query="" open={open} openRobot={() => {}} />);
+  await act(async () => {});
+  rerender(<TeamCloud sync={view.result.current} logs={[saved]} query="" open={open} openRobot={() => {}} />);
+  expect(screen.getByRole("button", { name: "Download a.wpilog to the library" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Open b.wpilog from the library" }));
+  expect(open).toHaveBeenCalledWith(saved);
 });

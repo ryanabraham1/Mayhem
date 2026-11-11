@@ -373,6 +373,212 @@ pub async fn open_log_viewer(path: String, viewer: Option<String>) -> Result<(),
     .await
     .map_err(|e| e.to_string())?
 }
+fn team_site(site: &str) -> Result<reqwest::Url, String> {
+    let site = reqwest::Url::parse(site).map_err(|_| "Invalid team website URL")?;
+    if site.scheme() != "https"
+        || site.host_str().is_none()
+        || !site.username().is_empty()
+        || site.password().is_some()
+    {
+        return Err("Use an HTTPS team website URL.".into());
+    }
+    Ok(site)
+}
+fn valid_hash(hash: &str) -> bool {
+    hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+/** A cloud recording's name as a plain local filename: no directories or control characters. */
+fn safe_log_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let cleaned: String = base
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| if c.is_ascii_alphanumeric() || "._- ()".contains(c) { c } else { '_' })
+        .take(120)
+        .collect();
+    let cleaned = cleaned.trim_start_matches('.').trim().to_string();
+    let stem = if cleaned.is_empty() { "team-log".to_string() } else { cleaned };
+    if stem.to_ascii_lowercase().ends_with(".wpilog") { stem } else { format!("{stem}.wpilog") }
+}
+fn read_denied(status: reqwest::StatusCode) -> String {
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        "The team website refused this device token. Create a device token in the team site's Logs › Connect Mayhem (the shared upload token can't read the library), or check it hasn't been revoked.".into()
+    } else {
+        format!("The team log library is unavailable ({}).", status.as_u16())
+    }
+}
+fn team_client(timeout: u64) -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(timeout))
+        .build()
+        .map_err(|_| "Could not initialize cloud connection".into())
+}
+#[derive(Deserialize)]
+struct LibraryDevice {
+    name: String,
+}
+#[derive(Deserialize)]
+struct LibraryRow {
+    sha256: String,
+    name: String,
+    size: u64,
+    created_at: String,
+    #[serde(default)]
+    device: Option<LibraryDevice>,
+}
+#[derive(Deserialize)]
+struct LibraryPage {
+    logs: Vec<LibraryRow>,
+    next: Option<String>,
+}
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamLog {
+    sha256: String,
+    name: String,
+    size: u64,
+    uploaded: String,
+    device: Option<String>,
+}
+#[derive(Serialize, Debug)]
+pub struct TeamLogPage {
+    logs: Vec<TeamLog>,
+    next: Option<String>,
+}
+/** Keep only well-formed rows; the website is trusted for access, not for filenames or sizes. */
+fn team_page(page: LibraryPage) -> TeamLogPage {
+    TeamLogPage {
+        logs: page
+            .logs
+            .into_iter()
+            .filter(|row| valid_hash(&row.sha256) && row.size > 0 && row.size <= MAX_LOG)
+            .map(|row| TeamLog {
+                name: safe_log_name(&row.name),
+                sha256: row.sha256,
+                size: row.size,
+                uploaded: row.created_at,
+                device: row.device.map(|d| d.name),
+            })
+            .collect(),
+        next: page.next,
+    }
+}
+#[tauri::command]
+pub async fn list_team_logs(
+    site: String,
+    token: String,
+    before: Option<String>,
+) -> Result<TeamLogPage, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if token.trim().is_empty() {
+            return Err("Add a device token to see the team library.".into());
+        }
+        let mut endpoint = team_site(&site)?.join("/api/robot-logs").map_err(|e| e.to_string())?;
+        if let Some(before) = before.filter(|b| !b.is_empty()) {
+            endpoint.query_pairs_mut().append_pair("before", &before);
+        }
+        let response = team_client(30)?
+            .get(endpoint)
+            .bearer_auth(token.trim())
+            .send()
+            .map_err(|_| "Could not reach the team website")?;
+        if !response.status().is_success() {
+            return Err(read_denied(response.status()));
+        }
+        let page: LibraryPage = response.json().map_err(|_| "Invalid response from team website")?;
+        Ok(team_page(page))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[derive(Deserialize)]
+struct SignedFile {
+    url: String,
+}
+/** Copy at most `MAX_LOG` bytes to `partial`, returning its size and SHA-256. */
+fn save_verified(mut source: impl Read, partial: &Path) -> Result<(u64, String), String> {
+    use sha2::{Digest, Sha256};
+    let mut file = fs::File::create(partial).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut chunk = [0u8; 65536];
+    let mut size = 0u64;
+    loop {
+        let n = source.read(&mut chunk).map_err(|_| "The download was interrupted. Try again.")?;
+        if n == 0 {
+            break;
+        }
+        size += n as u64;
+        if size > MAX_LOG {
+            return Err("Cloud recording is larger than 250 MB.".into());
+        }
+        hasher.update(&chunk[..n]);
+        file.write_all(&chunk[..n]).map_err(|e| e.to_string())?;
+    }
+    file.sync_all().map_err(|e| e.to_string())?;
+    Ok((size, format!("{:x}", hasher.finalize())))
+}
+/** Download one team recording into Mayhem's incoming folder after checking its SHA-256. */
+#[tauri::command]
+pub async fn download_team_log(
+    app: tauri::AppHandle,
+    site: String,
+    token: String,
+    sha256: String,
+    name: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if !valid_hash(&sha256) {
+            return Err("Invalid recording ID".into());
+        }
+        let endpoint = team_site(&site)?
+            .join(&format!("/api/robot-logs/{sha256}/file"))
+            .map_err(|e| e.to_string())?;
+        let client = team_client(180)?;
+        let response = client
+            .get(endpoint)
+            .bearer_auth(token.trim())
+            .send()
+            .map_err(|_| "Could not reach the team website")?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err("That recording is no longer in the team library.".into());
+        }
+        if !response.status().is_success() {
+            return Err(read_denied(response.status()));
+        }
+        let signed: SignedFile = response.json().map_err(|_| "Invalid response from team website")?;
+        let url = reqwest::Url::parse(&signed.url).map_err(|_| "Invalid download URL")?;
+        if url.scheme() != "https" {
+            return Err("Download URL must use HTTPS".into());
+        }
+        let file = client.get(url).send().map_err(|_| "Cloud download failed. Try again.")?;
+        if !file.status().is_success() {
+            return Err(format!("Cloud download failed ({})", file.status().as_u16()));
+        }
+        let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("logs");
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
+        let target = dir.join(format!("{stamp}-{}", safe_log_name(&name)));
+        let partial = target.with_extension("partial");
+        let saved = save_verified(file, &partial);
+        match saved {
+            Ok((_, hash)) if hash == sha256 => {
+                fs::rename(&partial, &target).map_err(|e| e.to_string())?;
+                Ok(target.to_string_lossy().into_owned())
+            }
+            Ok(_) => {
+                let _ = fs::remove_file(&partial);
+                Err("The downloaded recording failed its integrity check. Try again.".into())
+            }
+            Err(e) => {
+                let _ = fs::remove_file(&partial);
+                Err(e)
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UploadPlan {
@@ -393,14 +599,7 @@ pub async fn upload_team_log(
         if path.extension().and_then(|e| e.to_str()) != Some("wpilog") {
             return Err("Cloud sharing currently accepts WPILOG files.".into());
         }
-        let site = reqwest::Url::parse(&site).map_err(|_| "Invalid team website URL")?;
-        if site.scheme() != "https"
-            || site.host_str().is_none()
-            || !site.username().is_empty()
-            || site.password().is_some()
-        {
-            return Err("Use an HTTPS team website URL.".into());
-        }
+        let site = team_site(&site)?;
         let endpoint = site.join("/api/robot-logs").map_err(|e| e.to_string())?;
         let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
         let mut hasher = Sha256::new();
@@ -512,6 +711,43 @@ mod tests {
         assert_eq!(names, ["a.wpilog", "b.wpilog"]);
         assert_eq!(logs[1].size, 2);
         assert!(local_listing(&root.join("missing")).is_err());
+        let _ = fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn team_library_rows_are_sanitized() {
+        let page: LibraryPage = serde_json::from_value(serde_json::json!({
+            "logs": [
+                {"sha256": "a".repeat(64), "name": "../../etc/passwd", "size": 10, "created_at": "2026-11-11T00:00:00Z", "device": {"name": "Pit laptop"}},
+                {"sha256": "not-a-hash", "name": "x.wpilog", "size": 10, "created_at": "2026-11-11T00:00:00Z"},
+                {"sha256": "b".repeat(64), "name": "match 3.wpilog", "size": MAX_LOG + 1, "created_at": "2026-11-11T00:00:00Z"},
+                {"sha256": "c".repeat(64), "name": "Q12.wpilog", "size": 20, "created_at": "2026-11-10T00:00:00Z", "device": null}
+            ],
+            "next": null
+        }))
+        .unwrap();
+        let page = team_page(page);
+        assert_eq!(page.logs.len(), 2);
+        assert_eq!(page.logs[0].name, "passwd.wpilog");
+        assert_eq!(page.logs[0].device.as_deref(), Some("Pit laptop"));
+        assert_eq!(page.logs[1].name, "Q12.wpilog");
+        assert_eq!(page.logs[1].device, None);
+        assert_eq!(safe_log_name(".."), "team-log.wpilog");
+        assert_eq!(safe_log_name("C:\\logs\\a;b.WPILOG"), "a_b.WPILOG");
+        assert!(team_site("http://example.com").is_err());
+        assert!(team_site("https://user:pw@example.com").is_err());
+    }
+    #[test]
+    fn team_downloads_are_hashed_and_bounded() {
+        use sha2::{Digest, Sha256};
+        let root = std::env::temp_dir().join(format!("mayhem-team-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let partial = root.join("a.partial");
+        let (size, hash) = save_verified(&b"WPILOG cloud"[..], &partial).unwrap();
+        assert_eq!(size, 12);
+        assert_eq!(hash, format!("{:x}", Sha256::digest(b"WPILOG cloud")));
+        assert_eq!(fs::read(&partial).unwrap(), b"WPILOG cloud");
+        let huge = std::io::repeat(0).take(MAX_LOG + 1);
+        assert!(save_verified(huge, &root.join("b.partial")).is_err());
         let _ = fs::remove_dir_all(&root);
     }
     #[test]

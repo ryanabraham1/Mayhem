@@ -2208,6 +2208,51 @@ svg.mx-field {
   font-size: 12px;
   color: var(--mx-muted);
 }
+.mx-cloud-log {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px 7px 10px;
+  border-radius: var(--mx-r-sm);
+}
+.mx-cloud-log:hover {
+  background: var(--mx-surface-2);
+}
+.mx-cloud-log > span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mx-cloud-log strong {
+  font-weight: 500;
+  font-family: var(--mx-mono);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mx-cloud-log small {
+  font-size: 12px;
+  color: var(--mx-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.is-spinning svg {
+  animation: mx-spin 0.9s linear infinite;
+}
+@keyframes mx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-spinning svg {
+    animation: none;
+  }
+}
 .mx-report {
   min-width: 0;
   min-height: 0;

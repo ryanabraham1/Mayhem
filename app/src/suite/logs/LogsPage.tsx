@@ -8,12 +8,14 @@ import {
   ClipboardCopy,
   Check,
   CheckCircle2,
+  CloudDownload,
   ExternalLink,
   FileChartColumn,
   FolderOpen,
   Map as MapIcon,
   Pause,
   Play,
+  RefreshCw,
   RotateCcw,
   Search,
   Stethoscope,
@@ -25,7 +27,7 @@ import { PoseReplay } from "../PoseReplay";
 import { desktop, invoke } from "../native";
 import { download, type StoredLog } from "../storage";
 import { useLogLibrary } from "../logLibrary";
-import { loadSyncConfig } from "../logSync";
+import { loadSyncConfig, type LogSync, type TeamLog } from "../logSync";
 import { copyText, openContextMenu } from "../ContextMenu";
 import {
   Badge,
@@ -135,6 +137,95 @@ function LogRow({
         {log.upload === "uploaded" ? " · uploaded" : log.upload === "queued" ? " · upload queued" : log.upload === "error" ? " · upload retrying" : ""}
       </small>
     </button>
+  );
+}
+
+/** The team website's shared recordings, each downloadable into the local library. */
+export function TeamCloud({
+  sync,
+  logs,
+  query,
+  open,
+  openRobot,
+}: {
+  sync: LogSync;
+  logs: StoredLog[];
+  query: string;
+  open: (log: StoredLog) => void;
+  openRobot: () => void;
+}) {
+  const { cloud, token, refreshCloud } = sync;
+  useEffect(() => {
+    if (desktop && token.trim() && !cloud.loaded && !cloud.loading) void refreshCloud();
+  }, [token, cloud.loaded, cloud.loading, refreshCloud]);
+  const filter = query.trim().toLowerCase();
+  const shown = cloud.logs.filter((l) => l.name.toLowerCase().includes(filter));
+  const row = (l: TeamLog) => {
+    const local = logs.find((saved) => saved.id === l.sha256);
+    const saving = sync.saving.includes(l.sha256);
+    const uploaded = Date.parse(l.uploaded);
+    return (
+      <div key={l.sha256} className="mx-cloud-log">
+        <span>
+          <strong title={l.name}>{l.name.replace(/\.wpilog$/i, "")}</strong>
+          <small>
+            {Number.isFinite(uploaded) ? timeAgo(uploaded) : "uploaded"} · {formatBytes(l.size)}
+            {l.device && ` · ${l.device}`}
+          </small>
+        </span>
+        {local ? (
+          <Button size="sm" variant="ghost" icon={Check} aria-label={`Open ${l.name} from the library`} title="Already in your library. Open it." onClick={() => open(local)}>
+            Open
+          </Button>
+        ) : (
+          <IconButton
+            label={saving ? `Downloading ${l.name}` : `Download ${l.name} to the library`}
+            icon={saving ? RefreshCw : CloudDownload}
+            className={saving ? "is-spinning" : ""}
+            disabled={saving}
+            onClick={() => void sync.saveFromCloud(l)}
+          />
+        )}
+      </div>
+    );
+  };
+  return (
+    <section aria-label="Team cloud">
+      <div className="mx-rail-head is-steps">
+        <h2>Team cloud</h2>
+        {cloud.loaded && <span className="mx-rail-sub">{cloud.logs.length}{cloud.next ? "+" : ""}</span>}
+        <IconButton
+          label="Refresh team cloud"
+          icon={RefreshCw}
+          className={cloud.loading ? "is-spinning" : ""}
+          disabled={!desktop || !token.trim() || cloud.loading}
+          onClick={() => void refreshCloud()}
+        />
+      </div>
+      {!desktop ? (
+        <p className="mx-rail-note">Open the Mayhem desktop app to browse and download team recordings.</p>
+      ) : !token.trim() ? (
+        <p className="mx-rail-note">
+          Add a device token from the team site&apos;s Connect Mayhem to see shared recordings.{" "}
+          <button className="mx-link" onClick={openRobot}>Add token</button>
+        </p>
+      ) : cloud.error ? (
+        <p className="mx-rail-note" role="alert">{cloud.error}</p>
+      ) : (
+        <div className="mx-log-list">
+          {shown.map(row)}
+          {cloud.loaded && !shown.length && (
+            <p className="mx-rail-note">{cloud.logs.length ? "No team recordings match." : "No recordings in the team cloud yet."}</p>
+          )}
+          {!cloud.loaded && <p className="mx-rail-note">Loading team recordings…</p>}
+          {cloud.next && (
+            <Button size="sm" variant="ghost" disabled={cloud.loading} onClick={() => void refreshCloud(true)}>
+              {cloud.loading ? "Loading…" : "Load more"}
+            </Button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -315,6 +406,7 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
             Show archived
           </label>
+          <TeamCloud sync={sync} logs={lib.logs} query={query} open={(l) => void lib.open(l)} openRobot={openRobot} />
         </aside>
 
         <section className="mx-report">
