@@ -1,5 +1,8 @@
 # Markers and pose variables
 
+> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Suite workflows](/guide/suite).
+
+
 ## Event markers
 
 Click **+** next to *Event markers* in the sidebar. A marker is a name plus a command bound in robot code, placed at a waypoint with a time offset. A **zone marker** stays active until its end point.

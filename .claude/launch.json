@@ -4,28 +4,65 @@
     {
       "name": "app",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "app", "dev"],
+      "runtimeArgs": [
+        "--dir",
+        "app",
+        "dev"
+      ],
       "port": 5173
     },
     {
       "name": "app-alt",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "app", "exec", "vite", "--port", "5183"],
+      "runtimeArgs": [
+        "--dir",
+        "app",
+        "exec",
+        "vite",
+        "--port",
+        "5183"
+      ],
       "port": 5183,
       "autoPort": false
     },
     {
       "name": "solver",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["--directory", "solver", "run", "mayhem-solver", "serve", "--ws", "8765"],
+      "runtimeArgs": [
+        "--directory",
+        "solver",
+        "run",
+        "mayhem-solver",
+        "serve",
+        "--ws",
+        "8765"
+      ],
       "port": 8765,
       "autoPort": false
     },
     {
       "name": "docs",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "site", "dev", "--port", "5193"],
+      "runtimeArgs": [
+        "--dir",
+        "site",
+        "dev",
+        "--port",
+        "5193"
+      ],
       "port": 5193,
+      "autoPort": false
+    },
+    {
+      "name": "app-vite",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "app/node_modules/vite/bin/vite.js",
+        "app",
+        "--port",
+        "5203"
+      ],
+      "port": 5203,
       "autoPort": false
     }
   ]

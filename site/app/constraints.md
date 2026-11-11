@@ -1,5 +1,8 @@
 # Constraints
 
+> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Suite workflows](/guide/suite).
+
+
 Open the **Constraint** menu in the toolbar and pick a type, then **click the first waypoint and the last waypoint** it applies to. Click one waypoint and press <kbd>↵</kbd> to apply it to just that waypoint.
 
 ![The Constraint menu](/img/constraints.jpg)

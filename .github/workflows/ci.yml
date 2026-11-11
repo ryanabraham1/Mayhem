@@ -5,9 +5,18 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact commit or tag to validate for a release
+        type: string
+        required: true
+
+permissions:
+  contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ inputs.ref }}
   cancel-in-progress: true
 
 env:
@@ -16,18 +25,36 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
+  workflows:
+    name: Workflow validation
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - name: Validate Actions syntax and expressions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          gh release download v1.7.12 --repo rhysd/actionlint --pattern 'actionlint_1.7.12_linux_amd64.tar.gz' --dir "$RUNNER_TEMP/actionlint"
+          tar -xzf "$RUNNER_TEMP/actionlint/actionlint_1.7.12_linux_amd64.tar.gz" -C "$RUNNER_TEMP/actionlint"
+          "$RUNNER_TEMP/actionlint/actionlint" -shellcheck= -pyflakes=
+
   solver:
     name: Solver tests (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-22.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: solver
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -36,36 +63,16 @@ jobs:
       - run: uv sync --frozen --extra mcp
       - run: uv run --frozen --extra mcp pytest -q
 
-  sidecar:
-    # Freezes the solver with PyInstaller and runs a real solve through the frozen binary,
-    # so packaging regressions (missing CasADi plugins, data files, spawn issues) fail CI.
-    name: Sidecar smoke test (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          enable-cache: true
-          cache-dependency-glob: solver/uv.lock
-      - if: runner.os != 'Windows'
-        run: scripts/build-sidecar.sh
-      - if: runner.os == 'Windows'
-        shell: pwsh
-        run: scripts/build-sidecar.ps1
-
   java:
     name: MayhemLib (Java 17)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     defaults:
       run:
         working-directory: lib
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -75,12 +82,14 @@ jobs:
 
   frontend:
     name: Frontend tests + typecheck + build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     defaults:
       run:
         working-directory: app
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -93,32 +102,173 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
-  desktop:
-    name: Tauri shell (clippy, ${{ matrix.os }})
+  cpp:
+    name: C++ pose tools (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [ubuntu-22.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: app/src-tauri
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - run: cmake -S lib-cpp -B lib-cpp/build -DBUILD_TESTING=ON
+      - run: cmake --build lib-cpp/build --config Debug
+      - run: ctest --test-dir lib-cpp/build -C Debug --output-on-failure
+      - run: cmake --install lib-cpp/build --config Debug --prefix "${{ runner.temp }}/mayhem-core"
+      - run: cmake -S lib-cpp/tests/package-consumer -B lib-cpp/consumer-build -DCMAKE_PREFIX_PATH="${{ runner.temp }}/mayhem-core"
+      - run: cmake --build lib-cpp/consumer-build --config Debug
+      - run: ctest --test-dir lib-cpp/consumer-build -C Debug --output-on-failure
+
+  tools:
+    name: Suite distribution (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python scripts/package-suite.py --version ci --output artifacts/suite
+      - run: python scripts/verify-suite-package.py artifacts/suite
+
+  browser:
+    name: Browser workflows (Chromium)
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm build
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: browser-report
+          path: |
+            app/playwright-report/
+            app/test-results/
+          retention-days: 7
+
+  desktop:
+    name: Desktop bundle (${{ matrix.name }})
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-latest
+            bundles: app,dmg
+          - name: macOS x64
+            os: macos-15-intel
+            bundles: app,dmg
+          - name: Linux x64
+            os: ubuntu-22.04
+            bundles: appimage,deb
+          - name: Windows x64
+            os: windows-latest
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev build-essential file xvfb xauth
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: solver/uv.lock
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
-      # tauri-build insists the externalBin exists; a placeholder is enough to type-check.
-      # Also needs ../dist to exist for generate_context!().
-      - name: Placeholder sidecar + frontend dist
-        shell: bash
-        run: |
-          triple="$(rustc -vV | sed -n 's/^host: //p')"
-          ext=""; [[ "$triple" == *windows* ]] && ext=".exe"
-          mkdir -p binaries ../dist
-          touch "binaries/mayhem-solver-$triple$ext" ../dist/index.html
-          chmod +x "binaries/mayhem-solver-$triple$ext"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: app
+      - run: pnpm build
+        working-directory: app
+      - name: Build and exercise real solver sidecar
+        if: runner.os != 'Windows'
+        run: scripts/build-sidecar.sh
+      - name: Build and exercise real solver sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build-sidecar.ps1
+      - run: cargo test --locked
+        working-directory: app/src-tauri
       - run: cargo clippy --locked -- -D warnings
+        working-directory: app/src-tauri
+      - name: Build complete unsigned desktop bundle
+        shell: bash
+        working-directory: app
+        env:
+          CI: "true"
+          NO_STRIP: "true"
+        run: pnpm tauri build --bundles "${{ matrix.bundles }}" --config '{"bundle":{"createUpdaterArtifacts":false}}'
+      - name: Launch packaged app (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python scripts/smoke-desktop.py
+      - name: Launch packaged app
+        if: runner.os != 'Linux'
+        run: python scripts/smoke-desktop.py
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: desktop-smoke-${{ matrix.os }}
+          path: artifacts/desktop-smoke.log
+          if-no-files-found: ignore
+
+  ready:
+    name: CI ready
+    if: ${{ always() }}
+    needs: [workflows, solver, java, frontend, cpp, tools, browser, desktop]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require every validation job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os, sys
+          jobs = json.loads(os.environ["RESULTS"])
+          failed = {name: job["result"] for name, job in jobs.items() if job["result"] != "success"}
+          print(failed or "Every validation job passed")
+          sys.exit(bool(failed))
+          PYCODE

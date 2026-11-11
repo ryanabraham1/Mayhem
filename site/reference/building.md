@@ -1,6 +1,8 @@
 # Building and contributing
 
-Mayhem has three parts:
+Mayhem contains the suite and classic planning stack. The suite also provides a C++17 controller in `lib-cpp/` and Node CLI/MCP tools in `scripts/mayhem.mjs`.
+
+The classic stack and desktop shell use:
 
 | Part | Path | Toolchain |
 |---|---|---|
@@ -10,7 +12,15 @@ Mayhem has three parts:
 
 ## Run it from source
 
-Two terminals:
+For suite editing, previews and imported logs, only the frontend is needed:
+
+```bash
+cd app
+pnpm install
+pnpm dev
+```
+
+Open `http://localhost:5173`. For the classic planner, also start the Python solver in a second terminal:
 
 ```bash
 cd solver && uv sync && uv run mayhem-solver serve --ws 8765

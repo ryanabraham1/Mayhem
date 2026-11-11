@@ -1,5 +1,8 @@
 # Projects and deploying
 
+> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Suite workflows](/guide/suite).
+
+
 A project is a folder containing `project.mayhem` (robot, field, named commands, pose variables) and one `<path name>.mtraj` file per path.
 
 ## Put it in your robot code

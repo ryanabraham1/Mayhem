@@ -1,5 +1,8 @@
 # Field and obstacles
 
+> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Suite workflows](/guide/suite).
+
+
 Switch to **Field** in the top bar. Every obstacle here applies to all paths.
 
 ![Field mode](/img/field-mode.jpg)

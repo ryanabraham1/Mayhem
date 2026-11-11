@@ -1,0 +1,184 @@
+{
+  "format": "mayhem-suite",
+  "version": 1,
+  "revision": 0,
+  "id": "robot-workspace",
+  "name": "Competition robot",
+  "field": {
+    "name": "2026 REBUILT",
+    "width": 16.541,
+    "height": 8.0692
+  },
+  "robot": {
+    "name": "Swerve robot",
+    "length": 0.85,
+    "width": 0.85,
+    "start": {
+      "x": 1.4,
+      "y": 2.4,
+      "heading": 0
+    },
+    "constraints": {
+      "maxVelocity": 3.5,
+      "maxAcceleration": 3,
+      "maxAngularVelocity": 5,
+      "maxAngularAcceleration": 10,
+      "translationKp": 3.2,
+      "rotationKp": 4
+    }
+  },
+  "signals": [
+    {
+      "key": "pieceDetected",
+      "name": "Piece detected",
+      "type": "boolean",
+      "initial": false
+    },
+    {
+      "key": "shooterReady",
+      "name": "Shooter ready",
+      "type": "boolean",
+      "initial": false
+    },
+    {
+      "key": "shotComplete",
+      "name": "Shot complete",
+      "type": "boolean",
+      "initial": false
+    }
+  ],
+  "routines": [
+    {
+      "id": "collect-score",
+      "name": "Collect & score",
+      "initial": "pickup",
+      "nodes": [
+        {
+          "id": "pickup",
+          "name": "Approach pickup",
+          "kind": "pose",
+          "goal": {
+            "x": 5.8,
+            "y": 2.4,
+            "heading": -0.35,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.04,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.12,
+            "handoffRadius": 0
+          },
+          "timeout": 8,
+          "description": "Reach the pickup pose using measured position."
+        },
+        {
+          "id": "collect",
+          "name": "Confirm possession",
+          "kind": "action",
+          "action": "intake.acquire",
+          "timeout": 5,
+          "description": "Robot code owns the intake. Wait for the sensor."
+        },
+        {
+          "id": "return-lane",
+          "name": "Return through lane",
+          "kind": "pose",
+          "goal": {
+            "x": 3.2,
+            "y": 2.4,
+            "heading": 1.1,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.04,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.12,
+            "handoffRadius": 0.2
+          },
+          "constraints": {
+            "maxVelocity": 1.2
+          },
+          "timeout": 8
+        },
+        {
+          "id": "score",
+          "name": "Approach scoring",
+          "kind": "pose",
+          "goal": {
+            "x": 3.2,
+            "y": 5.6,
+            "heading": 1.1,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.04,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.12,
+            "handoffRadius": 0
+          },
+          "timeout": 8
+        },
+        {
+          "id": "shoot",
+          "name": "Score when ready",
+          "kind": "action",
+          "action": "shooter.fire",
+          "timeout": 5
+        },
+        {
+          "id": "done",
+          "name": "Auto complete",
+          "kind": "finish",
+          "timeout": 1
+        }
+      ],
+      "transitions": [
+        {
+          "id": "at-pickup",
+          "from": "pickup",
+          "to": "collect",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "has-piece",
+          "from": "collect",
+          "to": "return-lane",
+          "condition": {
+            "kind": "signal",
+            "key": "pieceDetected",
+            "op": "eq",
+            "value": true
+          }
+        },
+        {
+          "id": "lane-reached",
+          "from": "return-lane",
+          "to": "score",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "at-score",
+          "from": "score",
+          "to": "shoot",
+          "condition": {
+            "kind": "signal",
+            "key": "shooterReady",
+            "op": "eq",
+            "value": true
+          }
+        },
+        {
+          "id": "shot",
+          "from": "shoot",
+          "to": "done",
+          "condition": {
+            "kind": "signal",
+            "key": "shotComplete",
+            "op": "eq",
+            "value": true
+          }
+        }
+      ]
+    }
+  ],
+  "extensions": {}
+}

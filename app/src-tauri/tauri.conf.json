@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Mayhem",
-  "version": "0.8.9",
+  "version": "0.9.3",
   "identifier": "dev.mayhem.app",
   "build": {
     "frontendDist": "../dist",
@@ -33,8 +33,8 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "category": "DeveloperTool",
-    "shortDescription": "Time-optimal FRC swerve trajectory generator",
-    "longDescription": "Mayhem plans time-optimal, obstacle-aware swerve drive trajectories for FRC robots.",
+    "shortDescription": "FRC autonomous, state-machine, and robot log tools",
+    "longDescription": "Mayhem helps teams and coding agents build and review pose-based autos, inspect state machines, and collect and analyze robot logs.",
     "externalBin": [
       "binaries/mayhem-solver"
     ],

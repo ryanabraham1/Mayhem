@@ -1,135 +1,84 @@
-# Mayhem user guide
+# Mayhem suite user guide
 
-Mayhem plans time-optimal swerve autos for the 2026 game (REBUILT). You place waypoints; the solver finds the fastest path your drivetrain can physically drive while avoiding obstacles. MayhemLib then follows it on the robot and recovers if the robot gets bumped.
+The rebuilt app combines pose-based autonomous editing, state-machine inspection, and log analysis. It opens to **Overview**; the top bar switches between Autonomous, State machines, Logs, Robot and Agents. The gear opens Settings, including Light / Dark / Match system themes and the classic planner.
 
-## 1. Create a project
+This guide describes the development suite in this checkout. See [suite status](SUITE_STATUS.md) for verification history and release gaps. The [classic planner guide](CLASSIC_PLANNER.md) covers existing solver projects.
 
-A project is a folder with `project.mayhem` (robot, field, named commands) and one `<path name>.mtraj` file per path.
+## Start and manage projects
 
-The easiest setup is to create the project **inside your robot code** at `src/main/deploy/mayhem/`. Every save is then already "deployed": WPILib copies the folder to the roboRIO on the next code deploy. If you keep the project somewhere else, set **Settings → Project → Deploy folder**. Generated paths are copied there automatically whenever they are saved. A brief success banner confirms each path save.
+Run the browser suite from the repository root:
 
-New projects start with the 2026 REBUILT field.
-
-## 2. Configure the robot (Settings → Robot)
-
-Enter the real values. The optimizer uses them as hard physical limits:
-
-| Setting | Notes |
-|---|---|
-| Mass, moment of inertia | Mass with bumpers and battery. Use **Estimate MOI** if you don't have a CAD value. |
-| Bumper | Distances from robot center to each bumper face. Collision checks use this rectangle as it rotates. |
-| Wheelbase, track width | Module positions. Order is FL, FR, BL, BR (Tuner X default). |
-| Wheel radius, μ | μ≈1.0–1.3 on carpet. Traction is often the limiting factor. |
-| Motor, gear ratio, stator limit | Sets the torque-speed curve and current cap. |
-| Planning voltage | Plan below 12 V (11 V default) so feedback has headroom. |
-| Intake | Which side it deploys from, how far it reaches past the bumper, its width (0 = the whole side) and offset. Only counts where a path has an **Intake extended** constraint. |
-
-The panel on the right shows derived limits (free speed, max acceleration) and what limits your acceleration.
-
-## 3. Edit the field (Field mode)
-
-Switch to **Field** in the top bar. Every obstacle here applies to all paths.
-
-- **Polygon** (P): click corners; click the first corner, double-click or press Enter to finish.
-- **Circle** (C): drag from the center.
-- Select an obstacle to drag it, drag its corners, double-click an edge to add a corner, or ⇧-click a corner to remove it.
-- Checkboxes in the sidebar enable or disable obstacles. The REBUILT bumps and the overhead trench openings start disabled, since most robots drive over or under them. The bumps are also marked **Rough terrain on every path** (see below), so every path that crosses one gets a rough-terrain span without drawing a zone. Enable the trenches if your robot is taller than 22.25 in.
-- **Copy to other alliance** (flip icon in the obstacle panel) mirrors an obstacle using the field symmetry.
-- **Clearance margin** is extra space the robot keeps from that obstacle.
-
-## 4. Build a path (Paths mode)
-
-| Tool | Key | What it does |
-|---|---|---|
-| Select | V | Select or drag. Drag empty space to pan, scroll to zoom. |
-| Pose | W | Adds a waypoint with a position **and** a heading (drawn as the robot box with a heading knob). |
-| Translation | T | Adds a waypoint with a position only; the robot may face any direction (drawn as a dot). |
-| Guide | G | Shapes the route without constraining it (e.g. "go left of the hub"). |
-
-New waypoints always go at the **end** of the path. To change the order, drag waypoints in the sidebar list (grab the handle on the left), or use the ↑/↓ buttons. Constraints and markers stay attached to the waypoints they referenced.
-
-Drag a pose waypoint's round knob to set its heading (hold ⇧ to snap). Select a waypoint to edit it in the floating panel:
-
-- **Pose / Translation / Guide** switches the type.
-- **Position tolerance** (circle or box) lets the solver end anywhere inside, which often turns an infeasible path into a feasible one.
-- **Stop here** brings the robot to rest. The first waypoint always stops.
-- **Split here** lets robot code run the path in pieces and branch between them.
-
-Press **Generate** (⌘↵). The solver tries several routes around obstacles in parallel and keeps the fastest. The path is colored by speed and fades when you edit inputs, until you regenerate.
-
-If generation fails, a panel lists what's wrong (e.g. "Waypoint 3 heading conflicts with point-at constraint") and a red pin marks the spot. Click an issue to jump there.
-If the solver finds a likely conflict while checking other routes, an amber **Likely unsolvable** panel appears early. Click an issue to inspect its location, or click **Stop** in that panel to end generation and keep the diagnosis visible.
-
-While paths are generating, click **Cancel generation** in the top bar to stop running solves and clear any paths waiting in a **Generate all** batch. Previously generated paths remain available.
-
-## 5. Constraints, markers and pose variables
-
-**Constraints.** Open the **Constraint** menu in the toolbar and pick a type, then **click the first waypoint and the last waypoint** it applies to. Click one waypoint and press ↵ to apply it to just that waypoint.
-
-| Constraint | Effect |
-|---|---|
-| Max velocity / acceleration / angular velocity | Limits between the two waypoints |
-| Straight line | The robot drives on the straight line between the two waypoints (±tolerance) |
-| Point at | The robot faces a target (drag the crosshair; it starts at the hub) |
-| Keep in / Keep out region | Draw a polygon instead of picking waypoints |
-| Rough terrain | Draw a polygon over a bump on this path. To cover every path, select the obstacle in **Field** mode and turn on **Rough terrain on every path** instead (the REBUILT bumps already are). The solver keeps its planned speed; the exported path marks the covered samples for the robot library. |
-| Intake extended | The intake (Settings → Robot) is out between the two waypoints, or in a zone. The solver keeps the intake clear of obstacles and walls there as well as the bumpers. The field shows the intake on those waypoints and highlights that stretch of the path in amber. On the robot, bind your deploy command to `AutoTrajectory.intakeExtended()`. |
-| Ignore field | Between the two waypoints (or at one), the solver ignores the field's obstacles, so the path can cross something drawn as an obstacle, like a bump. Turn on **Ignore field walls** to let the bumpers reach past the walls there too. The path's own keep-out regions still apply. |
-
-Selecting a constraint highlights the part of the path it covers. In its panel you can change the limit, move it to other waypoints, or make a velocity limit apply **in a zone** (a drawn region) instead.
-
-On rough terrain, MayhemLib pauses collision detection and replanning, slows the path clock to follow the robot's progress, and softens feedback. After leaving the zone, it temporarily raises the vision-trust signal. Event markers continue to fire as trajectory time advances. The expected speed fraction is used for the estimated delay; it does not reduce the solver's planned speed.
-
-**Event markers** (sidebar **+**): a name plus a command bound in robot code, placed at a waypoint with a time offset. A zone marker stays active until its end point.
-- *If bump recovery skips it*: fire when rejoining (default), fire immediately, or skip.
-- *Must hit*: recovery can never jump past this marker's time.
-
-**Pose variables** are named poses shared by every path in the project, for example a shooting spot or an intake station.
-- **Create one:** open **Pose variables** beside the Constraint toolbar button, then click **New pose variable**. If a waypoint is selected, the new variable starts at its pose and links to it. You can also click **Save as** in the waypoint panel.
-- **Link a waypoint:** use the waypoint panel's *Pose variable* menu. Linked waypoints show a ring.
-- **Move one:** moving a linked waypoint, or editing the variable, moves it in **every** path that uses it. Those paths are marked out of date.
-
-**Folders**: organize paths with the folder button in the *Paths* header, and drag paths into folders.
-
-**Flip top ↔ bottom**: right-click a path and choose *Flip across blue alliance* to mirror it across the field's long center line (e.g. a route over the top bump becomes the same route over the bottom one), or *Duplicate flipped* to keep the original and add the mirrored copy. Waypoints, point-at targets, and keep-in/keep-out/zone regions are mirrored, then the path is re-solved against the obstacles on that side. Waypoints linked to a pose variable relink to one at the mirrored pose if it exists, otherwise they unlink.
-
-## 6. Check it
-
-- The timeline at the bottom plays the path (Space). Tick marks show waypoints (gray) and markers (amber).
-- The graph button shows speed, acceleration, estimated motor current per module (against your current limit) and wheel force.
-- **Blue / Red** previews the red-alliance version. Paths are always authored for blue and flipped at runtime.
-
-### Fuel sim
-
-**Fuel sim** in the toolbar simulates the FUEL on the field during playback. Robots push it around, and an extended intake takes it in only as fast as its intake rate. Everything else it touches gets shoved, the way a real intake bulldozes part of a pile. The timeline shows how much fuel we're holding and keeps running after the robots stop until the pushed fuel has rolled to rest.
-
-- **Our robot** uses its solved path and its **Intake extended** spans. Set its *intake rate* (fuel per second) and *capacity* (0 = no limit) in the Fuel sim panel. An out-of-date path doesn't take part until you generate it again.
-- **Other robots**: add allies and opponents from the panel. Each drives a smooth curve through its points at a set max speed and acceleration, facing along the curve, with its intake out at the front. Click its path to select it, then drag its points to reshape the path or drag the robot itself to move the whole path; double-click the field to add a point at the end, ⇧-click a point to remove it, and press Delete to remove the robot. The copy button mirrors it to the other alliance.
-- Fuel bounces off the field walls and, by default, off the obstacles paths avoid (the hubs, trench walls and towers). To change that for one obstacle, select it in **Field** mode and set **Fuel sim** to *Blocks fuel* or *Fuel passes through*. The 2026 preset's bumps are disabled for paths (robots drive over them) but block fuel. With the fuel sim on, obstacles that only block fuel are outlined in amber.
-- The other robots and intake settings are saved in the project file. They never make a path out of date, and the solver ignores them.
-- It's a 2D, top-down model. Fuel doesn't stack or fly, and robots don't collide with each other. The FUEL properties come from FIRST and AndyMark's 2026 Scoring Element Testing Report (215 g, 5.91 in). Rolling friction and bounce values are estimates.
-
-## 7. Run it on the robot
-
-See [lib/README.md](../lib/README.md). In short:
-
-```java
-AutoFactory autoFactory = CtreSwerve.autoFactory(drivetrain).withTelemetry(true);
-autoFactory.bind("intake", intake.intakeCommand());
-
-AutoRoutine routine = autoFactory.newRoutine("Hub Cycle");
-AutoTrajectory cycle = routine.trajectory("Hub Cycle");
-routine.active().onTrue(Commands.sequence(cycle.resetOdometry(), cycle.cmd()));
-cycle.atTime("shoot").onTrue(shooter.shootCommand());
-return routine;
+```sh
+cd app
+pnpm install
+pnpm dev
 ```
 
-## Troubleshooting
+Open `http://localhost:5173`. Pose editing, preview, state simulation and imported-log analysis do not require Python or a robot. See [building](BUILDING.md) for desktop setup.
 
-| Symptom | Fix |
-|---|---|
-| "Waypoint N's bumpers overlap …" | The robot at that pose hits an obstacle. Move or rotate it, or add a position tolerance. |
-| "Waypoint N's extended intake overlaps …" | The intake is out at that waypoint and hits something. Rotate the waypoint, move it, or end the intake range earlier. |
-| A heading or point-at is infeasible | Loosen the heading tolerance, make the heading free, or add distance or time between waypoints. |
-| The path goes around the wrong side of an obstacle | Add a **guide** point on the side you want and drag it into place in the waypoint list. |
-| Slow to generate | Fewer waypoints, a larger sample spacing (Settings → Path solver), or fewer route candidates. |
+Click the **project name** in the top bar to create, rename, duplicate, open, or switch saved projects. Each project contains its robot limits, routines, typed inputs and state-machine manifests. Local copies are saved on this computer; use **Autonomous → Export project** for a portable JSON backup.
+
+Suite files use the `mayhem-suite` version 1 JSON format, conventionally `name.mayhem.json`. They are separate from classic `project.mayhem` / `.mtraj` files and the Java trajectory-library workflow. There is no automatic conversion between them.
+
+In the desktop app, **Agents → Save project file** creates a live file link in your robot repository. External edits reload with revision checks; app edits save back. If a conflict banner appears, export your current work before reopening and reconciling the linked file. Browser downloads are snapshots, without live file linking. **Settings → Export recovery snapshot** retrieves a recovery copy when available.
+
+## Author an autonomous routine
+
+1. Open **Robot** and enter the robot dimensions, drive limits and controller gains. Define the typed inputs that your guards will use. Coordinates use the blue-alliance origin; project values use meters, radians and seconds, while heading controls display degrees.
+2. Open **Autonomous**. Select or create a routine in the left rail. Drag its starting robot and heading handle, or edit the starting pose in the inspector.
+3. Choose **Pose** (`W`), **Translation** (`T`) or **Handoff** (`G`), then click the field. Use **Select** (`V` or Escape) to select and drag goals. A pose constrains heading, a translation allows any heading, and a handoff advances through a goal without settling to a stop.
+4. Select a step to edit its name, position, heading policy, arrival tolerances, settle time, handoff radius and limits. Shift-drag a heading knob to snap to 15°. Use the step inspector for callback IDs, concurrent actions, transition conditions, branches, timeouts and failure behavior. Callback IDs must be implemented by your robot code.
+5. Reorder steps in the rail, then check project issues and preview the result. Undo/redo uses Command/Ctrl+Z and Shift+Command/Ctrl+Z; Delete removes the selected step.
+
+The suite uses a pose-to-pose controller. Its preview does not perform the classic solver's obstacle-avoidance or time-optimal planning and does not execute your robot's custom code.
+
+## Preview the path and routine
+
+The bottom dock provides play/pause (Space), reset, a time scrubber, and **Inputs & events**:
+
+| Mode | What it checks |
+| --- | --- |
+| **Path only** (default) | Drives the pose sequence on the first branch, skipping actions and sensor conditions. Use it to inspect the whole route. |
+| **Full routine** | Checks arrival, simulated callback results, transition conditions and watchdogs. Set typed inputs and callback statuses in the expanded dock. |
+
+If Full routine waits at an action or condition, the status explains what is blocking it. **Freeze drivetrain** exercises watchdog failure. **Export trace JSON** records the preview mode, inputs, action statuses, events and frames. Preview is bounded to 600 seconds or 1,000 execution events; a successful preview still needs robot integration and tuning.
+
+## Inspect state machines
+
+Open **State machines** and select an autonomous routine or a robot state-machine manifest. Use the data-source selector to simulate, watch live values, or replay a recording. In simulation, changing typed inputs steps the machine through its transitions; inspect a node to see its guards and outgoing transitions. Global “from any state” transitions appear as chips to keep the graph readable.
+
+Live inspection uses read-only NT4 subscriptions configured on **Robot**. Manifests must map to the signals your robot publishes. For recorded replay, import a log and select it in the state workspace. See [robot logging](ROBOT_LOGGING.md) for the signal contract.
+
+## Import and analyze logs
+
+In **Logs**, import a `.wpilog` recording, then select it in the library. Originals persist locally in IndexedDB. The report includes a verdict, findings linked to their times, coverage information, and four tabs:
+
+| Tab | Use |
+| --- | --- |
+| **Health** | Review findings and the signals available to support them. |
+| **Power** | Inspect voltage, brownouts, current, energy and ranked current draws; adjust signal mapping when needed. Estimates are labeled in the report. |
+| **Signals** | Search channels and plot recorded values at the shared playback cursor. |
+| **Field** | Replay recognized pose data at the same cursor. |
+
+Export the original or the analysis report from the recording header. In the desktop app, the **AdvantageScope** button opens the selected original in an installed viewer; set its application path on **Robot** if automatic detection fails.
+
+Imports support WPILOG 1.0 scalars, numeric/boolean arrays and selected common WPILib structs. Unknown types and missing diagnostic coverage are reported. Limits are 250 MB and two million decoded samples per file. Findings depend on available signals and should be checked against their evidence; real match diagnostic accuracy remains unvalidated.
+
+## Connect and collect recordings
+
+On **Robot**, enter your team number or an address override and click **Connect** for live NT4 observations. Live viewing does not command the robot. Direct connections are intended for desktop or localhost; hosted HTTPS pages can be restricted from connecting to a local robot.
+
+Desktop **Automatic log collection** supports **Robot over Ethernet** (SFTP) or **Folder (simulation, USB)**. Configure the source, list files, and download selected recordings, or enable automatic collection. Polling runs every 15 seconds while Mayhem is open and waits for files to stop growing. Connection, collection and upload services continue when you switch pages. The app does not need to remain on Logs.
+
+For **Team upload**, enter the team website and a device upload token obtained from its Logs → Connect Mayhem flow. Enable automatic upload to queue imported/collected logs; failed uploads retry with backoff. Choose **Remember the token on this computer** to resume after restarting, or **Pause uploads** to suspend the queue. See [team log setup](TEAM_LOGS.md) for deployment and token details. Physical roboRIO collection and Windows/Linux viewer behavior still need validation.
+
+## Hand off to robot code or an agent
+
+**Agents** contains a copyable project brief, CLI/MCP setup, the live file link, C++ export and the raw project document. Review the field and graph after agent edits, then validate and preview the routine before using it on hardware.
+
+- [Suite agent guide](SUITE_AGENTS.md): revision-safe editing, CLI commands and MCP tools.
+- [C++ integration](../lib-cpp/README.md): pose controller, executor, callbacks and optional WPILib adapters. Exporting a header does not deploy or register callbacks on the robot.
+- [Team 3256 example](../examples/suite/team3256/README.md): robot simulation recordings and known findings.
+- [Classic planner](CLASSIC_PLANNER.md): Python solver, `.mtraj` generation and the Java MayhemLib workflow.
+
+The new controller still needs physical robot testing. Native collection, updater installation and cross-platform packages need their own checks; browser preview alone does not establish release readiness.

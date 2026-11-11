@@ -17,10 +17,12 @@ app/src-tauri/binaries/*
 # Java
 lib/build/
 lib/.gradle/
+lib-cpp/build/
 lib/*/build/
 .gradle/
 
 # OS / editors
+artifacts/
 .DS_Store
 .idea/
 .vscode/
@@ -28,3 +30,6 @@ lib/*/build/
 
 # pnpm store created by local installs
 .pnpm-store/
+app/playwright-report/
+app/test-results/
+lib-cpp/consumer-build/

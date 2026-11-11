@@ -1,14 +1,16 @@
 # Building Mayhem
 
-Mayhem has three parts:
+Mayhem contains the development suite and the classic trajectory-planning stack:
 
 | Part | Path | Toolchain |
 |------|------|-----------|
-| Solver (CasADi + IPOPT) | `solver/` | Python 3.12 via [uv](https://docs.astral.sh/uv/) |
+| Classic solver (CasADi + IPOPT) | `solver/` | Python 3.12 via [uv](https://docs.astral.sh/uv/) |
 | Desktop app (UI + Tauri shell) | `app/`, `app/src-tauri/` | Node 22+ / pnpm, Rust (stable) |
-| Robot library (vendordep) | `lib/` | JDK 17+, Gradle wrapper |
+| Classic Java robot library (vendordep) | `lib/` | JDK 17+, Gradle wrapper |
 
-The desktop app is a Tauri 2 shell around the Vite/React UI. The UI talks to the solver over
+The suite also includes the C++ pose controller in `lib-cpp/` (C++17/CMake) and the Node CLI/MCP entry point `scripts/mayhem.mjs`. See [the user guide](USER_GUIDE.md), [C++ setup](../lib-cpp/README.md) and [suite agent tools](SUITE_AGENTS.md).
+
+The desktop app is a Tauri 2 shell around the Vite/React UI. The classic planner talks to the solver over
 newline-delimited JSON-RPC: inside the desktop app it spawns the frozen solver as a Tauri
 **sidecar** (`binaries/mayhem-solver`, `serve` subcommand, stdio). In a plain browser it
 connects to `ws://127.0.0.1:8765` instead (override with `VITE_SOLVER_WS`).
@@ -27,7 +29,17 @@ connects to `ws://127.0.0.1:8765` instead (override with `VITE_SOLVER_WS`).
 
 ### Browser dev (fastest loop)
 
-Two terminals:
+For the new suite, only the frontend is needed:
+
+```sh
+cd app
+pnpm install
+pnpm dev
+```
+
+Open `http://localhost:5173`. No Python solver is needed for suite editing, preview or log import.
+
+For **Settings → Classic trajectory planner**, use two terminals:
 
 ```sh
 # 1: solver over WebSocket, straight from source
@@ -160,16 +172,36 @@ Notes:
 
 | Job | What it runs |
 |-----|--------------|
+| `workflows` | Actionlint validates workflow syntax, expressions and reusable-workflow calls |
 | `solver` | `uv run pytest -q` on Ubuntu, macOS and Windows |
-| `sidecar` | Frozen solver + stdio smoke solve + `shutdown` on Ubuntu, macOS and Windows |
 | `java` | `./gradlew test` on JDK 17 |
 | `frontend` | `pnpm test`, then `pnpm build` (`tsc -b` typecheck + Vite build) |
-| `desktop` | `cargo clippy --locked -D warnings` for the Tauri shell on macOS and Windows (placeholder sidecar) |
+| `cpp` | CMake/CTest, installation and independent `find_package` consumer on Linux, macOS and Windows |
+| `tools` | Build/extract CLI/MCP and C++ archives; verify hashes, CLI simulation, MCP stdio, C++ tests and compilation of Node-generated routines on Linux, macOS and Windows |
+| `browser` | Playwright against the production build: author/preview/export/reopen an auto, switch projects, import/persist/replay WPILOG through its worker, simulate state inputs, and navigate all suite pages in both themes |
+| `desktop` | Real frozen sidecar + stdio smoke solve/shutdown; real frontend; Rust tests and strict Clippy; unsigned Tauri bundles and packaged-process startup on Linux, Windows, and both macOS architectures |
+| `ready` | Stable `CI ready` check; fails if any validation job fails, is cancelled or is skipped |
+
+Desktop CI disables updater artifact signing so PRs need no signing secrets. The release workflow
+still requires the updater key. Linux uses Xvfb and an extracted `.deb`; Windows silently installs
+the NSIS bundle into a temporary directory; macOS launches the bundled executable. Startup checks
+fail on early process exit. They do not exercise native dialogs, SFTP, updater installation or a
+physical robot. Browser traces/screenshots and desktop startup logs are uploaded for diagnosis.
+
+For local browser checks, run `pnpm exec playwright install chromium`, `pnpm build`, then
+`pnpm test:e2e` in `app/`. Archive checks require Node 24+, Python 3.12+, CMake and a C++ compiler:
+
+```sh
+python3 scripts/package-suite.py --version local --output artifacts/suite
+python3 scripts/verify-suite-package.py artifacts/suite
+```
 
 `.github/workflows/release.yml` runs when a version tag such as `v0.1.0` is pushed, or by
 manual dispatch with an existing tag:
 
-1. `create-release` creates a draft GitHub Release for the tag, or reuses the existing one.
+1. `resolve-tag` resolves the tag to an immutable commit SHA. `validate` calls the same CI workflow
+   against that SHA. Only after every job passes does `create-release` create/reuse a draft release.
+   All packaging jobs check out that validated SHA.
 2. `desktop` is a matrix build that freezes and smoke-tests the sidecar, sets the app version
    from the tag, and builds bundles with `tauri-apps/tauri-action`, which uploads them to the
    draft. The same files are also kept as workflow artifacts.
@@ -182,7 +214,12 @@ manual dispatch with an existing tag:
    an `-rc`, hosts the maven repo and `MayhemLib.json` on GitHub Pages
    (`scripts/publish-pages.sh`; see "Hosting MayhemLib" below).
 4. `mcp` runs the solver/MCP tests and attaches the Python wheel and source package.
-5. `publish` checks that the installers and MayhemLib files are present, writes the
+   `suite-tools` builds and independently verifies `Mayhem-suite-tools-<tag>.zip`,
+   `Mayhem-cpp-<tag>.zip`, and `Mayhem-suite-SHA256SUMS.txt`. The CLI/MCP archive needs Node 24+
+   but no npm installation. Keep its directory structure intact. The C++ archive contains the
+   header-only library, CMake setup and tests; it is separate from the Java vendordep.
+5. `publish` checks that the tag still points at the validated SHA and all installers/library/tool
+   assets are present, writes the
    auto-update manifest `latest.json` from the uploaded `.sig` files, then publishes the
    release. If a build fails, the release stays a draft so incomplete downloads are not shown
    as the latest release, and installed apps are not offered it.

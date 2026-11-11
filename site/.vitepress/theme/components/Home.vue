@@ -18,8 +18,8 @@ async function copyVendordep() {
 
 const cards = [
   {
-    title: "Desktop app",
-    text: "Projects, robot config, the field, paths, constraints and markers.",
+    title: "Mayhem suite",
+    text: "Pose-based autos, state machines, robot connection and log analysis.",
     cta: "Build your first auto",
     link: "/guide/quick-start",
     icon: "M3 4h18v14H3zM8 21h8M12 18v3",
@@ -41,31 +41,31 @@ const cards = [
 ];
 
 const features = [
-  ["Physics-based", "Motor curves, current limits, traction, mass and inertia are hard limits in the optimizer, so paths are fast and drivable.", "/app/robot"],
-  ["Routes around obstacles", "Collision checks use the robot's real, rotating bumper rectangle, and the result is verified with a swept check.", "/app/field"],
-  ["Tells you what's wrong", "When a path can't be made, Mayhem names the waypoint or constraint that's the problem and pins it on the field.", "/app/troubleshooting"],
-  ["Bump recovery", "If the robot is knocked off its path, MayhemLib detects the hit and takes the fastest feasible bridge back on.", "/lib/recovery"],
-  ["Choreo-style API", "AutoFactory, routines and triggers you already know, with per-module force feedforward built in.", "/lib/from-choreo"],
-  ["Fuel sim", "Play a path back with the 2026 FUEL, allies and opponents to see how an intake and a route interact.", "/app/fuel-sim"],
+  ["Pose-based autos", "Edit pose and translation goals, moving handoffs, actions and conditions on the field.", "/guide/suite#author-an-autonomous-routine"],
+  ["Two preview modes", "Inspect the whole path, then check conditions, callback results and watchdogs with simulated inputs.", "/guide/suite#preview-the-path-and-routine"],
+  ["State machines", "Inspect routine and mechanism graphs in simulation, live over NT4, or from a recording.", "/guide/suite#inspect-state-machines"],
+  ["Log analysis", "Review findings, power, signals and pose playback at a shared cursor.", "/guide/suite#import-and-analyze-logs"],
+  ["Background collection", "Collect robot or folder recordings and queue team uploads while using any workspace.", "/guide/suite#connect-and-collect-recordings"],
+  ["Agent collaboration", "Share project briefs and revision-checked files, use CLI/MCP tools, and export C++.", "/guide/suite#hand-off-to-robot-code-or-an-agent"],
 ];
 </script>
 
 <template>
   <div class="home">
     <section class="hero">
-      <h1>The fastest path your swerve can actually drive.</h1>
+      <h1>Autos, states and logs in one workspace.</h1>
       <p class="lede">
-        Place waypoints. Mayhem solves a time-optimal trajectory around real obstacles, and MayhemLib gets your robot
-        back on it after a bump.
+        Build pose-based routines, inspect state machines and review robot recordings in the development suite.
+        The classic trajectory planner remains available for existing paths.
       </p>
       <div class="actions">
         <a class="btn btn-primary" :href="withBase('/guide/introduction')">Get started</a>
         <a class="btn btn-alt" :href="`${repo}/releases/latest`" target="_blank" rel="noreferrer">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" /></svg>
-          Download the app
+          Published releases
         </a>
         <div class="vendordep">
-          <span class="vendordep-label">Vendordep</span>
+          <span class="vendordep-label">Classic Java vendordep</span>
           <code>{{ vendordep.replace("https://", "") }}</code>
           <button type="button" :aria-label="copied ? 'Copied' : 'Copy vendordep URL'" @click="copyVendordep">
             <svg v-if="!copied" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>
@@ -76,7 +76,8 @@ const features = [
     </section>
 
     <section class="shot">
-      <img :src="withBase('/img/overview.jpg')" alt="The Mayhem desktop app with a generated path on the 2026 REBUILT field" />
+      <p>Classic planner shown below. See the suite guide for the rebuilt workspaces.</p>
+      <img :src="withBase('/img/overview.jpg')" alt="Classic planner workspace with a generated path on the 2026 REBUILT field" />
     </section>
 
     <section class="section">
@@ -101,7 +102,7 @@ const features = [
 
     <section class="section code-section">
       <div class="code-copy">
-        <p class="eyebrow">On the robot</p>
+        <p class="eyebrow">Classic planner · Java MayhemLib</p>
         <h2>A routine in a few lines</h2>
         <p>Markers you name in the app become triggers in your robot code. Every method is documented in the API reference.</p>
         <a :href="withBase('/api/auto/AutoTrajectory')">AutoTrajectory reference →</a>
