@@ -4,7 +4,7 @@ Mayhem is a visual workspace and a set of optional tools. Robot code is the sour
 
 ## Default autonomous approach
 
-Movement is BLine: the path follower is ported from BLine-Lib (BSD 3-Clause; see THIRD_PARTY_NOTICES.md) and wrapped in Mayhem's routines, branching and state machines. Pose steps joined by a single "Always" transition form one BLine path. Each intermediate point hands off only once the robot enters its handoff circle (default 0.45 m; set `projectedHandoff: true` on a goal to also hand off by segment progress, which cuts corners). Speed is P on remaining path distance clamped to max velocity, aimed at the active point, with cross-track correction; speeds are capped and their change limited by the accelerations. Heading blends between rotation targets by monotonic path progress; `markers` place rotation targets and event triggers on segments by progress t. A step marked `stop`, or with a conditional exit, ends the path. Defaults match BLine: 4.5 m/s, 12 m/s², 720°/s, 1500°/s², gains 5 / 3 / 2, end tolerances 0.03 m and 2°. Wide swings at corners mean the robot's max acceleration is low for its max speed: lower the step's max speed or add points. Not a time-parameterized trajectory solver.
+Movement: the path follower is ported from BLine-Lib (BSD 3-Clause; see THIRD_PARTY_NOTICES.md) and wrapped in Mayhem's routines, branching and state machines. Pose steps joined by a single "Always" transition form one BLine path. Each intermediate point hands off only once the robot enters its handoff circle (default 0.45 m; set `projectedHandoff: true` on a goal to also hand off by segment progress, which cuts corners). Speed is P on remaining path distance clamped to max velocity, aimed at the active point, with cross-track correction; speeds are capped and their change limited by the accelerations. Heading blends between rotation targets by monotonic path progress; `markers` place rotation targets and event triggers on segments by progress t. A step marked `stop`, or with a conditional exit, ends the path. Defaults match BLine: 4.5 m/s, 12 m/s², 720°/s, 1500°/s², gains 5 / 3 / 2, end tolerances 0.03 m and 2°. Wide swings at corners mean the robot's max acceleration is low for its max speed: lower the step's max speed or add points. Not a time-parameterized trajectory solver.
 
 - Coordinates are blue-origin meters, radians, seconds, and field-relative velocities. Explicitly convert any vendor API that expects robot-relative speeds. Apply alliance transformations once, consistently, including point-at targets.
 - Final goals require translation and heading tolerance, measured low speed, and a settling interval. Intermediate goals can use a moving handoff radius. Translation goals may leave heading unconstrained.
@@ -38,9 +38,9 @@ node scripts/mayhem.mjs live roborio-3256-frc.local '{"topics":["/Robot/BatteryV
 `save <file> '<JSON>'` takes `{ "project": <full project>, "expectedRevision": <current revision or null for a new file> }`. Saves are atomic and increment the revision. Re-read after a revision conflict. Do not delete another writer's lock during an active save.
 
 Use Node 24 or later. The entry point installs a local import hook for the
-vendored BLine source, including TypeScript syntax that needs transformation.
+the path-preview source, including TypeScript syntax that needs transformation.
 No npm install or additional launcher flags are required. For portable tools,
-keep the extracted archive's full directory tree (including `vendor/bline` and
+keep the extracted archive's full directory tree (including `pathing` and
 `scripts/suite-imports.mjs`); copying just `mayhem.mjs` is insufficient.
 
 Routine `constraints` inherit from robot defaults. A node's `generatedConstraints`
@@ -48,7 +48,7 @@ contains automatic `maxVelocity` and/or `handoffRadius`; node `constraints` are
 manual overrides. Generated speed caps can tighten but never raise the inherited
 path speed limit. Positive `goal.handoffRadius` is an explicit manual radius.
 The C++ exporter flattens these layers into the existing runtime fields. The
-editor preview uses BLine Web's ideal kinematics and joint constraint generator;
+editor preview uses the ideal kinematics and joint constraint generator;
 the C++ feedback controller is unchanged. Do not infer robot tracking accuracy
 from a successful editor preview.
 

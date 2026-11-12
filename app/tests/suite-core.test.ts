@@ -184,7 +184,7 @@ describe("measured-state autonomy", () => {
     expect(result.command.omega).toBeGreaterThan(0);
   });
 });
-describe("BLine-style path following", () => {
+describe("path following", () => {
   const anchor = (id: string, x: number, y: number, extra: Partial<typeof DEFAULT_GOAL> = {}) => ({
     id, name: id, kind: "pose" as const, timeout: 15,
     goal: { ...DEFAULT_GOAL, x, y, ...extra },

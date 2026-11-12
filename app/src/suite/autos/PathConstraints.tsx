@@ -4,7 +4,7 @@ import { isIntermediate } from "../core/runtime.ts";
 import {
   constraintSignature,
   type GeneratedResult,
-} from "../core/constraintGeneration.ts";
+} from "../core/pathing/constraintGeneration.ts";
 import {
   resolveConstraints,
   resolveNodeConstraints,
@@ -209,7 +209,7 @@ export function PathConstraints({
     const snapshot = s.project;
     const id = s.routine.id;
     const worker = new Worker(
-      new URL("../core/constraintGeneration.worker.ts", import.meta.url),
+      new URL("../core/pathing/constraintGeneration.worker.ts", import.meta.url),
       { type: "module" },
     );
     workerRef.current = worker;

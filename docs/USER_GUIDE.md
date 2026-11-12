@@ -30,12 +30,12 @@ In the desktop app, **Agents → Save project file** creates a live file link in
 4. Select a step to edit its name, position, heading policy, arrival tolerances, settle time, handoff radius and limits. Shift-drag a heading knob to snap to 15°. Use the step inspector for callback IDs, concurrent actions, transition conditions, branches, timeouts and failure behavior. Callback IDs must be implemented by your robot code.
 5. Reorder steps in the rail, then check project issues and preview the result. Undo/redo uses Command/Ctrl+Z and Shift+Command/Ctrl+Z; Delete removes the selected step.
 
-Standard pose and translation chains use BLine Web's actual ideal kinematic preview engine. Match the starting pose, every translation/rotation target, handoff modes/radii, and velocity/acceleration limits when comparing with bline.run. The preview does not use PID gains, perform obstacle avoidance, or execute your robot's custom code. The exported robot follower uses measured-pose feedback and still requires tuning.
+Standard pose and translation chains use the ideal kinematic preview engine. Match the starting pose, every translation/rotation target, handoff modes/radii, and velocity/acceleration limits when comparing with bline.run. The preview does not use PID gains, perform obstacle avoidance, or execute your robot's custom code. The exported robot follower uses measured-pose feedback and still requires tuning.
 
 ## Tune constraints
 
 Open **Constraints** above the field. The **Map** shows each segment’s speed and
-handoff radius side by side. **Generate** uses BLine’s constraint generator to
+handoff radius side by side. **Generate** uses the constraint generator to
 solve speed caps and corner radii together, running in a worker so editing stays
 responsive. Hatched blocks are Auto; solid blocks are Manual. The final handoff
 block says Stop because the endpoint finishes by tolerance.

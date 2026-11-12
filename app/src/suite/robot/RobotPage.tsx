@@ -345,7 +345,7 @@ export function RobotPage({ s }: { s: SuiteState }) {
           <UploadPanel />
           <Panel title="Drive limits and size" icon={SlidersHorizontal}>
             <p className="mx-help">
-              Speed and acceleration limits shape the BLine path preview and are exported to the C++ follower.
+              Speed and acceleration limits shape the path preview and are exported to the C++ follower.
               PID gains tune robot feedback; the ideal path preview does not use them.
               Handoff radius is how close the robot must get to a pass-through point before moving on.
             </p>

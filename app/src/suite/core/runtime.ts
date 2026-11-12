@@ -43,7 +43,7 @@ import {
   type AutoNode,
   resolveConstraints, resolveNodeConstraints,
 } from "./model.ts";
-import { blinePreviewTick } from "./blinePreview.ts";
+import { previewTick } from "./pathing/preview.ts";
 export const wrap = (v: number) => Math.atan2(Math.sin(v), Math.cos(v));
 export interface ControllerState extends Velocity {
   settled: number;
@@ -401,7 +401,7 @@ export function initialFrame(
   const state = freshState(start);
   const first = routine.nodes.find(n => n.id === routine.initial);
   const preview = first?.kind === "pose" && first.goal
-    ? blinePreviewTick(project, routine, first, start, state, 0.02, true)
+    ? previewTick(project, routine, first, start, state, 0.02, true)
     : undefined;
   return {
     actions: {},
@@ -485,7 +485,7 @@ export function step(
     return next;
   }
   const preview = node.kind === "pose" && node.goal && !freezeDrive
-    ? blinePreviewTick(project, routine, node, frame.pose, frame.controller, dt)
+    ? previewTick(project, routine, node, frame.pose, frame.controller, dt)
     : undefined;
   // BLine resolves all intermediate handoffs before calculating movement.
   // Keep the routine trace and action ownership on the same active target.

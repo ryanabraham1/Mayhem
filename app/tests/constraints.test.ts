@@ -13,11 +13,11 @@ import { sampleProject } from "../src/suite/core/sample.ts";
 import {
   constraintSignature,
   generateConstraints,
-} from "../src/suite/core/constraintGeneration.ts";
+} from "../src/suite/core/pathing/constraintGeneration.ts";
 import { simulate } from "../src/suite/core/runtime.ts";
 import { exportCpp } from "../src/suite/core/export-cpp.ts";
 
-import reference from "./fixtures/bline-constraints.json";
+import reference from "./fixtures/path-constraints.json";
 
 function fixture() {
   const p = structuredClone(sampleProject);
@@ -83,7 +83,7 @@ describe("path constraints", () => {
       ),
     ).toBe(true);
   });
-  it("runs BLine generation, preserves manual ownership and leaves the endpoint radius inert", () => {
+  it("runs constraint generation, preserves manual ownership and leaves the endpoint radius inert", () => {
     const { p, r } = fixture();
     r.nodes[0].constraints = { maxVelocity: 1.2 };
     r.nodes[0].goal!.handoffRadius = 0.25;

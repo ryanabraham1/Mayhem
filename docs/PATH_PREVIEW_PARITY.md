@@ -1,4 +1,4 @@
-# BLine preview parity
+# Path preview parity
 
 Mayhem previously previewed its robot feedback-controller approximation. BLine
 Web instead previews ideal kinematics: stopping-distance translation/angular
@@ -7,9 +7,9 @@ before movement, and final position/heading snapping. Cross-track PID and P-base
 braking in the old Mayhem preview produced different corners and stopping shapes.
 Its 40 ms timer also displayed two 20 ms samples at once, producing 25 Hz jumps.
 
-Standard pose/translation chains now use the unmodified BLine-Web 1.0.0 preview
+Standard pose/translation chains now use the BLine-Web 1.0.0-derived preview
 engine at commit `1e440b419dc33499e447fbca4ddc2fea69497b71`. Its dependency closure
-and BSD license live in `app/src/suite/core/vendor/bline`. The adapter maps the
+and BSD license live in `app/src/suite/core/pathing`. The adapter maps the
 routine start to an explicit starting waypoint, rotation/event markers to native
 elements, and per-step limits to BLine ranged constraints. The runtime consumes
 its samples for both path-only and full-routine previews, preserving callbacks,

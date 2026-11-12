@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import corpus from "./fixtures/bline-preview.json";
+import corpus from "./fixtures/path-preview.json";
 import {
   DEFAULT_CONSTRAINTS,
   DEFAULT_GOAL,
@@ -11,7 +11,7 @@ import { sampleProject } from "../src/suite/core/sample.ts";
 import { initialFrame, simulate, step } from "../src/suite/core/runtime.ts";
 import { interpolatePreviewFrame } from "../src/suite/core/playback.ts";
 
-describe("BLine Web upstream reference parity", () => {
+describe("upstream reference parity", () => {
   for (const fixture of corpus.cases)
     it(fixture.name, () => {
       const p = structuredClone(sampleProject);
@@ -76,7 +76,7 @@ it("interpolates sub-tick motion and takes the short turn across pi", () => {
   expect(interpolatePreviewFrame(a, undefined, 0.1)).toBe(a);
 });
 
-it("completes a rolling endpoint and ignores final-anchor handoff radius, like BLine", () => {
+it("completes a rolling endpoint and ignores final-anchor handoff radius", () => {
   const p = structuredClone(sampleProject);
   p.robot.start = { x: 1, y: 1, heading: 0 };
   p.robot.constraints = { ...DEFAULT_CONSTRAINTS, minVelocity: 0.5 };
@@ -103,7 +103,7 @@ it("completes a rolling endpoint and ignores final-anchor handoff radius, like B
   expect(result.frame.pose.x).toBe(4);
 });
 
-it("starts concurrent callbacks fresh when a BLine segment hands off", () => {
+it("starts concurrent callbacks fresh when a segment hands off", () => {
   const p = structuredClone(sampleProject);
   p.robot.start = { x: 1, y: 1, heading: 0 };
   const nodes: AutoNode[] = [2, 5].map((x, i) => ({

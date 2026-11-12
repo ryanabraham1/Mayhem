@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { generateConstraints } from "./constraintGeneration.ts";
-import type { AutoRoutine, SuiteProject } from "./model.ts";
+import type { AutoRoutine, SuiteProject } from "../model.ts";
 self.onmessage = (
   event: MessageEvent<{ project: SuiteProject; routine: AutoRoutine }>,
 ) => {

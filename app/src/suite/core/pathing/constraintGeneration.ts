@@ -1,7 +1,7 @@
-import { blinePath } from "./blinePreview.ts";
-import type { AutoNode, AutoRoutine, SuiteProject } from "./model.ts";
-import { autoRadiiCapSolveInput } from "./vendor/bline/constraints/autoConstraintGeneration";
-import type { PathModel } from "./vendor/bline/model/path";
+import { previewPath } from "./preview.ts";
+import type { AutoNode, AutoRoutine, SuiteProject } from "../model.ts";
+import { autoRadiiCapSolveInput } from "./constraints/autoConstraintGeneration";
+import type { PathModel } from "./model/path";
 
 /** Manual inputs only. Generated outputs must not make themselves stale. */
 export function constraintSignature(
@@ -73,7 +73,7 @@ export function generateConstraints(
       )
     )
       throw new Error(
-        "Use fixed or translation-only headings to generate BLine constraints.",
+        "Use fixed or translation-only headings to generate constraints.",
       );
     const queue = [first.id];
     const seen = new Set(queue);
@@ -96,7 +96,7 @@ export function generateConstraints(
       first.id === routine.initial
         ? (routine.start ?? project.robot.start)
         : (previous?.goal ?? routine.start ?? project.robot.start);
-    const path = blinePath(project, nodes, start, routine);
+    const path = previewPath(project, nodes, start, routine);
     prepareForGeneration(path, nodes);
     const solved = autoRadiiCapSolveInput(
       path,
@@ -143,7 +143,7 @@ export function generateConstraints(
 }
 function prepareForGeneration(path: PathModel, nodes: AutoNode[]) {
   // Canonicalize degree conversion noise and omit inherited no-op ranges. This
-  // presents the same native inputs as authoring these limits in BLine itself.
+  // presents the same native inputs as authoring these limits by hand.
   for (const key of [
     "max_velocity_deg_per_sec",
     "max_acceleration_deg_per_sec2",

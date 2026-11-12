@@ -5,23 +5,23 @@ import {
   type AutoRoutine,
   type Pose,
   type SuiteProject,
-} from "./model.ts";
-import type { ControllerState } from "./runtime.ts";
+} from "../model.ts";
+import type { ControllerState } from "../runtime.ts";
 import {
   createPathModel,
   createRotationTarget,
   createTranslationTarget,
   createWaypoint,
   type PathModel,
-} from "./vendor/bline/model/path";
-import { simulatePathWithTrace } from "./vendor/bline/sim/simulatePath";
-import type { SimulationTraceSample } from "./vendor/bline/sim/types";
+} from "./model/path";
+import { simulatePathWithTrace } from "./sim/simulatePath";
+import type { SimulationTraceSample } from "./sim/types";
 
-/** Convert one uninterrupted pose chain into BLine's native editor model.
- * An explicit start waypoint keeps the measured starting heading (BLine otherwise
+/** Convert one uninterrupted pose chain into the native editor model.
+ * An explicit start waypoint keeps the measured starting heading (otherwise
  * treats its first authored anchor as the start, rather than a target to drive to).
  */
-export function blinePath(
+export function previewPath(
   project: SuiteProject,
   nodes: AutoNode[],
   start: Pose,
@@ -83,7 +83,7 @@ export function blinePath(
             }),
           }),
     );
-    // BLine's ranged translation constraints select the TARGET anchor ordinal.
+    // ranged translation constraints select the TARGET anchor ordinal.
     for (const [key, value] of [
       ["max_velocity_meters_per_sec", k.maxVelocity],
       ["min_velocity_meters_per_sec", k.minVelocity],
@@ -147,7 +147,7 @@ export interface PreviewTick {
   fired: string[];
 }
 
-export function blinePreviewTick(
+export function previewTick(
   project: SuiteProject,
   routine: AutoRoutine,
   node: AutoNode,
@@ -176,7 +176,7 @@ export function blinePreviewTick(
       current = next;
     }
     // Live aiming and explicit open-ended handoffs are Mayhem extensions, not
-    // BLine editor paths. They continue to use the measured-pose controller.
+    // editor paths. They continue to use the measured-pose controller.
     const finalExits = routine.transitions.filter((t) => t.from === current.id);
     const openEnded =
       !current.goal?.stop &&
@@ -192,7 +192,7 @@ export function blinePreviewTick(
       openEnded
     )
       return undefined;
-    const path = blinePath(project, nodes, pose, routine);
+    const path = previewPath(project, nodes, pose, routine);
     const result = simulatePathWithTrace(path, {}, { dt_s: dt });
     let s = 0,
       previous = pose;

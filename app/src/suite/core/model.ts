@@ -15,14 +15,14 @@ export interface Constraints {
   maxAngularAcceleration: number;
   translationKp: number;
   rotationKp: number;
-  /** Default intermediate handoff circle radius (BLine default 0.45 m). */
+  /** Default intermediate handoff circle radius (default 0.45 m). */
   handoffRadius?: number;
   /** Gain on signed perpendicular distance from the active path segment. */
   crossTrackKp?: number;
   /** Speed floor while outside the end tolerance; 0 disables it. */
   minVelocity?: number;
 }
-/** Path-follower settings applied when a project omits them (BLine-style defaults). */
+/** Path-follower settings applied when a project omits them (defaults). */
 export const PATH_DEFAULTS = {
   handoffRadius: 0.45,
   crossTrackKp: 2,
@@ -63,7 +63,7 @@ export interface Goal extends Pose {
   handoffRadius: number;
   /** Force this anchor to be the end of the path (decelerate and settle here). */
   stop?: boolean;
-  /** Also hand off once projected progress reaches 1 - radius / segment length (BLine t-ratio handoff, default off). */
+  /** Also hand off once projected progress reaches 1 - radius / segment length (t-ratio handoff, default off). */
   projectedHandoff?: boolean;
   /** Interpolate heading by path progress (default) or switch immediately. */
   profiled?: boolean;
@@ -71,7 +71,7 @@ export interface Goal extends Pose {
   markers?: PathMarker[];
 }
 export interface AutoNode {
-  /** BLine generator output; explicit manual limits take precedence. */
+  /** Constraint generator output; explicit manual limits take precedence. */
   generatedConstraints?: { maxVelocity?: number; handoffRadius?: number };
   id: string;
   name: string;
@@ -169,7 +169,7 @@ export interface Issue {
   path: string;
   message: string;
 }
-/** BLine-Lib defaults: 4.5 m/s, 12 m/s², 720°/s, 1500°/s²; README gains 5 / 3. */
+/** Defaults: 4.5 m/s, 12 m/s², 720°/s, 1500°/s²; README gains 5 / 3. */
 export const DEFAULT_CONSTRAINTS: Constraints = {
   maxVelocity: 4.5,
   maxAcceleration: 12,
