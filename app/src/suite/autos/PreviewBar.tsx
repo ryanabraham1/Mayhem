@@ -11,7 +11,7 @@ import { download } from "../storage";
 import type { SuiteState } from "../useSuiteProject";
 import type { AutoRoutine } from "../core/model.ts";
 import type { TraceEvent } from "../core/runtime.ts";
-import { Badge, Dot, IconButton, Toggle } from "../ui";
+import { Badge, Dot, IconButton, Segmented, Toggle } from "../ui";
 
 type MarkerKind = "pose" | "action" | "event" | "finish" | "failure";
 const MARKER_COLORS: Record<MarkerKind, string> = {
@@ -140,19 +140,19 @@ export function PreviewBar({ s }: { s: SuiteState }) {
             );
           })}
         </div>
-        <select
-          aria-label="Preview mode"
-          className="mx-select-compact"
+        <Segmented
+          label="Preview mode"
           value={previewMode}
-          onChange={(e) => {
-            s.setPreviewMode(e.target.value as typeof previewMode);
+          onChange={(mode) => {
+            s.setPreviewMode(mode);
             s.resetPreview();
-            if (e.target.value === "routine") setOpen(true);
+            if (mode === "routine") setOpen(true);
           }}
-        >
-          <option value="path">Path only</option>
-          <option value="routine">Full routine</option>
-        </select>
+          options={[
+            { value: "path", label: "Path", title: "Drive the path only; actions finish instantly" },
+            { value: "routine", label: "With actions", title: "Run actions and wait on inputs like the robot will" },
+          ]}
+        />
         <button
           className="mx-dock-toggle"
           aria-expanded={open}

@@ -69,6 +69,7 @@ function StartInspector({ s, close }: { s: SuiteState; close: () => void }) {
         <NumberField
           label="Starting heading"
           value={deg(pose.heading)}
+          digits={1}
           min={-3600}
           step={5}
           unit="°"
@@ -142,6 +143,7 @@ function MarkerSection({
               <NumberField
                 label="Heading"
                 value={deg(m.heading)}
+                digits={1}
                 min={-3600}
                 unit="°"
                 step={5}
@@ -385,6 +387,7 @@ export function AutoInspector({
               <NumberField
                 label="Heading angle"
                 value={deg(goal.heading)}
+                digits={1}
                 min={-3600}
                 unit="°"
                 step={5}
@@ -493,6 +496,7 @@ export function AutoInspector({
               <NumberField
                 label="Heading tolerance"
                 value={deg(goal.rotationTolerance)}
+                digits={1}
                 min={0.01}
                 unit="°"
                 step={0.5}

@@ -55,14 +55,15 @@ it("switches the full workspace theme and restores the choice after reopening", 
 it("changes placement tools with shortcuts without changing them while typing", () => {
   render(<SuiteApp />);
   fireEvent.keyDown(document.body, { key: "t" });
-  expect(pressed("Translation")).toBe("true");
+  expect(pressed("Any heading")).toBe("true");
   fireEvent.keyDown(screen.getByLabelText("State name"), { key: "w" });
-  expect(pressed("Translation")).toBe("true");
+  expect(pressed("Any heading")).toBe("true");
   fireEvent.keyDown(document.body, { key: "Escape" });
   expect(pressed("Select")).toBe("true");
 });
 it("does not reset the preview just by selecting an existing goal", () => {
   render(<SuiteApp />);
+  const savedBefore = localStorage.getItem(PROJECT_KEY);
   const goal = screen.getByLabelText("Select goal Approach pickup");
   fireEvent.pointerDown(goal, {
     clientX: 5.8,
@@ -76,7 +77,7 @@ it("does not reset the preview just by selecting an existing goal", () => {
     button: 0,
     pointerId: 1,
   });
-  expect(screen.getByText(/revision 0/)).toBeTruthy();
+  expect(localStorage.getItem(PROJECT_KEY)).toBe(savedBefore);
 });
 it("edits the routine start without changing the robot default and inserts a first goal from Start", () => {
   render(<SuiteApp />);
@@ -163,7 +164,7 @@ it("completes the sample path in the default preview and exposes full-routine in
     fireEvent.click(screen.getByRole("button", { name: "Play simulation" }));
     for (let i = 0; i < 450; i++) await act(() => vi.advanceTimersByTimeAsync(40));
     expect(screen.getByText("Preview completed")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Preview mode"), { target: { value: "routine" } });
+    fireEvent.click(screen.getByRole("button", { name: "With actions", exact: true }));
     expect(screen.getByText(/Set simulated callback results/)).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: "Piece detected" })).toBeTruthy();
   } finally { vi.useRealTimers(); }
@@ -199,7 +200,17 @@ it("shows an inviting empty log library and links to robot collection", () => {
 it("derives the robot address from the team number", () => {
   localStorage.setItem("mayhem.page.v1", "robot");
   render(<SuiteApp />);
+  fireEvent.click(screen.getByRole("button", { name: "Connection", exact: true }));
   fireEvent.change(screen.getByLabelText("Team number"), { target: { value: "254" } });
   expect(screen.getByText(/roborio-254-frc\.local/)).toBeTruthy();
   expect(JSON.parse(localStorage.getItem("mayhem.robot.v1")!).team).toBe(254);
+});
+
+it("opens the shortcut sheet with ? and closes it", () => {
+  render(<SuiteApp />);
+  fireEvent.keyDown(document.body, { key: "?", shiftKey: true });
+  expect(screen.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeTruthy();
+  expect(screen.getByText("Snap heading to 15°")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close shortcuts" }));
+  expect(screen.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull();
 });

@@ -21,6 +21,8 @@ import { desktop, invoke } from "./native";
 
 /** How far ahead the preview forecast simulates a routine. */
 export const FORECAST_SECONDS = 60;
+/** Length of the autonomous period in the 2026 game (REBUILT). */
+export const AUTO_PERIOD_SECONDS = 20;
 export type PlaceTool = "select" | "pose" | "translation" | "handoff";
 
 const initialSignals = (p: SuiteProject): Signals =>
@@ -458,9 +460,9 @@ export function useSuiteProject() {
             id,
             name:
               tool === "handoff"
-                ? "Handoff"
+                ? "Pass through"
                 : tool === "translation"
-                  ? "Translation"
+                  ? "Any heading"
                   : `Pose ${r.nodes.filter((n) => n.kind === "pose").length + 1}`,
             kind: "pose",
             goal,

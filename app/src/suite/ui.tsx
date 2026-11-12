@@ -95,6 +95,7 @@ export function NumberField({
   change,
   min = 0,
   step: increment = 0.05,
+  digits = 4,
 }: {
   label: string;
   value: number;
@@ -102,9 +103,12 @@ export function NumberField({
   change: (v: number) => void;
   min?: number;
   step?: number;
+  /** Decimal places shown; typed values keep their full precision. */
+  digits?: number;
 }) {
-  const [draft, setDraft] = useState(() => String(Number(value.toFixed(4))));
-  useEffect(() => setDraft(String(Number(value.toFixed(4)))), [value]);
+  const shown = String(Number(value.toFixed(digits)));
+  const [draft, setDraft] = useState(shown);
+  useEffect(() => setDraft(shown), [shown]);
   return (
     <label className="mx-field">
       <span className="mx-field-label">{label}</span>
@@ -118,9 +122,10 @@ export function NumberField({
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => {
             const number = Number(draft);
+            if (draft === shown) return;
             if (draft.trim() && Number.isFinite(number) && number >= min)
               change(number);
-            else setDraft(String(Number(value.toFixed(4))));
+            else setDraft(shown);
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();

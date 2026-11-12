@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Copy, FilePlus2, FolderOpen, X } from "lucide-react";
+import { ArrowDownToLine, Copy, FilePlus2, FolderOpen, X } from "lucide-react";
 import type { SuiteProject } from "./core/model";
-import { listProjects, newProject } from "./storage";
+import { download, listProjects, newProject } from "./storage";
 
 export function ProjectPicker({
   project,
@@ -136,6 +136,19 @@ export function ProjectPicker({
           >
             <Copy size={16} />
             Duplicate project
+          </button>
+          <button
+            type="button"
+            className="mx-btn mx-btn-secondary mx-btn-md"
+            onClick={() =>
+              download(
+                `${project.id}.mayhem.json`,
+                JSON.stringify(project, null, 2),
+              )
+            }
+          >
+            <ArrowDownToLine size={16} />
+            Export project
           </button>
         </div>
       </form>

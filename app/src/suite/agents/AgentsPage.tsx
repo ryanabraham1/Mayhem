@@ -11,7 +11,7 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import { conditionLabel } from "../core/model.ts";
-import { exportCpp } from "../core/export-cpp.ts";
+import { downloadCpp } from "../cppExport";
 import { desktop } from "../native";
 import { download } from "../storage";
 import type { SuiteState } from "../useSuiteProject";
@@ -175,7 +175,7 @@ export function AgentsPage({ s }: { s: SuiteState }) {
             <Button
               size="sm"
               icon={ArrowDownToLine}
-              onClick={() => download(`${s.project.id}.hpp`, exportCpp(s.project), "text/plain")}
+              onClick={() => downloadCpp(s.project)}
             >
               Export routines
             </Button>

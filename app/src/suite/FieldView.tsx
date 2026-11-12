@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
   CircleDot,
@@ -40,10 +40,15 @@ interface Drag {
 export const speedColor = (fraction: number) =>
   `hsl(${Math.round(Math.max(0, Math.min(1, fraction)) * 120)}, 85%, 45%)`;
 const SPEED_BUCKETS = 24;
-/** Split a route into polylines of one speed color each (few SVG nodes, smooth joins). */
-function speedRunsFor(path: { x: number; y: number; speed: number }[], maxSpeed: number) {
-  const runs: { color: string; points: [number, number][] }[] = [];
-  let bucket = -1;
+type SpeedPoint = { x: number; y: number; speed: number; node?: string };
+/**
+ * Split a route into polylines of one speed color each (few SVG nodes, smooth
+ * joins). Points driven toward a step outside `live` become ghost runs.
+ */
+function speedRunsFor(path: SpeedPoint[], maxSpeed: number, live?: Set<string>) {
+  const runs: { color: string; ghost: boolean; points: [number, number][] }[] = [];
+  let bucket = -1,
+    ghost = false;
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1],
       b = path[i];
@@ -51,9 +56,11 @@ function speedRunsFor(path: { x: number; y: number; speed: number }[], maxSpeed:
     const next = Math.round(
       (Math.max(0, Math.min(1, (a.speed + b.speed) / 2 / Math.max(1e-6, maxSpeed)))) * SPEED_BUCKETS,
     );
-    if (next !== bucket) {
+    const nextGhost = !!live && !!b.node && !live.has(b.node);
+    if (next !== bucket || nextGhost !== ghost || !runs.length) {
       bucket = next;
-      runs.push({ color: speedColor(next / SPEED_BUCKETS), points: [[a.x, a.y]] });
+      ghost = nextGhost;
+      runs.push({ color: speedColor(next / SPEED_BUCKETS), ghost, points: [[a.x, a.y]] });
     }
     runs[runs.length - 1].points.push([b.x, b.y]);
   }
@@ -76,9 +83,10 @@ export function FieldView({
   duplicate,
   resetStart,
   trail = [],
-  overlay,
   speedPath,
   maxSpeed = 1,
+  focus,
+  overlay,
 }: {
   project: SuiteProject;
   routine: AutoRoutine;
@@ -98,14 +106,22 @@ export function FieldView({
   resetStart?: () => void;
   /** Poses already driven in the preview, drawn behind the robot. */
   trail?: Pose[];
-  /** Extra field-coordinate SVG drawn above the route and below the robot (y is flipped). */
-  overlay?: ReactNode;
   /** The whole previewed route with speed (m/s); drawn colored by speed instead of the trail. */
-  speedPath?: { x: number; y: number; speed: number }[];
+  speedPath?: SpeedPoint[];
   /** Speed drawn fully green. */
   maxSpeed?: number;
+  /** Pose steps of the leg being edited; everything else is drawn as an unclickable ghost. */
+  focus?: string[];
+  /** Extra field-coordinate SVG drawn above the route and below the robot (y is flipped). */
+  overlay?: ReactNode;
 }) {
-  const speedRuns = useMemo(() => speedRunsFor(speedPath ?? [], maxSpeed), [speedPath, maxSpeed]);
+  const focusKey = focus?.join(",");
+  const live = useMemo(() => (focus ? new Set(focus) : undefined), [focusKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const isGhost = (id: string) => !!live && !live.has(id);
+  const speedRuns = useMemo(
+    () => speedRunsFor(speedPath ?? [], maxSpeed, live),
+    [speedPath, maxSpeed, live],
+  );
   const svg = useRef<SVGSVGElement>(null);
   const { width, height } = project.field;
   const fit = (): View => ({
@@ -119,6 +135,10 @@ export function FieldView({
   const dragStart = useRef({ x: 0, y: 0 });
   const pan = useRef<{ sx: number; sy: number; view: View } | null>(null);
   const [hover, setHover] = useState<Pose | null>(null);
+  // Goals stacked under one click, spread out on a ring so each can be picked.
+  const [fan, setFan] = useState<{ x: number; y: number; ids: string[] } | null>(null);
+  const fromFan = useRef(false);
+  const cycle = useRef({ key: "", i: 0 });
   const segments = useMemo(
     () => routeSegments(project, routine),
     [project, routine],
@@ -133,6 +153,48 @@ export function FieldView({
   const positions = goals.map((n) =>
     drag?.id === n.id ? { ...n.goal!, ...drag } : n.goal!,
   );
+  const poseOf = (id: string): Pose =>
+    id === "@start" ? start : positions[goals.findIndex((n) => n.id === id)];
+  const nameOf = (id: string) =>
+    id === "@start" ? "Start" : (goals.find((n) => n.id === id)?.name ?? id);
+  const numberOf = (id: string) =>
+    id === "@start" ? "S" : String(routine.nodes.findIndex((n) => n.id === id) + 1);
+  /** Live goals (and the start) close enough to `id` that they hide each other. */
+  const stackAt = (id: string) => {
+    const p = poseOf(id),
+      reach = Math.max(0.55, view.w / 32);
+    return ["@start", ...goals.filter((n) => !isGhost(n.id)).map((n) => n.id)].filter((other) => {
+      const q = poseOf(other);
+      return Math.hypot(q.x - p.x, q.y - p.y) < reach;
+    });
+  };
+  useEffect(() => setFan(null), [routine.id, focusKey]);
+  useEffect(() => {
+    if (!fan) return;
+    const close = (e: KeyboardEvent) => e.key === "Escape" && setFan(null);
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [fan]);
+  // Frame the focused leg, including the segment that leads into it.
+  useEffect(() => {
+    if (!live) {
+      setView(fit());
+      return;
+    }
+    const pts = segments.filter((s) => live.has(s.toId)).flatMap((s) => [s.from, s.to]);
+    if (!pts.length) return;
+    const xs = pts.map((p) => p.x),
+      ys = pts.map((p) => p.y),
+      pad = 1.1,
+      ratio = (width + 1.4) / (height + 1.4);
+    let w = Math.max(4, Math.max(...xs) - Math.min(...xs) + 2 * pad),
+      h = Math.max(...ys) - Math.min(...ys) + 2 * pad;
+    if (w / h < ratio) w = h * ratio;
+    else h = w / ratio;
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2,
+      cy = height - (Math.max(...ys) + Math.min(...ys)) / 2;
+    setView({ x: cx - w / 2, y: cy - h / 2, w, h });
+  }, [focusKey, routine.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const svgPoint = (e: { clientX: number; clientY: number }) => {
     const matrix = svg.current?.getScreenCTM();
     if (!matrix) return null;
@@ -204,6 +266,7 @@ export function FieldView({
         }}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
+          setFan(null);
           if (tool !== "select") {
             const p = fieldPoint(e);
             if (p) place(p.x, p.y);
@@ -235,18 +298,36 @@ export function FieldView({
         }}
         onPointerUp={(e) => {
           if (drag) {
+            let nextFan: typeof fan = null;
             if (
               Math.hypot(
                 e.clientX - dragStart.current.x,
                 e.clientY - dragStart.current.y,
               ) < 3
-            )
-              inspect(drag.id);
-            else if (drag.id === "@start")
+            ) {
+              const stack =
+                drag.kind === "position" && !fromFan.current ? stackAt(drag.id) : [];
+              if (stack.length < 2) inspect(drag.id);
+              else if (e.altKey) {
+                // Alt-click steps down through the stack without opening the ring.
+                const key = stack.join(",");
+                cycle.current = { key, i: cycle.current.key === key ? cycle.current.i + 1 : 1 };
+                inspect(stack[(stack.indexOf(drag.id) + cycle.current.i) % stack.length]);
+              } else {
+                const ps = stack.map(poseOf);
+                nextFan = {
+                  x: ps.reduce((sum, p) => sum + p.x, 0) / ps.length,
+                  y: ps.reduce((sum, p) => sum + p.y, 0) / ps.length,
+                  ids: stack,
+                };
+              }
+            } else if (drag.id === "@start")
               moveStart({ x: drag.x, y: drag.y, heading: drag.heading });
             else if (drag.kind === "position") move(drag.id, drag.x, drag.y);
             else rotate(drag.id, drag.heading);
             setDrag(null);
+            setFan(nextFan);
+            fromFan.current = false;
           }
           pan.current = null;
         }}
@@ -321,6 +402,18 @@ export function FieldView({
         >
           <FieldArt field={seasonField as Field} />
         </g>
+        {live && (
+          // Wash out the field art so the focused leg is the only thing that pops.
+          <rect
+            x={-1}
+            y={-1}
+            width={width + 2}
+            height={height + 2}
+            fill="var(--mx-stage)"
+            opacity=".6"
+            pointerEvents="none"
+          />
+        )}
         {Array.from({ length: Math.floor(width) + 1 }, (_, i) => (
           <text
             key={i}
@@ -341,6 +434,15 @@ export function FieldView({
             positions[goals.findIndex((n) => n.id === segment.toId)] ??
             segment.to;
           const d = `M${from.x},${height - from.y} L${to.x},${height - to.y}`;
+          if (isGhost(segment.toId))
+            return speedRuns.length ? null : (
+              <path
+                key={`${segment.fromId ?? "start"}:${segment.toId}`}
+                d={d}
+                className="mx-ghost-route"
+                pointerEvents="none"
+              />
+            );
           return (
             <g
               key={`${segment.fromId ?? "start"}:${segment.toId}`}
@@ -433,7 +535,10 @@ export function FieldView({
             Start
           </text>
         </g>
-        {goals.map((node, i) => {
+        {goals
+          .map((node, i) => ({ node, i, ghost: isGhost(node.id) }))
+          .sort((a, b) => Number(b.ghost) - Number(a.ghost))
+          .map(({ node, i, ghost }) => {
           const goal = positions[i],
             active = node.id === selected,
             translationOnly = node.goal?.headingMode === "free",
@@ -444,6 +549,19 @@ export function FieldView({
                 ? goal.handoffRadius
                 : (node.constraints?.handoffRadius ?? node.generatedConstraints?.handoffRadius ?? routine.constraints?.handoffRadius ?? project.robot.constraints.handoffRadius ?? PATH_DEFAULTS.handoffRadius)
               : goal.translationTolerance;
+          // Other legs shrink to a dot; inside the focused leg only the selection stays bold.
+          if (ghost)
+            return (
+              <circle
+                key={node.id}
+                cx={goal.x}
+                cy={height - goal.y}
+                r=".07"
+                className="mx-ghost-goal"
+                pointerEvents="none"
+              />
+            );
+          const quiet = !!live && !active;
           return (
             <g
               key={node.id}
@@ -479,7 +597,7 @@ export function FieldView({
                   node.name,
                 );
               }}
-              className="mx-goal"
+              className={`mx-goal${quiet ? " is-quiet" : ""}`}
             >
               <circle
                 cx={goal.x}
@@ -559,10 +677,10 @@ export function FieldView({
                 x={goal.x}
                 y={height - goal.y - (translationOnly ? 0.36 : 0.63)}
                 textAnchor="middle"
-                className="mx-goal-label"
+                className={`mx-goal-label${active && !live ? "" : " is-hover-only"}`}
               >
-                {active
-                  ? `${routine.nodes.indexOf(node) + 1}. ${node.name.length > 22 ? `${node.name.slice(0, 21)}…` : node.name}`
+                {active && !live
+                  ? `${routine.nodes.indexOf(node) + 1} · ${node.name.length > 22 ? `${node.name.slice(0, 21)}…` : node.name}`
                   : routine.nodes.indexOf(node) + 1}
               </text>
             </g>
@@ -592,8 +710,9 @@ export function FieldView({
             className="mx-speed-path"
             points={run.points.map(([x, y]) => `${x},${height - y}`).join(" ")}
             fill="none"
-            stroke={run.color}
-            strokeWidth=".09"
+            stroke={run.ghost ? "var(--mx-muted)" : run.color}
+            strokeWidth={run.ghost ? ".035" : ".09"}
+            opacity={run.ghost ? 0.4 : undefined}
             strokeLinecap="round"
             strokeLinejoin="round"
             pointerEvents="none"
@@ -638,6 +757,64 @@ export function FieldView({
             strokeWidth=".08"
           />
         </g>
+        {fan && (() => {
+          const radius = 0.55 + 0.12 * fan.ids.length,
+            cx = fan.x,
+            cy = height - fan.y;
+          return (
+            <g className="mx-fan" aria-label="Stacked goals">
+              <circle
+                cx={cx}
+                cy={cy}
+                r={radius + 0.4}
+                className="mx-fan-backdrop"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  setFan(null);
+                }}
+              />
+              {fan.ids.map((id, k) => {
+                const angle = -Math.PI / 2 + (2 * Math.PI * k) / fan.ids.length,
+                  fx = cx + radius * Math.cos(angle),
+                  fy = cy + radius * Math.sin(angle),
+                  p = poseOf(id),
+                  name = nameOf(id);
+                if (!p) return null;
+                return (
+                  <g
+                    key={id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Pick ${name}`}
+                    aria-pressed={id === selected}
+                    className={`mx-fan-item${id === "@start" ? " is-start" : ""}${id === selected ? " is-active" : ""}`}
+                    onPointerDown={(e) => {
+                      fromFan.current = true;
+                      startGoalDrag(e, id, "position", p);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        inspect(id);
+                        setFan(null);
+                      }
+                    }}
+                  >
+                    <line x1={p.x} y1={height - p.y} x2={fx} y2={fy} />
+                    <circle cx={p.x} cy={height - p.y} r=".06" />
+                    <circle cx={fx} cy={fy} r=".27" />
+                    <text x={fx} y={fy + 0.085} textAnchor="middle" className="mx-fan-num">
+                      {numberOf(id)}
+                    </text>
+                    <text x={fx} y={fy + 0.56} textAnchor="middle" className="mx-goal-label">
+                      {name.length > 16 ? `${name.slice(0, 15)}…` : name}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })()}
       </svg>
       <div className="mx-field-zoom">
         <button aria-label="Zoom in" onClick={() => zoom(0.8)}>
@@ -650,13 +827,11 @@ export function FieldView({
           <Maximize2 size={14} />
         </button>
       </div>
-      <div className="mx-field-readout" aria-hidden="true">
-        {hover
-          ? `${hover.x.toFixed(2)}, ${hover.y.toFixed(2)} m`
-          : tool === "select"
-            ? "Double-click to add a pose · drag to pan · scroll to zoom"
-            : "Click to place · Esc to select"}
-      </div>
+      {hover && (
+        <div className="mx-field-readout" aria-hidden="true">
+          {`${hover.x.toFixed(2)}, ${hover.y.toFixed(2)} m`}
+        </div>
+      )}
     </div>
   );
 }

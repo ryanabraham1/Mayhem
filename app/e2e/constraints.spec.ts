@@ -61,8 +61,12 @@ test("keeps pose controls compact and provides generated visual constraints", as
     inspector.getByRole("button", { name: "Pose", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.screenshot({ path: info.outputPath("simplified-pose.png") });
+  await page.getByRole("button", { name: "Close inspector", exact: true }).click();
+  await expect(inspector).toBeHidden();
+  await page.getByRole("button", { name: "Show inspector", exact: true }).click();
+  await expect(inspector).toBeVisible();
   await page
-    .getByRole("button", { name: "Constraints", exact: true })
+    .getByRole("button", { name: "Whole path", exact: true })
     .first()
     .click();
   await expect(
@@ -91,11 +95,13 @@ test("keeps pose controls compact and provides generated visual constraints", as
     page.getByLabel("Segment speed limit", { exact: true }),
   ).toHaveValue("1.3");
   await page.screenshot({ path: info.outputPath("visual-constraints.png") });
+  await page.getByRole("button", { name: "Switch project" }).click();
   const download = page.waitForEvent("download");
   await page
     .getByRole("button", { name: "Export project", exact: true })
     .click();
   const file = await download;
+  await page.getByRole("button", { name: "Close projects" }).click();
   const output = info.outputPath("constraints.mayhem.json");
   await file.saveAs(output);
   const saved = JSON.parse(await readFile(output, "utf8"));
@@ -133,7 +139,7 @@ test("keeps pose controls compact and provides generated visual constraints", as
     .click();
   await page.reload();
   await page
-    .getByRole("button", { name: "Constraints", exact: true })
+    .getByRole("button", { name: "Whole path", exact: true })
     .first()
     .click();
   await expect(

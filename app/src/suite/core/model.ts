@@ -99,7 +99,7 @@ export interface AutoNode {
 }
 export function autoStepLabel(node: AutoNode): string {
   if (node.kind === "pose")
-    return node.goal?.headingMode === "free" ? "Translation" : "Pose";
+    return node.goal?.headingMode === "free" ? "Any heading" : "Pose";
   return node.kind === "finish"
     ? "Finish"
     : node.kind === "custom"

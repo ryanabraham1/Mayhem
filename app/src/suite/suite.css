@@ -1001,7 +1001,8 @@ label.mx-btn {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-.mx-app kbd {
+.mx-app kbd,
+.mx-dialog kbd {
   font-family: var(--mx-mono);
   font-size: 11.5px;
   padding: 2px 7px;
@@ -1404,6 +1405,47 @@ label.mx-btn {
 .mx-stage-spacer {
   flex: 1;
 }
+.mx-legs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mx-line);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.mx-legs-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mx-muted);
+  margin-right: 2px;
+  white-space: nowrap;
+}
+.mx-legs .mx-chip-toggle {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.mx-leg-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+.mx-leg-num {
+  font-family: var(--mx-mono);
+  font-size: 11px;
+  color: var(--mx-muted);
+}
+.mx-legs-hint {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 11.5px;
+  color: var(--mx-muted);
+  white-space: nowrap;
+}
 .mx-stage-meta {
   font-family: var(--mx-mono);
   font-size: 11.5px;
@@ -1456,6 +1498,66 @@ svg.mx-field {
 }
 .mx-goal:focus-visible rect {
   stroke-width: 0.06;
+}
+.mx-ghost-goal {
+  fill: var(--mx-muted);
+  opacity: 0.45;
+}
+.mx-ghost-route {
+  fill: none;
+  stroke: var(--mx-muted);
+  stroke-width: 0.035px;
+  opacity: 0.4;
+}
+/* Unselected goals in a focused leg: keep the dot and number, soften the outlines. */
+.mx-goal.is-quiet rect,
+.mx-goal.is-quiet path,
+.mx-goal.is-quiet > circle {
+  stroke-opacity: 0.35;
+}
+.mx-goal.is-quiet:hover rect,
+.mx-goal.is-quiet:hover path,
+.mx-goal.is-quiet:hover > circle {
+  stroke-opacity: 1;
+}
+.mx-fan-backdrop {
+  fill: var(--mx-surface);
+  fill-opacity: 0.95;
+  stroke: var(--mx-accent-line);
+  stroke-width: 0.02px;
+}
+.mx-fan-item {
+  cursor: grab;
+  outline: none;
+}
+.mx-fan-item line {
+  stroke: var(--mx-path);
+  stroke-width: 0.02px;
+  stroke-dasharray: 0.05 0.04;
+}
+.mx-fan-item circle {
+  fill: var(--mx-path);
+  stroke: var(--mx-halo);
+  stroke-width: 0.04px;
+}
+.mx-fan-item.is-start circle {
+  fill: var(--mx-start);
+}
+.mx-fan-item.is-start line {
+  stroke: var(--mx-start);
+}
+.mx-fan-item.is-active circle,
+.mx-fan-item:hover circle,
+.mx-fan-item:focus-visible circle {
+  stroke: var(--mx-accent-ink);
+  stroke-width: 0.06px;
+}
+.mx-fan-num {
+  font-family: var(--mx-font);
+  font-size: 0.24px;
+  font-weight: 700;
+  fill: var(--mx-halo);
+  pointer-events: none;
 }
 .mx-field-warnings {
   position: absolute;
@@ -2834,6 +2936,18 @@ svg.mx-field {
   color: var(--mx-ink-2);
 }
 
+/* ---------- Overview checklist ---------- */
+.mx-checklist-progress { display: flex; align-items: center; gap: 14px; color: var(--mx-muted); font-size: 12px; margin-bottom: 10px; }
+.mx-checklist-progress progress { flex: 1; height: 7px; accent-color: var(--mx-accent); }
+.mx-checklist { display: grid; margin-bottom: 12px; }
+.mx-checklist > div { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--mx-line); }
+.mx-checklist > div > svg { flex-shrink: 0; color: var(--mx-faint); }
+.mx-checklist > .is-done > svg { color: var(--mx-good); }
+.mx-checklist > div > span { flex: 1; min-width: 0; }
+.mx-checklist strong { display: block; font-size: 13px; font-weight: 600; }
+.mx-checklist small { display: block; color: var(--mx-muted); font-size: 12px; margin-top: 4px; line-height: 1.4; }
+.mx-checklist .mx-btn { flex-shrink: 0; }
+
 /* ---------- Overview ---------- */
 .mx-hello {
   display: flex;
@@ -3227,3 +3341,54 @@ svg.mx-field {
 .mx-constraint-step small { color:var(--mx-muted);white-space:nowrap; }
 .mx-inspector > .mx-segmented { flex-shrink:0;margin:4px 0 10px; }
 .mx-inspector > .mx-segmented button { flex:1;padding-left:8px;padding-right:8px; }
+
+/* ---------- Robot tabs ---------- */
+.mx-robot-tabs {
+  margin: 0 0 16px;
+}
+.mx-robot-tabs .mx-segmented {
+  width: max-content;
+  max-width: 100%;
+}
+
+/* ---------- Autonomous editor ---------- */
+.mx-runtime {
+  font-weight: 600;
+  color: var(--mx-ink);
+}
+.mx-stage-hint {
+  font-size: 13px;
+  color: var(--mx-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.mx-insp-tabs {
+  margin: -4px -4px 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--mx-line);
+}
+.mx-insp-tabs .mx-segmented {
+  display: flex;
+}
+.mx-insp-tabs .mx-segmented button {
+  flex: 1;
+}
+/* Unselected goals show their number only on hover, so close goals don't pile up labels. */
+.mx-goal .mx-goal-label.is-hover-only {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.mx-goal:hover .mx-goal-label.is-hover-only,
+.mx-goal:focus-visible .mx-goal-label.is-hover-only {
+  opacity: 1;
+}
+
+.mx-shortcut-sheet {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.mx-autos .mx-stage-bar { flex-wrap: nowrap; }
+.mx-stage-hint { flex: 0 1 auto; }
+.mx-stage-bar > .mx-segmented, .mx-stage-bar > .mx-badge, .mx-stage-bar > .mx-icon-btn { flex-shrink: 0; }

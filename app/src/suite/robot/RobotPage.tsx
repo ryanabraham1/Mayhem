@@ -26,15 +26,18 @@ import {
   Panel,
   Segmented,
   Toggle,
+  deg,
   formatBytes,
+  rad,
   timeAgo,
 } from "../ui";
 
-const constraintLabels: Record<string, [string, string]> = {
+// [label, unit, shown in degrees]; the project stores radians.
+const constraintLabels: Record<string, [string, string, boolean?]> = {
   maxVelocity: ["Max speed", "m/s"],
   maxAcceleration: ["Max acceleration", "m/s²"],
-  maxAngularVelocity: ["Max turn rate", "rad/s"],
-  maxAngularAcceleration: ["Max turn acceleration", "rad/s²"],
+  maxAngularVelocity: ["Max turn rate", "°/s", true],
+  maxAngularAcceleration: ["Max turn acceleration", "°/s²", true],
   translationKp: ["Translation kP", ""],
   rotationKp: ["Rotation kP", ""],
   handoffRadius: ["Handoff radius", "m"],
@@ -328,87 +331,146 @@ function ViewerPanel() {
   );
 }
 
+export type RobotTab = "specs" | "connection" | "logs";
+const TAB_KEY = "mayhem.robot-tab.v1";
+const tabs = ["specs", "connection", "logs"] as const;
+
+/** Remember which Robot tab to show next, e.g. before navigating there. */
+export function setRobotTab(tab: RobotTab) {
+  try {
+    localStorage.setItem(TAB_KEY, tab);
+  } catch {}
+}
+function savedTab(): RobotTab {
+  try {
+    const saved = localStorage.getItem(TAB_KEY) as RobotTab | null;
+    if (saved && tabs.includes(saved)) return saved;
+  } catch {}
+  return "specs";
+}
+
+function LimitsPanel({ s }: { s: SuiteState }) {
+  const { project } = s;
+  return (
+    <Panel title="Drive limits and size" icon={SlidersHorizontal}>
+      <p className="mx-help">
+        Speed and acceleration limits shape the path preview and are exported to the C++ follower.
+        PID gains tune robot feedback; the ideal path preview does not use them.
+        Handoff radius is how close the robot must get to a pass-through point before moving on.
+      </p>
+      <div className="mx-grid-fields">
+        <NumberField
+          label="Robot length"
+          value={project.robot.length}
+          min={0.01}
+          unit="m"
+          change={(v) =>
+            s.commit((p) => {
+              p.robot.length = v;
+            })
+          }
+        />
+        <NumberField
+          label="Robot width"
+          value={project.robot.width}
+          min={0.01}
+          unit="m"
+          change={(v) =>
+            s.commit((p) => {
+              p.robot.width = v;
+            })
+          }
+        />
+        {Object.entries(resolveConstraints(project.robot.constraints)).flatMap(([key, value]) => {
+          if (typeof value !== "number") return [];
+          const [label, unit, degrees] = constraintLabels[key] ?? [key, ""];
+          return (
+            <NumberField
+              key={key}
+              label={label}
+              unit={unit}
+              value={degrees ? deg(value) : value}
+              digits={degrees ? 0 : 4}
+              step={degrees ? 5 : 0.05}
+              min={key === "minVelocity" ? 0 : 0.001}
+              change={(v) =>
+                s.commit((p) => {
+                  (p.robot.constraints as unknown as Record<string, number>)[key] = degrees ? rad(v) : v;
+                })
+              }
+            />
+          );
+        })}
+        <Toggle
+          label="Slow down before slower steps"
+          hint="Decelerate toward a slower step ahead (v² = cap² + 2·a·d) instead of braking after its handoff. Off matches BLine."
+          checked={!!project.robot.constraints.anticipateSpeedCaps}
+          onChange={(on) =>
+            s.commit((p) => {
+              p.robot.constraints.anticipateSpeedCaps = on;
+            })
+          }
+        />
+      </div>
+    </Panel>
+  );
+}
+
 export function RobotPage({ s }: { s: SuiteState }) {
   const { project } = s;
+  const [tab, setTabState] = useState(savedTab);
+  const setTab = (next: RobotTab) => {
+    setTabState(next);
+    setRobotTab(next);
+  };
   return (
     <div className="mx-page-scroll">
       <PageHeader
         title="Robot"
-        subtitle={`${project.robot.name} · connection, log collection and the limits autos are planned with.`}
+        subtitle={
+          tab === "specs"
+            ? `${project.robot.name} · the size and limits every auto is planned with.`
+            : tab === "connection"
+              ? "Live values from the robot. Mayhem never commands it."
+              : "Pull new logs off the robot and share them with the team."
+        }
       />
-      <div className="mx-robot-grid">
-        <div className="mx-col">
+      <div className="mx-robot-tabs">
+        <Segmented
+          label="Robot section"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "specs", label: "Specs & limits", icon: SlidersHorizontal },
+            { value: "connection", label: "Connection", icon: Cable },
+            { value: "logs", label: "Log collection", icon: HardDriveDownload },
+          ]}
+        />
+      </div>
+      {tab === "specs" && (
+        <>
+          <div className="mx-robot-grid">
+            <LimitsPanel s={s} />
+            <SignalsEditor project={project} commit={s.commit} />
+          </div>
+          <p className="mx-foot-note">
+            <Dot /> Lengths are in meters and angles in degrees; exported code uses meters and radians.
+            Field coordinates use the blue-alliance origin.
+          </p>
+        </>
+      )}
+      {tab === "connection" && (
+        <div className="mx-robot-grid">
           <ConnectionPanel />
-          <CollectionPanel />
-        </div>
-        <div className="mx-col">
-          <UploadPanel />
-          <Panel title="Drive limits and size" icon={SlidersHorizontal}>
-            <p className="mx-help">
-              Speed and acceleration limits shape the path preview and are exported to the C++ follower.
-              PID gains tune robot feedback; the ideal path preview does not use them.
-              Handoff radius is how close the robot must get to a pass-through point before moving on.
-            </p>
-            <div className="mx-grid-fields">
-              <NumberField
-                label="Robot length"
-                value={project.robot.length}
-                min={0.01}
-                unit="m"
-                change={(v) =>
-                  s.commit((p) => {
-                    p.robot.length = v;
-                  })
-                }
-              />
-              <NumberField
-                label="Robot width"
-                value={project.robot.width}
-                min={0.01}
-                unit="m"
-                change={(v) =>
-                  s.commit((p) => {
-                    p.robot.width = v;
-                  })
-                }
-              />
-              {Object.entries(resolveConstraints(project.robot.constraints))
-                .filter((entry): entry is [string, number] => typeof entry[1] === "number")
-                .map(([key, value]) => (
-                <NumberField
-                  key={key}
-                  label={constraintLabels[key]?.[0] ?? key}
-                  unit={constraintLabels[key]?.[1]}
-                  value={value}
-                  min={key === "minVelocity" ? 0 : 0.001}
-                  change={(v) =>
-                    s.commit((p) => {
-                      (p.robot.constraints as unknown as Record<string, number>)[key] = v;
-                    })
-                  }
-                />
-              ))}
-              <Toggle
-                label="Slow down before slower steps"
-                hint="Decelerate toward a slower step ahead (v² = cap² + 2·a·d) instead of braking after its handoff. Off matches BLine."
-                checked={!!project.robot.constraints.anticipateSpeedCaps}
-                onChange={(on) =>
-                  s.commit((p) => {
-                    p.robot.constraints.anticipateSpeedCaps = on;
-                  })
-                }
-              />
-            </div>
-          </Panel>
           <ViewerPanel />
         </div>
-      </div>
-      <div className="mx-robot-wide">
-        <SignalsEditor project={project} commit={s.commit} />
-      </div>
-      <p className="mx-foot-note">
-        <Dot /> Units are meters, radians and seconds. Field coordinates use the blue-alliance origin.
-      </p>
+      )}
+      {tab === "logs" && (
+        <div className="mx-robot-grid">
+          <CollectionPanel />
+          <UploadPanel />
+        </div>
+      )}
     </div>
   );
 }

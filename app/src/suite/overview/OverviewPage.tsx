@@ -1,23 +1,26 @@
+import { useMemo, useState } from "react";
 import {
   AlertOctagon,
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
   FileChartColumn,
-  Link2,
   Plus,
-  RefreshCw,
 } from "lucide-react";
 import { FieldArt } from "../../components/FieldArt";
 import type { Field } from "../../types";
 import seasonField from "../core/rebuilt-2026.json";
 import { routeSegments } from "../core/routes.ts";
 import type { AutoRoutine, SuiteProject } from "../core/model.ts";
-import { checkForUpdate, installUpdate, useUpdater } from "../../updater";
+import { simulate } from "../core/runtime";
+import { desktop } from "../native";
+import { cppExportState, downloadCpp } from "../cppExport";
+import { setRobotTab } from "../robot/RobotPage";
+import { AUTO_PERIOD_SECONDS } from "../useSuiteProject";
 import { useLogLibrary } from "../logLibrary";
 import { useRobot } from "../robot";
 import type { SuiteState } from "../useSuiteProject";
-import { Badge, Button, Dot, Panel, timeAgo } from "../ui";
+import { Badge, Button, Panel, timeAgo } from "../ui";
 
 export type Destination = "autos" | "states" | "logs" | "robot" | "agents";
 
@@ -49,32 +52,6 @@ function MiniField({ project, routine }: { project: SuiteProject; routine: AutoR
   );
 }
 
-function UpdateStatus() {
-  const u = useUpdater();
-  const busy = u.phase === "checking" || u.phase === "downloading" || u.phase === "restarting";
-  const ready = u.version && (u.phase === "available" || u.phase === "error");
-  return (
-    <div className="mx-status-chip" style={{ cursor: "default" }}>
-      {u.current ? `Mayhem v${u.current}` : "Mayhem"}
-      {ready ? (
-        <Button size="sm" variant="primary" onClick={() => void installUpdate()}>
-          Install {u.version}
-        </Button>
-      ) : (
-        <Button size="sm" variant="ghost" icon={RefreshCw} disabled={busy} onClick={() => void checkForUpdate(true)}>
-          {u.phase === "checking"
-            ? "Checking…"
-            : u.phase === "downloading"
-              ? "Downloading…"
-              : u.phase === "restarting"
-                ? "Restarting…"
-                : "Check for updates"}
-        </Button>
-      )}
-    </div>
-  );
-}
-
 export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) => void }) {
   const { project } = s;
   const robot = useRobot();
@@ -84,7 +61,29 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
   const recent = lib.logs.filter((l) => !l.archived).slice(0, 5);
   const flagged = recent.filter((l) => l.summary?.errors).length;
   const status = robot.live.snapshot.status;
-  const sync = lib.sync;
+  const [, refreshExport] = useState(0);
+  const exportState = cppExportState(project);
+  const routines = useMemo(() => {
+    const signals = Object.fromEntries(project.signals.map((signal) => [signal.key, signal.initial]));
+    return project.routines.map((routine, index) => {
+      const errors = s.issues.filter((issue) => issue.severity === "error" &&
+        (issue.path === `routines.${index}` || issue.path.startsWith(`routines.${index}.`)));
+      const run = simulate(project, routine, signals, { mode: "path", maxSeconds: 30 });
+      return { routine, errors, seconds: run.status === "completed" ? run.frame.time : undefined };
+    });
+  }, [project, s.issues]);
+  const checklist = [
+    { title: "Plan an autonomous routine", detail: "Create a valid routine that reaches a finish.",
+      done: routines.some((r) => !r.errors.length), action: "Open Autos", run: () => go("autos") },
+    { title: "Connect to the robot", detail: status === "connected" ? `Connected to ${robot.host}` : "Connect over your robot network.",
+      done: status === "connected", action: "Connect", run: () => { setRobotTab("connection"); go("robot"); } },
+    { title: "Turn on log collection", detail: desktop ? "Collect logs whenever the robot is plugged in." : "Log collection needs the desktop app.",
+      done: lib.sync.config.autoPull, action: "Set up", run: () => { setRobotTab("logs"); go("robot"); } },
+    { title: "Export autos to robot code", detail: exportState === "stale" ? "Routines changed since the last export" :
+      exportState === "current" ? "Exported C++ matches this project." : "Download C++ for your robot project.",
+      done: exportState === "current", action: "Export C++", run: () => { downloadCpp(project); refreshExport((n) => n + 1); } },
+  ];
+  const done = checklist.filter((item) => item.done).length;
   return (
     <div className="mx-page-scroll mx-overview">
       <header className="mx-hello">
@@ -95,25 +94,11 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
             {project.routines.length === 1 ? "autonomous routine" : "autonomous routines"}
           </p>
         </div>
-        <div className="mx-hello-status">
-          <button className="mx-status-chip" onClick={() => go("robot")}>
-            <Dot tone={status === "connected" ? "good" : status === "disconnected" ? "neutral" : "warn"} />
-            {status === "connected" ? `Robot connected · ${robot.host}` : "Robot not connected"}
-          </button>
-          <button className="mx-status-chip" onClick={() => go("robot")}>
-            <Dot tone={sync.config.autoPull ? (sync.reach === "reachable" ? "good" : "warn") : "neutral"} />
-            {sync.config.autoPull ? "Auto-collecting logs" : "Log collection off"}
-          </button>
-          <UpdateStatus />
-        </div>
       </header>
 
       <section className="mx-gallery" aria-label="Autonomous routines">
-        {project.routines.map((r) => {
+        {routines.map(({ routine: r, errors: routineIssues, seconds }) => {
           const steps = r.nodes.filter((n) => n.kind !== "finish").length;
-          const routineIssues = s.issues.filter(
-            (i) => i.severity === "error" && i.path.startsWith(`routines.${project.routines.indexOf(r)}`),
-          );
           return (
             <button
               key={r.id}
@@ -127,10 +112,14 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
               <span className="mx-auto-card-text">
                 <strong>{r.name}</strong>
                 <small>
-                  {steps} {steps === 1 ? "step" : "steps"}
+                  <span>{steps} steps{seconds !== undefined ? ` · ${seconds.toFixed(1)} s` : ""}</span>
                   {routineIssues.length ? (
                     <Badge tone="bad">{routineIssues.length} errors</Badge>
-                  ) : null}
+                  ) : seconds !== undefined && seconds <= AUTO_PERIOD_SECONDS ? (
+                    <Badge tone="good">Ready</Badge>
+                  ) : seconds !== undefined ? (
+                    <Badge tone="warn">Over by {(seconds - AUTO_PERIOD_SECONDS).toFixed(1)} s</Badge>
+                  ) : <Badge tone="warn">Doesn't finish</Badge>}
                 </small>
               </span>
             </button>
@@ -206,7 +195,20 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
           )}
         </Panel>
 
-        <Panel title="Project checks" icon={errors.length ? AlertOctagon : CheckCircle2}>
+        <Panel title="Get to match-ready" icon={CheckCircle2}>
+          <div className="mx-checklist-progress">
+            <span>{done} of 4 done</span>
+            <progress value={done} max={4} aria-label="Match readiness" />
+          </div>
+          <div className="mx-checklist">
+            {checklist.map((item) => (
+              <div className={item.done ? "is-done" : ""} key={item.title}>
+                <CheckCircle2 size={20} aria-label={item.done ? "Done" : "To do"} />
+                <span><strong>{item.title}</strong><small>{item.detail}</small></span>
+                {!item.done && <Button size="sm" onClick={item.run}>{item.action}</Button>}
+              </div>
+            ))}
+          </div>
           {errors.length || warnings.length ? (
             <ul className="mx-issues">
               {[...errors, ...warnings].slice(0, 6).map((i, n) => (
@@ -216,22 +218,7 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
                 </li>
               ))}
             </ul>
-          ) : (
-            <p className="mx-summary-line is-good">
-              <CheckCircle2 size={16} /> Every routine is valid and reaches a finish.
-            </p>
-          )}
-          <div className="mx-kv">
-            <span>Revision</span>
-            <code>{project.revision}</code>
-            <span>Inputs</span>
-            <code>{project.signals.length}</code>
-            <span>Agent file</span>
-            <code>{s.projectPath ? "linked" : "not linked"}</code>
-          </div>
-          <Button size="sm" icon={Link2} onClick={() => go("agents")}>
-            Work with an agent
-          </Button>
+          ) : null}
         </Panel>
       </div>
     </div>

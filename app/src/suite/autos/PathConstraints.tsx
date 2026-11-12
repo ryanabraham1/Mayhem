@@ -18,6 +18,8 @@ import {
   IconButton,
   NumberField,
   Segmented,
+  deg,
+  rad,
 } from "../ui";
 
 const motionFields = [
@@ -31,13 +33,15 @@ const motionFields = [
   {
     key: "maxAngularVelocity",
     label: "Max turn speed",
-    unit: "rad/s",
+    unit: "°/s",
+    degrees: true,
     group: "Rotation",
   },
   {
     key: "maxAngularAcceleration",
     label: "Max turn acceleration",
-    unit: "rad/s²",
+    unit: "°/s²",
+    degrees: true,
     group: "Rotation",
   },
   {
@@ -83,11 +87,12 @@ export function ConstraintFields({
           <div className="mx-limit-field" key={f.key}>
             <NumberField
               label={f.label}
-              value={value}
+              value={"degrees" in f ? deg(value) : value}
               unit={f.unit}
               min={f.key === "minVelocity" ? 0 : 0.001}
-              step={0.1}
-              change={(v) => change(f.key, v)}
+              step={"degrees" in f ? 5 : 0.1}
+              digits={"degrees" in f ? 0 : 4}
+              change={(v) => change(f.key, "degrees" in f ? rad(v) : v)}
             />
             <div className="mx-limit-source">
               <span>{custom ? "Custom" : `From ${source}`}</span>

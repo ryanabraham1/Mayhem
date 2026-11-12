@@ -19,11 +19,20 @@ import { autoStepLabel, type AutoNode } from "../core/model.ts";
 import type { SuiteState } from "../useSuiteProject";
 import { IconButton } from "../ui";
 
+// Every step gets its number (matching the field labels); the glyph color tells actions apart.
 function StepGlyph({ node, index }: { node: AutoNode; index: number }) {
   if (node.kind === "finish") return <Flag size={12} />;
-  if (node.kind === "action") return <Zap size={12} />;
-  if (node.kind === "custom") return <Code2 size={12} />;
   return <>{index + 1}</>;
+}
+
+function stepDetail(node: AutoNode) {
+  if (node.kind === "action" || node.kind === "custom")
+    return `${node.kind === "custom" ? "Custom" : "Action"} · ${node.action}`;
+  if (node.kind === "pose") {
+    if (node.goal && node.goal.handoffRadius > 0) return "Pass through";
+    return node.goal?.headingMode === "free" ? "Any heading" : "Drive to pose";
+  }
+  return autoStepLabel(node);
 }
 
 export function RoutineRail({
@@ -267,12 +276,7 @@ export function RoutineRail({
                 </span>
                 <span className="mx-step-text">
                   <strong>{n.name}</strong>
-                  <small>
-                    {n.kind === "action" || n.kind === "custom"
-                      ? n.action
-                      : autoStepLabel(n)}
-                    {n.goal && n.goal.handoffRadius > 0 ? " · moving handoff" : ""}
-                  </small>
+                  <small>{stepDetail(n)}</small>
                 </span>
               </button>
               {n.kind !== "finish" && (

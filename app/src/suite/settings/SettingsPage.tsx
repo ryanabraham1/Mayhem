@@ -1,19 +1,10 @@
-import { History, Keyboard, LifeBuoy, Monitor, Moon, Palette, Route, Sun } from "lucide-react";
+import { History, Keyboard, LifeBuoy, Monitor, Moon, Palette, RefreshCw, Route, Sun } from "lucide-react";
 import { recoverySnapshot, download } from "../storage";
 import { Button, PageHeader, Panel, Segmented } from "../ui";
+import { shortcutGroups } from "../autos/ShortcutSheet";
+import { checkForUpdate, installUpdate, useUpdater } from "../../updater";
 
 export type ThemeChoice = "light" | "dark" | "system";
-
-const shortcuts: [string, string][] = [
-  ["V or Esc", "Select tool"],
-  ["W", "Place a pose goal"],
-  ["T", "Place a translation goal"],
-  ["G", "Place a moving handoff"],
-  ["Space", "Play or pause the preview"],
-  ["Delete", "Remove the selected step"],
-  ["⌘Z / ⇧⌘Z", "Undo / redo"],
-  ["Shift + drag knob", "Snap heading to 15°"],
-];
 
 export function SettingsPage({
   theme,
@@ -28,6 +19,9 @@ export function SettingsPage({
   notify: (m: string) => void;
   version: string;
 }) {
+  const u = useUpdater();
+  const busy = ["checking", "downloading", "restarting"].includes(u.phase);
+  const ready = u.version && (u.phase === "available" || u.phase === "error");
   return (
     <div className="mx-page-scroll">
       <PageHeader title="Settings" subtitle={`Mayhem ${version}`} />
@@ -46,19 +40,40 @@ export function SettingsPage({
             />
           </Panel>
           <Panel title="Keyboard shortcuts" icon={Keyboard}>
-            <dl className="mx-shortcuts">
-              {shortcuts.map(([keys, action]) => (
-                <div key={keys}>
-                  <dt>
-                    <kbd>{keys}</kbd>
-                  </dt>
-                  <dd>{action}</dd>
-                </div>
-              ))}
-            </dl>
+            {shortcutGroups.map((group) => (
+              <section className="mx-dialog-section" key={group.title}>
+                <h3>{group.title}</h3>
+                <dl className="mx-shortcuts">
+                  {group.keys.map(([keys, action]) => (
+                    <div key={keys}>
+                      <dt><kbd>{keys}</kbd></dt>
+                      <dd>{action}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ))}
           </Panel>
         </div>
         <div className="mx-col">
+          <Panel title="Updates" icon={RefreshCw}>
+            <p className="mx-help">{u.current ? `Mayhem v${u.current}` : `Mayhem ${version}`}</p>
+            {ready ? (
+              <Button variant="primary" onClick={() => void installUpdate()}>
+                Install {u.version}
+              </Button>
+            ) : (
+              <Button icon={RefreshCw} disabled={busy} onClick={() => void checkForUpdate(true)}>
+                {u.phase === "checking"
+                  ? "Checking…"
+                  : u.phase === "downloading"
+                    ? "Downloading…"
+                    : u.phase === "restarting"
+                      ? "Restarting…"
+                      : "Check for updates"}
+              </Button>
+            )}
+          </Panel>
           <Panel title="Recovery" icon={LifeBuoy}>
             <p className="mx-help">
               Mayhem keeps the previous valid save. If a saved project is ever damaged, the original is set aside here

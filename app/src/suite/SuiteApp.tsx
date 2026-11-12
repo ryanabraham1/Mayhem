@@ -21,7 +21,7 @@ import { ProjectPicker } from "./ProjectPicker";
 import { AutosPage } from "./autos/AutosPage";
 import { StatesPage } from "./states/StatesPage";
 import { LogsPage } from "./logs/LogsPage";
-import { RobotPage } from "./robot/RobotPage";
+import { RobotPage, setRobotTab } from "./robot/RobotPage";
 import { AgentsPage } from "./agents/AgentsPage";
 import { OverviewPage } from "./overview/OverviewPage";
 import { SettingsPage, type ThemeChoice } from "./settings/SettingsPage";
@@ -240,7 +240,7 @@ function Shell({
         {page === "overview" && <OverviewPage s={s} go={setPage} />}
         {page === "autos" && <AutosPage s={s} />}
         {page === "states" && <StatesPage key={s.project.id} s={s} openAutos={() => setPage("autos")} />}
-        {page === "logs" && <LogsPage notify={s.notify} openRobot={() => setPage("robot")} />}
+        {page === "logs" && <LogsPage notify={s.notify} openRobot={() => { setRobotTab("logs"); setPage("robot"); }} />}
         {page === "robot" && <RobotPage s={s} />}
         {page === "agents" && <AgentsPage key={s.project.id} s={s} />}
         {page === "settings" && (

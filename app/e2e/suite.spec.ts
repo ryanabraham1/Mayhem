@@ -24,6 +24,7 @@ test("authors an auto, previews it, exports it and reopens it in a new browser",
   await expect(page.getByRole("button", { name: "1 Drive to pickup", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Play simulation", exact: true }).click();
   await expect(page.getByText("Preview completed", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Switch project" }).click();
   const downloadEvent = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export project", exact: true }).click();
   const download = await downloadEvent;
@@ -78,6 +79,7 @@ test("simulates state inputs and keeps offline setup across all pages and themes
   await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(page.locator(".mx-state.is-active")).toContainText("Idle");
   await page.getByRole("button", { name: "Robot", exact: true }).click();
+  await page.getByRole("button", { name: "Connection", exact: true }).click();
   await page.getByLabel("Team number").fill("254");
   await expect(page.getByText(/roborio-254-frc.local/).first()).toBeVisible();
   for (const theme of ["dark", "light"] as const) {
