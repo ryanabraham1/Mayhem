@@ -18,8 +18,6 @@ import {
   IconButton,
   NumberField,
   Segmented,
-  deg,
-  rad,
 } from "../ui";
 
 const motionFields = [
@@ -33,16 +31,14 @@ const motionFields = [
   {
     key: "maxAngularVelocity",
     label: "Max turn speed",
-    unit: "°/s",
+    unit: "rad/s",
     group: "Rotation",
-    angular: true,
   },
   {
     key: "maxAngularAcceleration",
     label: "Max turn acceleration",
-    unit: "°/s²",
+    unit: "rad/s²",
     group: "Rotation",
-    angular: true,
   },
   {
     key: "handoffRadius",
@@ -81,18 +77,17 @@ export function ConstraintFields({
     motionFields
       .filter((f) => f.group === group)
       .map((f) => {
-        const angular = "angular" in f && f.angular;
         const value = overrides?.[f.key] ?? inherited[f.key];
         const custom = overrides?.[f.key] !== undefined;
         return (
           <div className="mx-limit-field" key={f.key}>
             <NumberField
               label={f.label}
-              value={angular ? deg(value) : value}
+              value={value}
               unit={f.unit}
               min={f.key === "minVelocity" ? 0 : 0.001}
-              step={angular ? 30 : 0.1}
-              change={(v) => change(f.key, angular ? rad(v) : v)}
+              step={0.1}
+              change={(v) => change(f.key, v)}
             />
             <div className="mx-limit-source">
               <span>{custom ? "Custom" : `From ${source}`}</span>
