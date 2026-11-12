@@ -201,6 +201,21 @@ function Shell({
           </span>
           <ChevronsUpDown size={14} />
         </button>
+        {s.projectPath && (
+          <span
+            className={`mx-disk-status ${s.diskError || s.diskConflict ? "is-bad" : ""}`}
+            role="status"
+            title={`Watching ${s.projectPath}`}
+          >
+            {s.diskError
+              ? "File invalid · showing last good version"
+              : s.diskConflict
+                ? "File changed · see below"
+                : s.reloadedAt
+                  ? `Reloaded from disk · ${s.reloadedAt.toLocaleTimeString()}`
+                  : "Watching file"}
+          </span>
+        )}
         <nav className="mx-nav" aria-label="Suite tools">
           {navigation.map(({ id, name, icon: Icon }) => (
             <button
@@ -252,10 +267,14 @@ function Shell({
             version={appPackage.version}
           />
         )}
-        {s.diskConflict && (
+        {s.diskConflict && <DiskConflict s={s} />}
+        {s.diskError && !s.diskConflict && (
           <div className="mx-banner is-bad" role="alert">
             <TriangleAlert size={16} />
-            The linked project file changed while you were editing. Your work is kept here; reopen the file to reconcile.
+            <span>
+              The project file can't be loaded ({s.diskError}). Showing the last good version; it reloads
+              when the file is fixed.
+            </span>
           </div>
         )}
       </main>
@@ -268,6 +287,39 @@ function Shell({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The linked file changed while this copy has edits it lacks: ask, never discard either. */
+function DiskConflict({ s }: { s: SuiteState }) {
+  const [details, setDetails] = useState(false);
+  return (
+    <div className="mx-banner is-bad mx-disk-conflict" role="alert">
+      <TriangleAlert size={16} />
+      <div>
+        <p>
+          {s.diskChanges.length
+            ? "The project file changed on disk while you had edits here. Nothing is saved to it until you choose."
+            : "Your latest edits could not be saved to the project file. Nothing is lost; choose what to keep."}
+        </p>
+        {details && (
+          <ul aria-label="Differences from the file">
+            {s.diskChanges.length ? s.diskChanges.map((c) => <li key={c}>{c}</li>) : <li>Checking the file…</li>}
+          </ul>
+        )}
+        <div className="mx-banner-actions">
+          <button type="button" onClick={s.takeDiskVersion} disabled={!s.diskChanges.length}>
+            Load file version
+          </button>
+          <button type="button" onClick={() => void s.keepMyVersion()}>
+            Keep mine
+          </button>
+          <button type="button" className="mx-link" aria-expanded={details} onClick={() => setDetails((v) => !v)}>
+            {details ? "Hide changes" : "Show changes"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

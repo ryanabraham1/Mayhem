@@ -320,3 +320,36 @@ export async function deleteLog(id: string) {
     db.close();
   }
 }
+
+/** Linked project files by project ID, so a desktop launch reopens (and watches) the file. */
+export const PROJECT_LINKS_KEY = "mayhem.suite.links.v1";
+function links(): Record<string, string> {
+  try {
+    const value = JSON.parse(localStorage.getItem(PROJECT_LINKS_KEY) ?? "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+export function projectLink(id: string): string | null {
+  const path = links()[id];
+  return typeof path === "string" && path ? path : null;
+}
+export function setProjectLink(id: string, path: string | null) {
+  const all = links();
+  if (path) all[id] = path;
+  else delete all[id];
+  try {
+    localStorage.setItem(PROJECT_LINKS_KEY, JSON.stringify(all));
+  } catch {
+    /* The link is a convenience; the project itself is saved separately. */
+  }
+}
+/** Keep a copy of a working version in the project library under a new ID (never lose edits). */
+export function keepCopy(project: SuiteProject, label: string): SuiteProject {
+  const copy = { ...structuredClone(project), id: crypto.randomUUID(), name: `${project.name} (${label})` };
+  const raw = localStorage.getItem(PROJECT_LIBRARY_KEY);
+  const inactive: unknown = raw ? JSON.parse(raw) : [];
+  localStorage.setItem(PROJECT_LIBRARY_KEY, JSON.stringify([...(Array.isArray(inactive) ? inactive : []), copy]));
+  return copy;
+}

@@ -3392,3 +3392,46 @@ svg.mx-field {
 .mx-autos .mx-stage-bar { flex-wrap: nowrap; }
 .mx-stage-hint { flex: 0 1 auto; }
 .mx-stage-bar > .mx-segmented, .mx-stage-bar > .mx-badge, .mx-stage-bar > .mx-icon-btn { flex-shrink: 0; }
+/* Linked project file: watch status in the top bar and the conflict prompt. */
+.mx-disk-status {
+  align-self: center;
+  margin-left: 8px;
+  font-size: 11.5px;
+  color: var(--mx-muted);
+  white-space: nowrap;
+}
+.mx-disk-status.is-bad {
+  color: var(--mx-bad);
+}
+.mx-disk-conflict {
+  align-items: flex-start;
+  max-width: min(640px, calc(100% - 32px));
+}
+.mx-disk-conflict p {
+  margin: 0;
+}
+.mx-disk-conflict ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--mx-ink-2);
+}
+.mx-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.mx-banner-actions button:not(.mx-link) {
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: var(--mx-r-sm);
+  background: var(--mx-surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.mx-banner-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

@@ -18,7 +18,8 @@ import {
 } from "./core/runtime.ts";
 import { interpolatePreviewFrame } from "./core/playback.ts";
 import { sketchGoals } from "./core/sketch.ts";
-import { activateProject, loadProject, saveProject } from "./storage";
+import { activateProject, keepCopy, loadProject, projectLink, saveProject, setProjectLink } from "./storage";
+import { diskDecision, projectDiff, projectKey } from "./core/diskSync.ts";
 import { desktop, invoke } from "./native";
 
 /** How far ahead the preview forecast simulates a routine. */
@@ -55,8 +56,19 @@ export function useSuiteProject() {
   ]);
   const [cursor, setCursor] = useState(0);
   const [renderTime, setRenderTime] = useState(0);
-  const [projectPath, setProjectPath] = useState<string | null>(null);
+  // A desktop launch relinks the project's file and picks up whatever agents wrote meanwhile.
+  const [projectPath, setProjectPathState] = useState<string | null>(() => (desktop ? projectLink(loaded.project.id) : null));
   const [diskConflict, setDiskConflict] = useState(false);
+  /** The file's version while it conflicts with unsaved edits here. */
+  const [diskVersion, setDiskVersion] = useState<SuiteProject | null>(null);
+  /** Why the linked file can't be loaded (the last good version stays on screen). */
+  const [diskError, setDiskError] = useState<string | null>(null);
+  const [reloadedAt, setReloadedAt] = useState<Date | null>(null);
+  /** Canonical text of the file at the last read or write, and the revision known to match it. */
+  const lastDiskKey = useRef<string | undefined>(undefined);
+  const syncedRevision = useRef<number | undefined>(undefined);
+  const projectRef = useRef(project);
+  projectRef.current = project;
   const conflictRef = useRef(false);
   const pendingWrites = useRef(0);
   const writeChain = useRef(Promise.resolve());
@@ -97,12 +109,15 @@ export function useSuiteProject() {
       const path = projectPath;
       writeChain.current = writeChain.current
         .then(async () => {
-          if (!conflictRef.current)
+          if (!conflictRef.current) {
             await invoke("write_suite_project", {
               path,
               project: next,
               expectedRevision: next.revision - 1,
             });
+            lastDiskKey.current = projectKey(next);
+            syncedRevision.current = next.revision;
+          }
         })
         .catch((e) => {
           conflictRef.current = true;
@@ -113,6 +128,14 @@ export function useSuiteProject() {
           pendingWrites.current--;
         });
     }
+  };
+  const setProjectPath = (path: string | null, id = project.id) => {
+    setProjectPathState(path);
+    if (desktop) setProjectLink(id, path);
+    lastDiskKey.current = undefined;
+    syncedRevision.current = undefined;
+    setDiskError(null);
+    setDiskVersion(null);
   };
   const reconcileSignals = (next: SuiteProject) =>
     setSignals(
@@ -197,7 +220,7 @@ export function useSuiteProject() {
   /** Replace the whole working project (open, import, switch, disk reload). */
   const adopt = (next: SuiteProject, path: string | null, message: string) => {
     setProject(next);
-    setProjectPath(path);
+    setProjectPath(path, next.id);
     conflictRef.current = false;
     setDiskConflict(false);
     setRoutineId(next.routines[0].id);
@@ -298,40 +321,107 @@ export function useSuiteProject() {
     setPlaying((p) => !p);
   };
 
-  // Linked project file: pick up agent edits made on disk.
+  /** Adopt the file's version in place: keep the routine, step and other pages' selections. */
+  const reloadFromDisk = (next: SuiteProject) => {
+    saveProject(next, projectRef.current);
+    past.current = [...past.current.slice(-49), projectRef.current];
+    future.current = [];
+    setProject(next);
+    lastDiskKey.current = projectKey(next);
+    syncedRevision.current = next.revision;
+    conflictRef.current = false;
+    setDiskConflict(false);
+    setDiskVersion(null);
+    const r = next.routines.find((r) => r.id === routine.id) ?? next.routines[0];
+    setRoutineId(r.id);
+    setSelected(selected === "@start" || r.nodes.some((n) => n.id === selected) ? selected : r.initial);
+    reconcileSignals(next);
+    reset(next, r.id);
+    setReloadedAt(new Date());
+    setHistoryTick((t) => t + 1);
+  };
+  const reloadRef = useRef(reloadFromDisk);
+  reloadRef.current = reloadFromDisk;
+
+  // Linked project file: pick up edits made on disk (agents, generators, git). Polling handles
+  // temp-file-plus-rename saves; a file that fails to parse twice in a row is reported, and the
+  // last good version stays until the next good write. Our own writes are recognized by content.
   useEffect(() => {
-    if (!projectPath || !desktop || diskConflict) return;
+    if (!projectPath || !desktop) return;
     let cancelled = false,
-      inFlight = false;
-    const timer = setInterval(async () => {
+      inFlight = false,
+      failures = 0;
+    const poll = async () => {
       if (inFlight || pendingWrites.current || projectIO.current) return;
       inFlight = true;
       try {
-        const value = await invoke<unknown>("read_suite_project", {
-          path: projectPath,
-        });
-        const next = parseProject(JSON.stringify(value));
-        if (
-          !cancelled &&
-          !projectIO.current &&
-          !pendingWrites.current &&
-          next.revision !== project.revision
-        ) {
-          saveProject(next, project);
-          adopt(next, projectPath, "Project updated from disk by another editor.");
+        let next: SuiteProject;
+        try {
+          next = parseProject(JSON.stringify(await invoke<unknown>("read_suite_project", { path: projectPath })));
+        } catch (e) {
+          // A half-written file usually parses on the next read; only report it if it persists.
+          if (!cancelled && ++failures >= 2) setDiskError(e instanceof Error ? e.message : String(e));
+          return;
         }
-      } catch (e) {
-        if (!cancelled) notify(String(e));
+        failures = 0;
+        if (cancelled || projectIO.current || pendingWrites.current) return;
+        setDiskError(null);
+        const decision = diskDecision(next, projectRef.current, {
+          lastDiskKey: lastDiskKey.current,
+          synced: syncedRevision.current,
+          conflict: conflictRef.current,
+        });
+        lastDiskKey.current = projectKey(next);
+        if (decision === "same") {
+          if (projectKey(next) === projectKey(projectRef.current)) syncedRevision.current = projectRef.current.revision;
+          return;
+        }
+        if (decision === "conflict") {
+          conflictRef.current = true;
+          setDiskConflict(true);
+          setDiskVersion(next);
+          return;
+        }
+        reloadRef.current(next);
       } finally {
         inFlight = false;
       }
-    }, 1500);
+    };
+    void poll();
+    const timer = setInterval(poll, 1000);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectPath, project.revision, diskConflict, notify]);
+  }, [projectPath]);
+
+  /** Resolve a conflict: take the file (your version is kept as a copy in Projects), or keep yours. */
+  const takeDiskVersion = () => {
+    const disk = diskVersion;
+    if (!disk || !projectPath) return;
+    const copy = keepCopy(projectRef.current, `my edits ${new Date().toLocaleTimeString()}`);
+    reloadFromDisk(disk);
+    notify(`Loaded the file's version. Your edits are kept as the project "${copy.name}" (Switch project).`);
+  };
+  const keepMyVersion = () =>
+    guardIO(async () => {
+      const path = projectPath;
+      if (!path) return;
+      await writeChain.current;
+      const disk = parseProject(JSON.stringify(await invoke<unknown>("read_suite_project", { path })));
+      const next = { ...projectRef.current, revision: disk.revision + 1 };
+      await invoke("write_suite_project", { path, project: next, expectedRevision: disk.revision });
+      saveProject(next, projectRef.current);
+      setProject(next);
+      lastDiskKey.current = projectKey(next);
+      syncedRevision.current = next.revision;
+      conflictRef.current = false;
+      setDiskConflict(false);
+      setDiskVersion(null);
+      notify("Your version was saved to the project file.");
+    });
+  const diskChanges = useMemo(() => (diskVersion ? projectDiff(project, diskVersion) : []), [project, diskVersion]);
 
   const openNativeProject = () =>
     guardIO(async () => {
@@ -375,7 +465,9 @@ export function useSuiteProject() {
       });
       activateProject(next, project);
       setProject(next);
-      setProjectPath(path);
+      setProjectPath(path, next.id);
+      lastDiskKey.current = projectKey(next);
+      syncedRevision.current = next.revision;
       conflictRef.current = false;
       setDiskConflict(false);
       notify("Project file saved and linked. Edits now save to it automatically.");
@@ -396,7 +488,8 @@ export function useSuiteProject() {
     try {
       await writeChain.current;
       activateProject(next, project);
-      adopt(next, null, `Opened ${next.name}.`);
+      const path = desktop ? projectLink(next.id) : null;
+      adopt(next, path, path ? `Opened ${next.name}; watching ${path}.` : `Opened ${next.name}.`);
     } finally {
       projectIO.current = false;
     }
@@ -714,6 +807,11 @@ export function useSuiteProject() {
     // project files
     projectPath,
     diskConflict,
+    diskError,
+    diskChanges,
+    reloadedAt,
+    takeDiskVersion,
+    keepMyVersion,
     openNativeProject,
     saveNativeProject,
     importProject,
