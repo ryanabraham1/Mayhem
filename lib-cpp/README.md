@@ -62,7 +62,21 @@ The output is **field-relative meters/second and radians/second**. Convert for y
 
 ## Optional exported routine executor
 
-Generate a header with `node scripts/mayhem.mjs cpp project.mayhem.json > autos.hpp`. It supplies `mayhem_generated::routine_0::routine` and `routine_0::startPose` (and equivalent namespaces for additional routines). The global `startPose` is the robot default.
+Generate a header with `node scripts/mayhem.mjs cpp project.mayhem.json --out src/main/include/MayhemProject.h` (or `> file`), and fail CI when it is stale with `node scripts/mayhem.mjs cpp project.mayhem.json --check src/main/include/MayhemProject.h` (exit 1 with a regenerate command; CRLF checkouts pass). `--out` leaves an up-to-date file untouched. The command prints nothing on stderr when it succeeds. Output depends only on project content: not the project `revision`, not JSON key order. Everything is in `namespace mayhem_generated` and is `constexpr`:
+
+| Name | Contents |
+| --- | --- |
+| `fieldLength`, `fieldWidth` | Project field size (m), for `AllianceRoutine` |
+| `startPose` | Robot default start pose |
+| `routine_<i>::name`, `::routine`, `::startPose`, `::info` | Chooser label, `RoutineView`, start pose (routine override or robot default), `RoutineInfo{name, routine, startPose}` |
+| `routines` | `std::array<RoutineInfo, N>` of every routine in project order; `mayhem::FindRoutine(routines, nameOrId)` |
+| `autonomous::manifest` | `ManifestView` of one `Autonomous` mayhem-machine manifest covering every routine (see below) |
+| `machine_<i>::machine`, `::manifest`, `::id`; alias `<MachineId>::` | Each `extensions.machines` graph as a `MachineView` with its embedded manifest (see Mechanism state machines) |
+| `machines` | `std::array<MachineView, M>` of every machine |
+
+Manifests are embedded as canonical JSON (sorted keys) split into ~2 KB literals, because MSVC rejects string literals over 64 KB; `manifest.Text()` returns the joined `std::string` (allocates; call at startup). The exporter validates every machine with the same rules as the editor and fails on an invalid or duplicate one.
+
+**Autonomous manifest convention.** Its states are the union of all routines' nodes (a node ID used by several routines is one state, so give nodes distinct IDs when they mean different things). Its transitions are every routine's transitions with ID `"<routine id>/<transition id>"`, which makes them unique across routines. `AutoRunner::Attach` reports observations with the same IDs under machine `Autonomous` and channel `/Mayhem/States/Autonomous/state`, so the live viewer and log replay show any routine against the one manifest.
 
 Derive `RobotHooks` in your robot project. Return real typed `SignalValue`s; implement `BeginAction`, `TickAction`, and `EndAction` with your existing mechanism/scheduler code. `TickAction` explicitly returns Running, Succeeded, or Failed. `EndAction` also receives cancellation. Do not return success merely because time elapsed. String signal views must refer to storage that remains valid during guard evaluation.
 

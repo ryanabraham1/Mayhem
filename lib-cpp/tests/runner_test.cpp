@@ -112,8 +112,8 @@ int main() {
     assert(std::abs(runner2.LastResult().translationError-2)<1e-9);
     assert(std::abs(runner2.LastResult().rotationError-std::atan2(5,2))<1e-9);
     assert(recorder.lastTranslation==runner2.LastResult().translationError&&!recorder.lastReached);
-    mayhem::Pose pose;mayhem::Velocity v;
-    for(int i=0;i<1000&&runner2.Status()==mayhem::RunStatus::Running;i++){v=runner2.Tick(pose,v,.02);pose.x+=v.vx*.02;pose.y+=v.vy*.02;pose.heading=mayhem::Wrap(pose.heading+v.omega*.02);}
+    mayhem::Pose at;mayhem::Velocity v;
+    for(int i=0;i<1000&&runner2.Status()==mayhem::RunStatus::Running;i++){v=runner2.Tick(at,v,.02);at.x+=v.vx*.02;at.y+=v.vy*.02;at.heading=mayhem::Wrap(at.heading+v.omega*.02);}
     assert(runner2.Status()==mayhem::RunStatus::Completed&&recorder.lastReached&&!runner2.ActiveGoal());
     const std::vector<std::string> tail(recorder.log.end()-3,recorder.log.end());
     assert(tail[0]=="guard Autonomous drive-test/arrive condition 1");

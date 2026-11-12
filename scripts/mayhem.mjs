@@ -1,6 +1,16 @@
 #!/usr/bin/env node
 // Node 24+ strips TypeScript: UI and agents share the exact authoring/preview core.
 import "./suite-imports.mjs";
+// The import hook relies on node:module stripTypeScriptTypes, which prints an
+// ExperimentalWarning on first use. CI and Gradle treat stderr output as a problem,
+// so drop exactly that warning; every other warning is still reported.
+const emitWarning = process.emitWarning;
+process.emitWarning = function (warning, ...rest) {
+  const type = typeof rest[0] === "string" ? rest[0] : rest[0]?.type;
+  const text = typeof warning === "string" ? warning : warning?.message ?? "";
+  if (type === "ExperimentalWarning" && /stripTypeScriptTypes|Type Stripping/.test(text)) return;
+  return emitWarning.call(this, warning, ...rest);
+};
 import {
   readFile,
   writeFile,
@@ -40,7 +50,7 @@ const tools = [
   {
     name: "export_cpp",
     description:
-      "Generate a standalone C++ header for the optional Mayhem AutoRunner. Custom robot code remains unrestricted. Returns code; does not deploy.",
+      "Generate the standalone C++17 header for a robot: every routine (RoutineView, name, start pose, `routines` array), one Autonomous manifest, every extensions.machines graph as a mayhem::StateMachine MachineView with its manifest, and the field size. Deterministic. Custom robot code remains unrestricted. Returns code; does not deploy. From a shell, `cpp <project> --out <header>` writes it and `--check <header>` fails if stale.",
     inputSchema: {
       type: "object",
       properties: { path: { type: "string" } },
@@ -408,7 +418,7 @@ async function main() {
             capabilities: { tools: {} },
             serverInfo: { name: "mayhem-suite", version: "0.1.0" },
             instructions:
-              "Use BLine-style live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. See docs/SUITE_AGENTS.md.",
+              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. See docs/SUITE_AGENTS.md.",
           };
         else if (request.method === "tools/list") result = { tools };
         else if (request.method === "tools/call") {
@@ -458,6 +468,43 @@ async function main() {
     }
     return;
   }
+  if (command === "cpp") {
+    // cpp <project> [--out <header>] [--check <header>]
+    const flags = process.argv.slice(4);
+    let out, check;
+    for (let i = 0; i < flags.length; i++) {
+      if (flags[i] === "--out" && flags[i + 1]) out = flags[++i];
+      else if (flags[i] === "--check" && flags[i + 1]) check = flags[++i];
+      else throw new Error("Usage: node scripts/mayhem.mjs cpp <project> [--out <header>] [--check <header>]");
+    }
+    const { code } = await execute("export_cpp", { path });
+    if (check) {
+      let current = null;
+      try {
+        current = (await readFile(check, "utf8")).replace(/\r\n/g, "\n");
+      } catch (e) {
+        if (e.code !== "ENOENT") throw e;
+      }
+      if (current !== code) {
+        console.error(`${check} is ${current === null ? "missing" : "stale"}. Regenerate: node scripts/mayhem.mjs cpp ${path} --out ${check}`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+    if (out) {
+      // Leave an up-to-date header untouched so builds do not recompile it.
+      const current = await readFile(out, "utf8").catch(() => null);
+      if (current !== code) {
+        await mkdir(dirname(resolve(out)), { recursive: true });
+        const temporary = `${out}.${process.pid}.tmp`;
+        await writeFile(temporary, code);
+        await rename(temporary, out);
+      }
+      return;
+    }
+    process.stdout.write(code);
+    return;
+  }
   if (command === "example") {
     console.log(JSON.stringify(sampleProject, null, 2));
     return;
@@ -473,7 +520,7 @@ async function main() {
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")

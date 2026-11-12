@@ -29,7 +29,8 @@ node scripts/mayhem.mjs validate robot.mayhem.json
 node scripts/mayhem.mjs simulate robot.mayhem.json '{"mode":"path"}'
 node scripts/mayhem.mjs simulate robot.mayhem.json '{"signals":{"pieceDetected":true,"shooterReady":true,"shotComplete":true},"actions":{"intake.acquire":"succeeded","shooter.fire":"succeeded"}}'
 node scripts/mayhem.mjs simulate robot.mayhem.json '{"freezeDrive":true}'
-node scripts/mayhem.mjs cpp robot.mayhem.json > robot_autos.hpp
+node scripts/mayhem.mjs cpp robot.mayhem.json --out src/main/include/MayhemProject.h
+node scripts/mayhem.mjs cpp robot.mayhem.json --check src/main/include/MayhemProject.h
 node scripts/mayhem.mjs analyze run.wpilog
 node scripts/mayhem.mjs live roborio-3256-frc.local '{"topics":["/Robot/BatteryVoltage"],"durationMs":1000}'
 ```
@@ -65,6 +66,21 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 ```
 
 Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+
+## Generated C++ for robot code
+
+Use the official exporter; do not maintain a second one in the robot repo. `cpp <project> --out <header>` writes a C++17 header (and leaves an up-to-date file untouched); `cpp <project> --check <header>` exits 1 with a regenerate command when the header is stale, so put it in CI or a Gradle task. Output depends only on project content (not `revision` or key order) and a successful run writes nothing to stderr. The header (`namespace mayhem_generated`) contains:
+
+- every routine: `routine_<i>::routine`, `::name` (chooser label), `::startPose`, and the `routines` array of `mayhem::RoutineInfo{name, routine, startPose}` (`mayhem::FindRoutine(routines, nameOrId)`);
+- `autonomous::manifest`: one `Autonomous` mayhem-machine manifest for the live viewer and log replay. States are the union of routine nodes; transition IDs are `"<routine id>/<transition id>"` (`mayhem::QualifiedTransitionId`), unique across routines. `AutoRunner::Attach` reports with exactly these IDs;
+- every `extensions.machines` graph as a `mayhem::MachineView` (`machine_<i>::machine`, alias `<MachineId>::machine` when the ID is a C++ identifier, and the `machines` array), each with its manifest embedded (`manifest.Text()` for `Describe`);
+- `fieldLength` / `fieldWidth` for alliance transforms.
+
+In robot code (details and signatures in `lib-cpp/README.md`):
+
+- Mechanism graphs: `mayhem::StateMachine(machine, signalCallback)`, `Tick(dt)` each loop, read `State()` / `StateIndex()`. Guards are typed and fail closed; declaration order is priority; `stateTime` is built in. Do not emulate a machine with an AutoRunner routine of fake custom nodes.
+- Autos: `mayhem::AllianceRoutine(routines[i], fieldLength, fieldWidth)` then `Apply(FieldTransform::Flip)` for red (covers goal poses, PointAt aim points, rotation markers and the start pose). Do not flip nodes by hand.
+- `AutoRunner` clamps a loop overrun (`dt > RunnerOptions::maxDt`, default 0.1 s) instead of failing the routine; watchdogs use real time. Read goal errors from `LastResult()` / `ActiveGoal()` instead of recomputing them, or `Attach(observer, autonomous::manifest, clock)` to emit Enter/Guard/Transition/GoalProgress.
 
 ## Digging into logs
 

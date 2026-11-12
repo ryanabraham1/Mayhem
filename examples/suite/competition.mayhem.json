@@ -180,5 +180,87 @@
       ]
     }
   ],
-  "extensions": {}
+  "extensions": {
+    "machines": [
+      {
+        "format": "mayhem-machine",
+        "version": 1,
+        "id": "Intake",
+        "name": "Intake state machine",
+        "initial": "Idle",
+        "states": [
+          {
+            "id": "Idle",
+            "name": "Idle",
+            "description": "Wait for a request from the robot coordinator."
+          },
+          {
+            "id": "Acquiring",
+            "name": "Acquiring",
+            "description": "Run the intake until a piece is detected."
+          },
+          {
+            "id": "Holding",
+            "name": "Holding",
+            "description": "Hold the piece until the scoring request."
+          }
+        ],
+        "inputs": [
+          {
+            "key": "intake.requested",
+            "name": "Intake requested",
+            "type": "boolean",
+            "initial": false
+          },
+          {
+            "key": "intake.hasPiece",
+            "name": "Piece detected",
+            "type": "boolean",
+            "initial": false
+          },
+          {
+            "key": "intake.release",
+            "name": "Release requested",
+            "type": "boolean",
+            "initial": false
+          }
+        ],
+        "transitions": [
+          {
+            "id": "acquire",
+            "from": "Idle",
+            "to": "Acquiring",
+            "condition": {
+              "kind": "signal",
+              "key": "intake.requested",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "captured",
+            "from": "Acquiring",
+            "to": "Holding",
+            "condition": {
+              "kind": "signal",
+              "key": "intake.hasPiece",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "release",
+            "from": "Holding",
+            "to": "Idle",
+            "condition": {
+              "kind": "signal",
+              "key": "intake.release",
+              "op": "eq",
+              "value": true
+            }
+          }
+        ]
+      }
+    ]
+  }
 }

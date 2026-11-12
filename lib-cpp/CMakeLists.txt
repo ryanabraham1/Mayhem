@@ -11,7 +11,7 @@ target_include_directories(mayhem_core INTERFACE
 target_compile_features(mayhem_core INTERFACE cxx_std_17)
 include(CTest)
 if(BUILD_TESTING)
-  foreach(name controller runner alliance state_machine)
+  foreach(name controller runner alliance state_machine generated)
     add_executable(mayhem_${name}_test tests/${name}_test.cpp)
     target_link_libraries(mayhem_${name}_test PRIVATE mayhem_core)
     add_test(NAME ${name} COMMAND mayhem_${name}_test)
