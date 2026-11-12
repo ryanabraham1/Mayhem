@@ -34,13 +34,23 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
 
-if git clone --quiet --depth 1 --branch "$BRANCH" "$REMOTE" pages 2>/dev/null; then
+# Start a fresh branch only when the remote really has none (ls-remote exits 2); a network or
+# auth error (exit 128) must not be mistaken for that.
+set +e
+git ls-remote --exit-code --heads "$REMOTE" "$BRANCH" >/dev/null
+EXISTS=$?
+set -e
+if [[ $EXISTS -eq 0 ]]; then
+  git clone --quiet --depth 1 --branch "$BRANCH" "$REMOTE" pages
   cd pages
-else
+elif [[ $EXISTS -eq 2 ]]; then
   # First publish: start the branch from scratch (it holds only hosted files, no source history).
   mkdir pages && cd pages
   git init --quiet -b "$BRANCH"
   git remote add origin "$REMOTE"
+else
+  echo "cannot reach $REMOTE (git ls-remote exit $EXISTS); nothing published" >&2
+  exit 1
 fi
 
 if [[ -d "maven/$ARTIFACT_DIR/$VERSION" ]]; then

@@ -71,6 +71,34 @@ Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `
 
 ## Generated C++ for robot code
 
+**Stable downloads.** Every release `vX.Y.Z` (from v0.9.13) carries, at
+`https://github.com/ryanabraham1/Mayhem/releases/download/vX.Y.Z/<file>`:
+
+| File | Contents |
+| --- | --- |
+| `Mayhem-suite-tools-vX.Y.Z.zip` | Node CLI/MCP (`Mayhem-suite-tools-vX.Y.Z/scripts/mayhem.mjs`), the C++ headers it vendors, docs, examples. Node 24+, no npm install. |
+| `Mayhem-cpp-vX.Y.Z.zip` | Header-only C++ library with CMake files and tests. |
+| `Mayhem-suite-SHA256SUMS.txt` | SHA-256 of both archives. |
+| `MayhemCpp.json`, `MayhemCpp-maven.zip` | The C++ vendordep and its maven repo, for offline installs. |
+
+The hosted vendordep is `https://ryanabraham1.github.io/Mayhem/MayhemCpp.json` (maven at
+`https://ryanabraham1.github.io/Mayhem/maven/`, artifact `mayhemlib:MayhemCpp-cpp:<C++ version>`).
+Pin the tools to a release in robot CI rather than cloning the repo:
+
+```sh
+MAYHEM=v0.9.13
+curl -fsSLO "https://github.com/ryanabraham1/Mayhem/releases/download/$MAYHEM/Mayhem-suite-tools-$MAYHEM.zip"
+curl -fsSLO "https://github.com/ryanabraham1/Mayhem/releases/download/$MAYHEM/Mayhem-suite-SHA256SUMS.txt"
+grep " Mayhem-suite-tools-$MAYHEM.zip\$" Mayhem-suite-SHA256SUMS.txt | shasum -a 256 -c -   # sha256sum -c on Linux
+unzip -q "Mayhem-suite-tools-$MAYHEM.zip"
+node "Mayhem-suite-tools-$MAYHEM/scripts/mayhem.mjs" cpp robot.mayhem.json --check src/main/include/MayhemProject.h
+```
+
+`releases/latest/download/...` is not stable for these because the file names contain the tag;
+always pin. Releases built locally while GitHub Actions is unavailable are macOS-only for the
+desktop app, but still attach these files.
+
+
 Use the official exporter; do not maintain a second one in the robot repo. `cpp <project> --out <header>` writes a C++17 header (and leaves an up-to-date file untouched); `cpp <project> --check <header>` exits 1 with a regenerate command when the header is stale, so put it in CI or a Gradle task. Output depends only on project content (not `revision` or key order) and a successful run writes nothing to stderr. The header (`namespace mayhem_generated`) contains:
 
 - every routine: `routine_<i>::routine`, `::name` (chooser label), `::startPose`, and the `routines` array of `mayhem::RoutineInfo{name, routine, startPose}` (`mayhem::FindRoutine(routines, nameOrId)`);
