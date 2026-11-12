@@ -15,36 +15,3 @@
   stroke-width: 0.085;
   opacity: 0.9;
 }
-/* Robot outline where an event marker (pickup) fires. */
-.mx-footprint {
-  pointer-events: auto;
-  cursor: help;
-}
-.mx-footprint rect {
-  fill: none;
-  stroke: var(--mx-path);
-  stroke-width: 0.025;
-  stroke-dasharray: 0.06 0.05;
-  opacity: 0.7;
-}
-.mx-footprint .mx-footprint-front {
-  stroke: var(--mx-path);
-  stroke-width: 0.05;
-  stroke-linecap: round;
-}
-.mx-footprint.is-warning rect {
-  stroke: var(--mx-bad);
-  stroke-dasharray: none;
-  opacity: 0.9;
-}
-.mx-footprint.is-warning .mx-footprint-front {
-  stroke: var(--mx-bad);
-}
-.mx-footprint-flag circle {
-  fill: var(--mx-bad);
-}
-.mx-footprint-flag text {
-  fill: #fff;
-  font-size: 0.2px;
-  font-weight: 700;
-}

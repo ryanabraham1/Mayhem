@@ -25,7 +25,6 @@ import { PathConstraints } from "./PathConstraints";
 import { RoutineRail } from "./RoutineRail";
 import { ShortcutSheet } from "./ShortcutSheet";
 import { RouteFootprints } from "./RouteFootprints";
-import { headingLints } from "../core/headingLint.ts";
 
 const tools = [
   {
@@ -153,11 +152,6 @@ export function AutosPage({ s }: { s: SuiteState }) {
         node: f.node,
       })),
     [s.forecast],
-  );
-  // Pickup events (event markers) that fire with the front > 45° off the direction of travel.
-  const pickupLints = useMemo(
-    () => headingLints(s.forecast.frames, undefined, (id) => s.routine.nodes.find((n) => n.id === id)?.name ?? id),
-    [s.forecast, s.routine],
   );
   const maxSpeed = Math.max(
     ...s.forecast.frames.map((f) => Math.hypot(f.velocity.vx, f.velocity.vy)),
@@ -294,10 +288,7 @@ export function AutosPage({ s }: { s: SuiteState }) {
             overlay={
               <RouteFootprints
                 frames={s.forecast.frames}
-                length={s.project.robot.length}
-                width={s.project.robot.width}
                 fieldHeight={s.project.field.height}
-                lints={pickupLints}
                 focus={leg?.nodeIds}
               />
             }
