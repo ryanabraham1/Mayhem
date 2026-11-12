@@ -107,3 +107,79 @@ test("input categories show as glyphs, group the inputs, and explain transitions
   await expect(page.locator(".mx-cause")).toHaveText("Parked → Ready because Odeploy");
   await page.screenshot({ path: info.outputPath("categories.png") });
 });
+
+test("inspector exits wrap as text in a narrow window, with the target below the condition", async ({ page }, info) => {
+  page.on("pageerror", (error) => { throw error; });
+  await page.goto("/");
+  const sig = (key: string, value: boolean | number = true, op = "eq") => ({ kind: "signal", key, op, value });
+  const machine = {
+    format: "mayhem-machine", version: 1, id: "IntakeSequence", name: "Intake sequence", initial: "CLEARING_HOOD",
+    states: [
+      { id: "CLEARING_HOOD", name: "Clearing hood" }, { id: "PARKED", name: "Parked / no deployment demand" },
+      { id: "DEPLOYING", name: "Deploy slide to intake" }, { id: "FAULT", name: "Clearance or deployment fault" },
+    ],
+    inputs: [
+      { key: "deploy", name: "Deploy", type: "boolean", initial: false, category: "operator" },
+      { key: "enabled", name: "Enabled", type: "boolean", initial: false, category: "sensor" },
+      { key: "hoodClear", name: "Hood clear", type: "boolean", initial: false, category: "sensor" },
+      { key: "stateTime", name: "Seconds in state", type: "number", initial: 0 },
+    ],
+    transitions: [
+      { id: "park", from: "CLEARING_HOOD", to: "PARKED", condition: { kind: "any", conditions: [sig("deploy", false), sig("enabled", false)] } },
+      { id: "deploy", from: "CLEARING_HOOD", to: "DEPLOYING", condition: { kind: "all", conditions: [sig("deploy"), sig("hoodClear")] } },
+      { id: "fault", from: "CLEARING_HOOD", to: "FAULT", name: "Hood clearance timed out", description: "The hood never cleared the slide.",
+        condition: { kind: "all", conditions: [sig("deploy"), sig("hoodClear", false), sig("stateTime", 2.5, "gt")] } },
+    ],
+  };
+  await page.getByRole("button", { name: "State machines", exact: true }).click();
+  await page.locator("label", { hasText: "Import machine" }).locator("input[type=file]").setInputFiles({
+    name: "intake.machine.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(machine)),
+  });
+  // Narrow window (the nav collapses to icons below this, so shrink after navigating).
+  await page.setViewportSize({ width: 900, height: 900 });
+  const rows = page.locator(".mx-guard-edge");
+  await expect(rows).toHaveCount(3);
+  const width = await page.locator(".mx-inspector").evaluate((e) => e.getBoundingClientRect().width);
+  expect(width).toBeLessThan(330); // genuinely narrow
+  for (let i = 0; i < 3; i++) {
+    const row = rows.nth(i);
+    const layout = await row.evaluate((el) => {
+      const main = el.querySelector(".mx-guard-main")!.getBoundingClientRect();
+      const target = el.querySelector(".mx-guard-target")!.getBoundingClientRect();
+      const condition = el.querySelector(".mx-guard-condition")!;
+      // A term (badge + key) or a number never splits across lines.
+      const split = [...condition.querySelectorAll(".mx-term")].filter((t) => {
+        const tops = [...t.getClientRects()].map((x) => x.top).sort((a, b) => a - b);
+        return tops.some((v, i) => i > 0 && v - tops[i - 1] > 6);
+      }).length;
+      const walker = document.createTreeWalker(condition, NodeFilter.SHOW_TEXT);
+      // Distinct text lines among rects; inline-block badges sit a pixel or two off the text.
+      const lineCount = (rects: DOMRect[]) => {
+        const tops = rects.filter((x) => x.width > 0).map((x) => x.top).sort((a, b) => a - b);
+        return tops.filter((t, i) => i === 0 || t - tops[i - 1] > 6).length;
+      };
+      const lines = (node: Node, start: number, end: number) => {
+        const r = document.createRange(); r.setStart(node, start); r.setEnd(node, end);
+        return lineCount([...r.getClientRects()]);
+      };
+      let brokenNumbers = 0, detachedOperators = 0;
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const text = n.textContent ?? "";
+        for (const m of text.matchAll(/\d+(\.\d+)?/g)) if (lines(n, m.index!, m.index! + m[0].length) > 1) brokenNumbers++;
+        // An operator must share a line with what follows it.
+        for (const m of text.matchAll(/[∧∨]/g)) {
+          const next = n.nextSibling ?? n.parentNode?.nextSibling;
+          const r = document.createRange(); r.setStart(n, m.index!);
+          if (next) r.setEndAfter(next); else r.setEnd(n, text.length);
+          if (lineCount([...r.getClientRects()]) > 1) detachedOperators++;
+        }
+      }
+      return { split, brokenNumbers, detachedOperators, targetBelow: target.top >= main.bottom - 1, name: el.querySelector(".mx-guard-main strong")?.textContent ?? null, condTop: condition.getBoundingClientRect().top, nameBottom: el.querySelector(".mx-guard-main strong")?.getBoundingClientRect().bottom ?? 0 };
+    });
+    expect(layout, `row ${i + 1}`).toMatchObject({ split: 0, brokenNumbers: 0, detachedOperators: 0, targetBelow: true });
+    if (layout.name) expect(layout.condTop).toBeGreaterThanOrEqual(layout.nameBottom - 1);
+  }
+  await expect(rows.nth(2).locator("strong")).toHaveText("Hood clearance timed out");
+  await expect(rows.nth(2).locator(".mx-guard-condition")).toContainText("2.5");
+  await page.locator(".mx-inspector").screenshot({ path: info.outputPath("narrow-inspector.png") });
+});

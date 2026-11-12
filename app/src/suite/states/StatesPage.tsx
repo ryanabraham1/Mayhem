@@ -608,14 +608,14 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                     {ok ? <Check size={14} /> : <Circle size={13} />}
                     <span className="mx-guard-main">
                       {t.name && <strong>{t.name}</strong>}
-                      <code>
+                      <code className="mx-guard-condition">
                         <ConditionText text={info.condition} isKey={isKey} categoryOf={categoryOf} />
                       </code>
                       {t.description && <small>{t.description}</small>}
                     </span>
                     <button
                       type="button"
-                      className="mx-link"
+                      className="mx-link mx-guard-target"
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelected(t.to);

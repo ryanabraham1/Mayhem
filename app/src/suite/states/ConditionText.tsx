@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { INPUT_CATEGORIES, type InputCategory } from "../core/inputCategories.ts";
 
 // Quoted string values, then identifiers (input keys may contain dots, slashes and dashes).
@@ -17,6 +17,18 @@ function tokens(text: string, isKey: (word: string) => boolean): { text: string;
   }
   if (last < text.length) out.push({ text: text.slice(last) });
   return out;
+}
+
+const NBSP = "\u00A0";
+/**
+ * Keep conditions readable when they wrap: an operator stays with the term after it
+ * (`a ∧ b` breaks only before `∧`), and a comparison (`stateTime > 2.5`) never splits.
+ */
+export function bind(text: string): string {
+  return text
+    .replace(/ ([∧∨]) /g, ` $1${NBSP}`)
+    .replace(/ ([<>=]) /g, `${NBSP}$1${NBSP}`)
+    .replace(/ (…) /g, ` $1${NBSP}`);
 }
 
 /** Plain text with each input followed by its category (for titles and messages). */
@@ -49,21 +61,40 @@ export function ConditionText({
   isKey: (key: string) => boolean;
   categoryOf: (key: string) => InputCategory;
 }) {
-  return (
-    <>
-      {tokens(text, isKey).map((t, i) => {
-        if (!t.key) return <Fragment key={i}>{t.text}</Fragment>;
-        const category = categoryOf(t.text);
-        const meta = INPUT_CATEGORIES[category];
-        return (
-          <span key={i} className={`mx-term is-${category}`} title={`${meta.label}: ${meta.description}`}>
-            <Badge category={category} />
-            {t.text}
-          </span>
-        );
-      })}
-    </>
-  );
+  // Each input becomes one unbreakable group with the operator before it ("∧ ¬", "(") and any
+  // comparison after it ("> 2.5"), so wrapping happens only between whole terms.
+  const parts = tokens(text, isKey).map((t) => (t.key ? t : { text: bind(t.text) }));
+  const out: ReactNode[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part.key) continue;
+    const before = parts[i - 1] && !parts[i - 1].key ? parts[i - 1].text : "";
+    const lead = /(?:[∧∨…]\u00A0)?[¬(]*$/.exec(before)![0];
+    const after = parts[i + 1] && !parts[i + 1].key ? parts[i + 1].text : "";
+    const trail = /^(?:\u00A0[<>=]\u00A0(?:"(?:[^"\\]|\\.)*"|[^\s)]+))?\)*/.exec(after)![0];
+    if (before) parts[i - 1] = { text: before.slice(0, before.length - lead.length) };
+    if (after) parts[i + 1] = { text: after.slice(trail.length) };
+    const category = categoryOf(part.text);
+    const meta = INPUT_CATEGORIES[category];
+    out.push(
+      <span key={`k${i}`} className="mx-term-group">
+        {lead}
+        <span className={`mx-term is-${category}`} title={`${meta.label}: ${meta.description}`}>
+          <Badge category={category} />
+          {part.text}
+        </span>
+        {trail}
+      </span>,
+    );
+  }
+  // Interleave the remaining plain text (spaces between groups) in order.
+  const result: ReactNode[] = [];
+  let k = 0;
+  parts.forEach((part, i) => {
+    if (part.key) result.push(out[k++]);
+    else if (part.text) result.push(<Fragment key={`t${i}`}>{part.text}</Fragment>);
+  });
+  return <>{result}</>;
 }
 
 /** Legend for the categories used by a machine. */

@@ -35,43 +35,80 @@ button.mx-edge-label.is-named {
   stroke: var(--mx-accent);
   stroke-width: 2.5;
 }
-/* Inspector: outgoing edges in priority order. */
+/* Inspector: outgoing edges in priority order. A grid, so the condition wraps as text in
+   its own column and the target link always sits on its own line below it. */
 .mx-guard.mx-guard-edge {
-  flex-wrap: wrap;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 1.4em 16px minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 4px;
+  align-items: start;
   text-align: left;
 }
-.mx-guard-edge .mx-guard-priority {
+.mx-guard-edge > .mx-guard-priority {
+  grid-column: 1;
+  margin: 1px 0 0;
   font-family: var(--mx-mono);
   font-size: 11px;
   color: var(--mx-faint);
-  min-width: 1.5em;
+}
+.mx-guard-edge > svg {
+  grid-column: 2;
+  margin-top: 2px;
+}
+.mx-guard-edge > .mx-guard-main,
+.mx-guard-edge > .mx-guard-target {
+  grid-column: 3;
+  min-width: 0;
   margin-left: 0;
+  justify-self: stretch;
+}
+/* `.mx-guard span` (margin-left: auto, muted color) is for the old one-line row; undo it
+   inside the edge content so terms and badges flow inline. */
+.mx-guard-edge .mx-guard-main span,
+.mx-guard-edge .mx-guard-target {
+  margin-left: 0;
+  font-size: inherit;
 }
 .mx-guard-edge .mx-guard-main {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex: 1 1 0;
-  min-width: 0;
 }
 .mx-guard-edge .mx-guard-main strong {
-  font-size: 12.5px;
+  font-size: 13px;
+  line-height: 1.3;
 }
-.mx-guard-edge .mx-guard-main code {
+/* The condition wraps between whole terms only (ConditionText binds operators and
+   comparisons with no-break spaces); a single over-long name may still break. */
+.mx-guard-edge .mx-guard-condition {
+  display: block;
+  font-size: 12px;
+  line-height: 1.55;
   white-space: normal;
-  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+.mx-guard-edge .mx-guard-main strong + .mx-guard-condition {
+  font-size: 11.5px;
+  opacity: 0.9;
 }
 .mx-guard-edge .mx-guard-main small {
   color: var(--mx-muted);
+  font-size: 11.5px;
+}
+.mx-guard-edge .mx-term-badge {
+  color: var(--mx-surface);
+}
+.mx-guard-edge > .mx-guard-target {
+  justify-self: start;
+  text-align: left;
+  font-size: 12.5px;
 }
 .mx-guard-edge.is-picked {
   outline: 2px solid var(--mx-accent);
   outline-offset: -2px;
 }
-
-.mx-machine-list button span { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
-.mx-machine-list button > svg { flex-shrink: 0; }
 /* State cards: names wrap to two lines instead of being cut off; the secondary line is
    pre-shortened in StateGraph (file name of a source path). Full text is in the title. */
 .mx-graph .mx-state strong {
@@ -173,4 +210,8 @@ button.mx-edge-label.is-named {
 .mx-derived .mx-term {
   font-family: var(--mx-mono);
   font-weight: 500;
+}
+/* A term with its operator and comparison never breaks across lines. */
+.mx-term-group {
+  white-space: nowrap;
 }
