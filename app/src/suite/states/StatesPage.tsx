@@ -517,7 +517,9 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                 if (!group.length) return [];
                 return [
                   <h4 key={`h-${category}`} className={`mx-input-group mx-term is-${category}`} title={INPUT_CATEGORIES[category].description}>
-                    <span className="mx-term-glyph">{INPUT_CATEGORIES[category].glyph}</span>
+                    <span className={`mx-term-badge is-${category}`} aria-hidden="true">
+                      {INPUT_CATEGORIES[category].letter}
+                    </span>
                     {INPUT_CATEGORIES[category].label}
                   </h4>,
                   ...group.map((input) => {

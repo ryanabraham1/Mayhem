@@ -4,13 +4,13 @@ import { conditionSignals } from "./machines.ts";
 export type { InputCategory } from "./model.ts";
 export { inputSourceProblem } from "./model.ts";
 export const INPUT_CATEGORY_ORDER: InputCategory[] = ["operator", "auto", "sensor", "internal", "timer"];
-// ⚙ and ⏱ carry U+FE0F so they render as emoji, the same size as the others.
-export const INPUT_CATEGORIES: Record<InputCategory, { label: string; glyph: string; letter: string; description: string }> = {
-  operator: { label: "Operator", glyph: "🎮", letter: "O", description: "Driver or controller request" },
-  auto: { label: "Autonomous", glyph: "🤖", letter: "A", description: "Request made by the autonomous routine" },
-  sensor: { label: "Sensor", glyph: "📡", letter: "S", description: "Measured: encoders, beam breaks, flywheel at speed, pose" },
-  internal: { label: "Internal", glyph: "⚙\uFE0F", letter: "I", description: "Code-derived state: latched intent, zone flags, other machines" },
-  timer: { label: "Timer", glyph: "⏱\uFE0F", letter: "T", description: "Time in the current state" },
+/** Each category is shown as a colored letter badge (no color-only cues, no emoji). */
+export const INPUT_CATEGORIES: Record<InputCategory, { label: string; letter: string; description: string }> = {
+  operator: { label: "Operator", letter: "O", description: "Driver or controller request" },
+  auto: { label: "Autonomous", letter: "A", description: "Request made by the autonomous routine" },
+  sensor: { label: "Sensor", letter: "S", description: "Measured: encoders, beam breaks, flywheel at speed, pose" },
+  internal: { label: "Internal", letter: "I", description: "Code-derived state: latched intent, zone flags, other machines" },
+  timer: { label: "Timer", letter: "T", description: "Time in the current state" },
 };
 export const isInputCategory = (v: unknown): v is InputCategory =>
   typeof v === "string" && v in INPUT_CATEGORIES;

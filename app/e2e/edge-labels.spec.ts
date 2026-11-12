@@ -60,8 +60,8 @@ test("long state names and source paths stay readable on state cards", async ({ 
   await page.locator(".mx-state", { hasText: "Parked" }).click();
   const row = page.locator(".mx-guard-edge").first();
   await expect(row).toContainText("Deploy");
-  // No category declared: the input is internal (⚙).
-  await expect(row.locator("code")).toHaveText("⚙\uFE0Fdeploy");
+  // No category declared: the input is internal (I).
+  await expect(row.locator("code")).toHaveText("Ideploy");
   await expect(row).toContainText("Driver asked to intake.");
   await page.screenshot({ path: info.outputPath("intake-cards.png") });
 });
@@ -92,18 +92,18 @@ test("input categories show as glyphs, group the inputs, and explain transitions
   });
   const legend = page.getByLabel("Input sources");
   for (const label of ["Operator", "Sensor", "Internal", "Timer"]) await expect(legend).toContainText(label);
-  // Edge labels mark each input with its category glyph (not color alone).
+  // Edge labels mark each input with its category letter (not color alone).
   const go = page.locator("button.mx-edge-label", { hasText: "deploy" });
-  await expect(go.locator(".mx-term.is-operator")).toContainText("🎮");
-  await expect(go.locator(".mx-term.is-sensor")).toContainText("📡");
-  await expect(page.locator("button.mx-edge-label .mx-term.is-timer")).toContainText("⏱\uFE0F");
+  await expect(go.locator(".mx-term.is-operator .mx-term-badge")).toHaveText("O");
+  await expect(go.locator(".mx-term.is-sensor .mx-term-badge")).toHaveText("S");
+  await expect(page.locator("button.mx-edge-label .mx-term.is-timer .mx-term-badge")).toHaveText("T");
   // Inputs are grouped by category; derived flags list their sources.
-  await expect(page.locator("h4.mx-input-group")).toHaveText(["🎮Operator", "📡Sensor", "⚙\uFE0FInternal", "⏱\uFE0FTimer"]);
+  await expect(page.locator("h4.mx-input-group")).toHaveText(["OOperator", "SSensor", "IInternal", "TTimer"]);
   await expect(page.locator(".mx-derived")).toContainText("deploy");
   // A simulated change explains the transition by the input that caused it.
   await page.getByRole("switch", { name: "Hood clear" }).click();
   await page.getByRole("switch", { name: "Deploy requested" }).click();
   await expect(page.locator(".mx-state.is-active")).toContainText("Ready");
-  await expect(page.locator(".mx-cause")).toHaveText("Parked → Ready because 🎮deploy");
+  await expect(page.locator(".mx-cause")).toHaveText("Parked → Ready because Odeploy");
   await page.screenshot({ path: info.outputPath("categories.png") });
 });

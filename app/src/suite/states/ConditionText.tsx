@@ -19,16 +19,25 @@ function tokens(text: string, isKey: (word: string) => boolean): { text: string;
   return out;
 }
 
-/** Plain text with each input prefixed by its category glyph (for titles and messages). */
+/** Plain text with each input followed by its category (for titles and messages). */
 export function glyphText(text: string, isKey: (key: string) => boolean, categoryOf: (key: string) => InputCategory): string {
   return tokens(text, isKey)
-    .map((t) => (t.key ? `${INPUT_CATEGORIES[categoryOf(t.text)].glyph} ${t.text}` : t.text))
+    .map((t) => (t.key ? `${t.text} (${INPUT_CATEGORIES[categoryOf(t.text)].label.toLowerCase()})` : t.text))
     .join("");
+}
+/** Small colored letter badge for a category. */
+function Badge({ category }: { category: InputCategory }) {
+  const meta = INPUT_CATEGORIES[category];
+  return (
+    <span className={`mx-term-badge is-${category}`} aria-label={meta.label} role="img">
+      {meta.letter}
+    </span>
+  );
 }
 
 /**
  * Condition text (as produced by compactCondition/edgeLabels) with each input key drawn in
- * its category color and prefixed with the category glyph, so the source is visible without
+ * its category color and prefixed with a letter badge, so the source is visible without
  * relying on color.
  */
 export function ConditionText({
@@ -48,7 +57,7 @@ export function ConditionText({
         const meta = INPUT_CATEGORIES[category];
         return (
           <span key={i} className={`mx-term is-${category}`} title={`${meta.label}: ${meta.description}`}>
-            <span className="mx-term-glyph" aria-label={meta.label}>{meta.glyph}</span>
+            <Badge category={category} />
             {t.text}
           </span>
         );
@@ -64,7 +73,7 @@ export function CategoryLegend({ categories }: { categories: InputCategory[] }) 
     <div className="mx-category-legend" aria-label="Input sources">
       {categories.map((c) => (
         <span key={c} className={`mx-term is-${c}`} title={INPUT_CATEGORIES[c].description}>
-          <span className="mx-term-glyph">{INPUT_CATEGORIES[c].glyph}</span>
+          <Badge category={c} />
           {INPUT_CATEGORIES[c].label}
         </span>
       ))}

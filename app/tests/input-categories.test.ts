@@ -65,11 +65,11 @@ describe("transition causes", () => {
     expect(transitionCause(edges, "READY", "NOWHERE", {}, {})).toBeUndefined();
     expect(conditionKeys(all(sig("a"), sig("b"), sig("a", false)))).toEqual(["a", "b"]);
   });
-  it("renders glyphs for plain-text titles", () => {
+  it("names categories in plain-text titles", () => {
     const cat = categoryLookup([{ key: "jitterDemand", category: "operator" }, { key: "enabled", category: "sensor" }]);
     const isKey = (k: string) => ["jitterDemand", "enabled", "stateTime"].includes(k);
-    expect(glyphText("enabled ∧ jitterDemand", isKey, cat)).toBe("📡 enabled ∧ 🎮 jitterDemand");
-    expect(glyphText("stateTime > 2.5", isKey, cat)).toBe("⏱\uFE0F stateTime > 2.5");
+    expect(glyphText("enabled ∧ jitterDemand", isKey, cat)).toBe("enabled (sensor) ∧ jitterDemand (operator)");
+    expect(glyphText("stateTime > 2.5", isKey, cat)).toBe("stateTime (timer) > 2.5");
     expect(glyphText('mode = "enabled"', isKey, cat)).toBe('mode = "enabled"');
   });
 });

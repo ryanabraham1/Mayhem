@@ -109,11 +109,26 @@ button.mx-edge-label.is-named {
   white-space: nowrap;
   font-weight: 600;
 }
-.mx-term-glyph {
-  margin-right: 0.15em;
-  font-size: 0.95em;
-  font-weight: 400;
+/* Letter badge: O operator, S sensor, I internal, T timer, A auto. */
+.mx-term-badge {
+  display: inline-block;
+  min-width: 1.25em;
+  margin-right: 0.25em;
+  padding: 0 0.2em;
+  border-radius: 0.3em;
+  font-family: var(--mx-mono);
+  font-size: 0.82em;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  vertical-align: 0.05em;
+  color: var(--mx-surface);
 }
+.mx-term-badge.is-operator { background: var(--mx-cat-operator); }
+.mx-term-badge.is-auto { background: var(--mx-cat-auto); }
+.mx-term-badge.is-sensor { background: var(--mx-cat-sensor); }
+.mx-term-badge.is-internal { background: var(--mx-cat-internal); }
+.mx-term-badge.is-timer { background: var(--mx-cat-timer); }
 .mx-term.is-operator { color: var(--mx-cat-operator); }
 .mx-term.is-auto { color: var(--mx-cat-auto); }
 .mx-term.is-sensor { color: var(--mx-cat-sensor); }
