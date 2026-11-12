@@ -25,7 +25,6 @@ import { PreviewBar } from "./PreviewBar";
 import { PathConstraints } from "./PathConstraints";
 import { RoutineRail } from "./RoutineRail";
 import { ShortcutSheet } from "./ShortcutSheet";
-import { RouteFootprints } from "./RouteFootprints";
 
 const tools = [
   {
@@ -295,13 +294,6 @@ export function AutosPage({ s }: { s: SuiteState }) {
             speedPath={speedPath}
             maxSpeed={maxSpeed}
             focus={leg?.nodeIds}
-            overlay={
-              <RouteFootprints
-                frames={s.forecast.frames}
-                fieldHeight={s.project.field.height}
-                focus={leg?.nodeIds}
-              />
-            }
             selected={s.selected}
             tool={tool}
             select={inspect}
