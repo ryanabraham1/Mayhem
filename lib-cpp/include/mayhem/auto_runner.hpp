@@ -2,6 +2,7 @@
 #include "mayhem/pose_controller.hpp"
 #include "mayhem/signals.hpp"
 #include "mayhem/state_observer.hpp"
+#include "mayhem/version.hpp"
 #include <string>
 #include <string_view>
 #include <type_traits>

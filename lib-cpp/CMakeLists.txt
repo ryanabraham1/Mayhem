@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
-project(MayhemCore VERSION 0.1.0 LANGUAGES CXX)
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/include/mayhem/version.hpp MAYHEM_VERSION_LINE REGEX "^#define MAYHEM_CPP_VERSION ")
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" MAYHEM_CPP_VERSION "${MAYHEM_VERSION_LINE}")
+project(MayhemCore VERSION ${MAYHEM_CPP_VERSION} LANGUAGES CXX)
 add_library(mayhem_core INTERFACE)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)

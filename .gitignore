@@ -33,3 +33,5 @@ artifacts/
 app/playwright-report/
 app/test-results/
 lib-cpp/consumer-build/
+lib-cpp/vendordep-build/
+/build/

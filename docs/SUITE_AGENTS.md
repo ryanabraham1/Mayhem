@@ -65,7 +65,7 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 }
 ```
 
-Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
 
 ## Generated C++ for robot code
 
@@ -80,6 +80,7 @@ In robot code (details and signatures in `lib-cpp/README.md`):
 
 - Mechanism graphs: `mayhem::StateMachine(machine, signalCallback)`, `Tick(dt)` each loop, read `State()` / `StateIndex()`. Guards are typed and fail closed; declaration order is priority; `stateTime` is built in. Do not emulate a machine with an AutoRunner routine of fake custom nodes.
 - Autos: `mayhem::AllianceRoutine(routines[i], fieldLength, fieldWidth)` then `Apply(FieldTransform::Flip)` for red (covers goal poses, PointAt aim points, rotation markers and the start pose). Do not flip nodes by hand.
+- Install the headers with the MayhemCpp vendordep (`https://ryanabraham1.github.io/Mayhem/MayhemCpp.json`) or `node scripts/mayhem.mjs vendor <robot dir>` (copies `lib-cpp/include/mayhem` and writes a SHA-256 snapshot; `--check` for CI). Do not hand-copy headers or keep your own hash file.
 - `AutoRunner` clamps a loop overrun (`dt > RunnerOptions::maxDt`, default 0.1 s) instead of failing the routine; watchdogs use real time. Read goal errors from `LastResult()` / `ActiveGoal()` instead of recomputing them, or `Attach(observer, autonomous::manifest, clock)` to emit Enter/Guard/Transition/GoalProgress.
 
 ## Digging into logs

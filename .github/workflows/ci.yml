@@ -120,6 +120,9 @@ jobs:
       - run: cmake -S lib-cpp/tests/package-consumer -B lib-cpp/consumer-build -DCMAKE_PREFIX_PATH="${{ runner.temp }}/mayhem-core"
       - run: cmake --build lib-cpp/consumer-build --config Debug
       - run: ctest --test-dir lib-cpp/consumer-build -C Debug --output-on-failure
+      - name: Build the MayhemCpp vendordep
+        if: runner.os == 'Linux'
+        run: python3 scripts/build-cpp-vendordep.py --output lib-cpp/vendordep-build
 
   tools:
     name: Suite distribution (${{ matrix.os }})

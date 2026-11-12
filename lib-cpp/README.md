@@ -1,6 +1,22 @@
 # Mayhem C++ tools (development)
 
-Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters require C++20 and the normal WPILib libraries. Add this directory to your robot's includes. The new C++ API is under development; the legacy Java vendordep does not install it.
+Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the normal WPILib libraries. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.2.0). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
+
+## Installing in a WPILib robot project
+
+**Vendordep (recommended once released).** In WPILib VS Code, Manage Vendor Libraries, Install new libraries (online), paste `https://ryanabraham1.github.io/Mayhem/MayhemCpp.json`. Then `#include <mayhem/state_machine.hpp>` etc. It is header-only: the release workflow publishes a `headers` zip plus intentionally empty `linuxathena`/`systemcore` static-library zips, because GradleRIO only adds a C++ vendordep to roboRIO builds when it lists a robot platform and then requires those archives. Simulation builds get the headers only. Offline: unzip `MayhemCpp-maven.zip` from the release into the WPILib maven folder and copy `MayhemCpp.json` into `vendordeps/`. Build it locally with `python3 scripts/build-cpp-vendordep.py --output build/cpp-vendordep [--maven-url file:///abs/path/build/cpp-vendordep/repos/releases/]`. This layout was verified with GradleRIO 2026.2.1 (roboRIO and desktop, debug and release) against a local `file://` maven; it is hosted from the first release that includes this file.
+
+**Vendoring (works today, no network).** From a Mayhem checkout or the `Mayhem-suite-tools` archive:
+
+```sh
+node scripts/mayhem.mjs vendor /path/to/robot                 # -> src/main/include/mayhem + mayhem-vendor.json
+node scripts/mayhem.mjs vendor /path/to/robot --snapshot docs/mayhem/vendor-snapshot.json
+node scripts/mayhem.mjs vendor /path/to/robot --check         # exit 1 if any header differs
+```
+
+It copies every header in `include/mayhem` to `<robot>/src/main/include/mayhem` (`--dest` to change), and writes a snapshot with the version, source commit (and `modified: true` if the headers had uncommitted changes), and the SHA-256 of each header. It removes only headers that the previous snapshot listed and Mayhem no longer ships. `--check` compares contents, not commits. The MCP tool `vendor_cpp` does the same. Do not edit vendored headers; change Mayhem and re-vendor.
+
+**CMake.** See below.
 
 Releases include `Mayhem-cpp-<tag>.zip` with the headers, CMake files, example routine and tests.
 Extract the whole archive and run the CMake commands below from its root. SHA-256 hashes are in
@@ -30,7 +46,7 @@ ctest --test-dir lib-cpp/build --output-on-failure
 cmake --install lib-cpp/build
 ```
 
-An independent CMake project can then use `find_package(MayhemCore 0.1 REQUIRED CONFIG)` and `target_link_libraries(your_target PRIVATE Mayhem::Core)`, with the install prefix in `CMAKE_PREFIX_PATH`. The installed target includes all headers. Optional WPILib headers still require your robot project's WPILib dependencies; they are not linked automatically.
+An independent CMake project can then use `find_package(MayhemCore 0.2 REQUIRED CONFIG)` and `target_link_libraries(your_target PRIVATE Mayhem::Core)`, with the install prefix in `CMAKE_PREFIX_PATH`. The installed target includes all headers. Optional WPILib headers still require your robot project's WPILib dependencies; they are not linked automatically.
 
 ## Controller in an existing architecture
 
@@ -194,4 +210,4 @@ cmake --build lib-cpp/build
 ctest --test-dir lib-cpp/build --output-on-failure
 ```
 
-Tests exercise arrival/settling, moving handoff, invalid data, limits, watchdog behavior, typed conditions, generated routine execution, and agreement with the browser controller. Host timings are not roboRIO benchmarks. No physical robot validation has been completed for this new library.
+Tests exercise arrival/settling, moving handoff, invalid data, limits, watchdog behavior, loop-overrun clamping, goal telemetry and observer output, typed conditions and priority in `StateMachine`, no allocation per tick (counted `operator new`), alliance transforms including a closed-loop red run that matches the flipped blue run, the generated example header (`examples/suite/competition.hpp`), and agreement with the browser controller. App tests (`app/tests/export-cpp.test.ts`, `cpp-vendor.test.ts`) cover the exporter, `--check`, vendoring, and the vendordep layout. Host timings are not roboRIO benchmarks. No physical robot validation has been completed for this new library.

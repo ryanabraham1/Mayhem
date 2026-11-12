@@ -86,6 +86,8 @@ jobs:
 
           The new suite tools ship in Mayhem-suite-tools-*.zip (Node CLI/MCP) and Mayhem-cpp-*.zip (header-only C++ library with CMake). Each archive includes setup instructions. The Java vendordep below is separate.
 
+          To use the header-only C++ library in a WPILib C++ robot project, install \`https://ryanabraham1.github.io/Mayhem/MayhemCpp.json\` the same way (Install new libraries (online)). Offline: unzip \`MayhemCpp-maven.zip\` into the WPILib maven folder and copy \`MayhemCpp.json\` into \`vendordeps/\`.
+
           To add MayhemLib to a robot project, use WPILib's Manage Vendor Libraries, Install new libraries (online), and paste \`https://ryanabraham1.github.io/Mayhem/MayhemLib.json\`. For offline use, unzip \`MayhemLib-maven.zip\` into \`~/wpilib/2026/maven\` (Windows: \`C:\\Users\\Public\\wpilib\\2026\\maven\`) and copy \`MayhemLib.json\` into your robot project's \`vendordeps/\`." \
                    --jq .id)"
           fi
@@ -263,6 +265,28 @@ jobs:
           PAGES_REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             scripts/publish-pages.sh lib/build/repos/releases lib/build/vendordeps/MayhemLib.json "$VERSION"
 
+      # Header-only C++ vendordep (MayhemCpp.json), versioned by lib-cpp/include/mayhem/version.hpp.
+      # Runs after MayhemLib is hosted so a C++ problem cannot block the Java vendordep.
+      - name: Build MayhemCpp vendordep
+        run: |
+          python3 scripts/build-cpp-vendordep.py --output build/cpp-vendordep
+          (cd build/cpp-vendordep/repos/releases && zip -qr ../../MayhemCpp-maven.zip .)
+      - name: Attach MayhemCpp to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${TAG}" build/cpp-vendordep/MayhemCpp-maven.zip build/cpp-vendordep/MayhemCpp.json \
+            --repo "${GITHUB_REPOSITORY}" --clobber
+      - name: Host MayhemCpp on GitHub Pages
+        if: ${{ !contains(env.TAG, '-rc') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="$(jq -r .version build/cpp-vendordep/MayhemCpp.json)"
+          PAGES_REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+          ARTIFACT_DIR=mayhemlib/MayhemCpp-cpp \
+            scripts/publish-pages.sh build/cpp-vendordep/repos/releases build/cpp-vendordep/MayhemCpp.json "$VERSION"
+
   mcp:
     name: MCP server (Python wheel + source)
     needs: create-release
@@ -329,7 +353,7 @@ jobs:
           assets="$(gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
           printf '%s\n' "$assets"
           [ "$(printf '%s\n' "$assets" | grep -cE '\.dmg$')" -ge 2 ]
-          for pattern in '\.AppImage$' '\.deb$' '_x64-setup\.exe$' '^MayhemLib-maven\.zip$' '^MayhemLib\.json$' '^mayhem_solver-.*\.whl$' '^mayhem_solver-.*\.tar\.gz$' '^Mayhem-suite-tools-.*\.zip$' '^Mayhem-cpp-.*\.zip$' '^Mayhem-suite-SHA256SUMS\.txt$'; do
+          for pattern in '\.AppImage$' '\.deb$' '_x64-setup\.exe$' '^MayhemLib-maven\.zip$' '^MayhemLib\.json$' '^MayhemCpp-maven\.zip$' '^MayhemCpp\.json$' '^mayhem_solver-.*\.whl$' '^mayhem_solver-.*\.tar\.gz$' '^Mayhem-suite-tools-.*\.zip$' '^Mayhem-cpp-.*\.zip$' '^Mayhem-suite-SHA256SUMS\.txt$'; do
             printf '%s\n' "$assets" | grep -qE "$pattern"
           done
 

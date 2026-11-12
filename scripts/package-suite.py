@@ -19,13 +19,16 @@ def main():
     core = ROOT / "app/src/suite/core"
     core_files = [p for p in sorted(core.rglob("*")) if p.is_file()
                   and (p.suffix in {".ts", ".json", ".md"} or p.name == "LICENSE")]
-    tools = [ROOT / "scripts/mayhem.mjs", ROOT / "scripts/suite-imports.mjs", *core_files,
+    tools = [ROOT / "scripts/mayhem.mjs", ROOT / "scripts/suite-imports.mjs",
+             ROOT / "scripts/cpp-vendor.mjs", *sorted((ROOT / "lib-cpp/include/mayhem").glob("*.hpp")),
+             *core_files,
              ROOT / "THIRD_PARTY_NOTICES.md",
              ROOT / "docs/SUITE_AGENTS.md", ROOT / "docs/ROBOT_LOGGING.md",
              ROOT / "docs/TEAM_LOGS.md", *sorted((ROOT / "examples/suite").glob("*.json"))]
     cpp = [p for p in sorted((ROOT / "lib-cpp").rglob("*")) if p.is_file()
            and p.relative_to(ROOT / "lib-cpp").parts[0] in
            {"include", "tests", "cmake", "CMakeLists.txt", "README.md"}]
+    cpp.append(ROOT / "scripts/build-cpp-vendordep.py")
     cpp.append(ROOT / "examples/suite/competition.hpp")
     sums = []
     for name, files, readme in [

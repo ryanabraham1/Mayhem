@@ -32,6 +32,7 @@ import { analyze, parseRecordingJSON, currentBreakdown } from "../app/src/suite/
 import { listChannels, logTable, findAnomalies, whatChanged, logEvents } from "../app/src/suite/core/logquery.ts";
 import { NT4Observer } from "../app/src/suite/core/nt4.ts";
 import { parseWPILog } from "../app/src/suite/core/wpilog.ts";
+import { vendorCpp } from "./cpp-vendor.mjs";
 const tools = [
   {
     name: "inspect_live_robot",
@@ -55,6 +56,21 @@ const tools = [
       type: "object",
       properties: { path: { type: "string" } },
       required: ["path"],
+    },
+  },
+  {
+    name: "vendor_cpp",
+    description:
+      "Copy Mayhem's header-only C++ library (lib-cpp/include/mayhem) into a robot project (default <robotDir>/src/main/include/mayhem) and write a snapshot with the version, source commit and SHA-256 of every header. check=true only compares and reports problems. Prefer the MayhemCpp vendordep when the robot can use it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        robotDir: { type: "string" },
+        dest: { type: "string", description: "Header directory relative to robotDir." },
+        snapshot: { type: "string", description: "Snapshot path relative to robotDir (default <dest>/mayhem-vendor.json)." },
+        check: { type: "boolean" },
+      },
+      required: ["robotDir"],
     },
   },
   {
@@ -239,6 +255,8 @@ export async function execute(name, args) {
       }, duration);
     });
   }
+  if (name === "vendor_cpp")
+    return vendorCpp(args.robotDir, { dest: args.dest, snapshot: args.snapshot, check: args.check === true });
   const path = pathFor(args.path);
   if (name === "export_cpp")
     return { code: exportCpp(parseProject(await readFile(path, "utf8"))) };
@@ -505,6 +523,24 @@ async function main() {
     process.stdout.write(code);
     return;
   }
+  if (command === "vendor") {
+    // vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check]
+    const flags = process.argv.slice(4);
+    const options = {};
+    for (let i = 0; i < flags.length; i++) {
+      if (flags[i] === "--check") options.check = true;
+      else if ((flags[i] === "--dest" || flags[i] === "--snapshot") && flags[i + 1]) options[flags[i].slice(2)] = flags[++i];
+      else throw new Error("Usage: node scripts/mayhem.mjs vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check]");
+    }
+    const result = await vendorCpp(path, options);
+    if (options.check && !result.upToDate) {
+      console.error(`Vendored Mayhem C++ headers are stale:\n  ${result.problems.join("\n  ")}\nRun: node scripts/mayhem.mjs vendor ${path}${options.dest ? ` --dest ${options.dest}` : ""}${options.snapshot ? ` --snapshot ${options.snapshot}` : ""}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
   if (command === "example") {
     console.log(JSON.stringify(sampleProject, null, 2));
     return;
@@ -520,7 +556,7 @@ async function main() {
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")
