@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine,
   Check,
@@ -21,8 +21,14 @@ import {
   INPUT_CATEGORIES,
   INPUT_CATEGORY_ORDER,
   categoryLookup,
+  categoryOf as inputCategory,
   conditionKeys,
+  resolveInputRef,
+  rootCategories,
   transitionCause,
+  type InputCategory,
+  type InputScope,
+  type InputSource,
   type TransitionCause,
 } from "../core/inputCategories.ts";
 import { CategoryLegend, ConditionText, glyphText } from "./ConditionText";
@@ -175,6 +181,9 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
   const node = graph.nodes.find((n) => n.id === selected) ?? graph.nodes[0];
   const editable = source === "simulate";
   const categoryOf = useMemo(() => categoryLookup(inputs), [inputs]);
+  // Every machine's inputs ("" is the project's), so derivedFrom can name another machine's input.
+  const scopeId = machine?.id ?? "";
+  const inputScope: InputScope = new Map<string, InputSource[]>([["", project.signals], ...allMachines.map((m) => [m.id, m.inputs] as [string, InputSource[]])]);
   const inputKeys = useMemo(() => new Set([...inputs.map((i) => i.key), "stateTime"]), [inputs]);
   const isKey = (k: string) => inputKeys.has(k);
   const usedCategories = useMemo(() => {
@@ -530,10 +539,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                       {input.name}
                       <code>{input.key}</code>
                       {input.derivedFrom?.length ? (
-                        <small className="mx-derived">
-                          from{" "}
-                          <ConditionText text={input.derivedFrom.join(", ")} isKey={isKey} categoryOf={categoryOf} />
-                        </small>
+                        <DerivedFrom input={input} machine={scopeId} scope={inputScope} isKey={isKey} categoryOf={categoryOf} />
                       ) : null}
                     </span>
                     {editable && input.type === "boolean" ? (
@@ -645,5 +651,66 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
       </div>
       {graph.nodes.length === 0 && <EmptyState icon={GitBranch} title="No states" />}
     </div>
+  );
+}
+
+/**
+ * "from a, Superstructure · jitter" under a derived input, each source in its category color.
+ * When the chain ends in other categories (internal → internal → operator), they are named too.
+ */
+function DerivedFrom({
+  input,
+  machine,
+  scope,
+  isKey,
+  categoryOf,
+}: {
+  input: InputSource;
+  machine: string;
+  scope: InputScope;
+  isKey: (key: string) => boolean;
+  categoryOf: (key: string) => InputCategory;
+}) {
+  const sources = (input.derivedFrom ?? []).map((ref) => resolveInputRef(ref, machine, scope));
+  const shown = new Set(sources.map((r) => inputCategory(r.input, r.key)));
+  const roots = rootCategories(machine, input.key, scope);
+  const describe = (r: (typeof sources)[number]) => {
+    const where = r.machine === machine ? r.key : `${r.machine} · ${r.key}`;
+    const category = INPUT_CATEGORIES[inputCategory(r.input, r.key)].label.toLowerCase();
+    return r.input ? `${where} (${category}${r.input.name ? `: ${r.input.name}` : ""})` : `${where} (unknown input)`;
+  };
+  const title =
+    `Derived from ${sources.map(describe).join(", ")}` +
+    (roots.length ? `; driven by ${roots.map((c) => INPUT_CATEGORIES[c].label.toLowerCase()).join(", ")} input` : "");
+  return (
+    <small className="mx-derived" title={title}>
+      from{" "}
+      {sources.map((r, i) => (
+        <Fragment key={i}>
+          {i > 0 && ", "}
+          {r.machine === machine ? (
+            <ConditionText text={r.key} isKey={isKey} categoryOf={categoryOf} />
+          ) : (
+            <>
+              {r.machine} ·{" "}
+              <ConditionText text={r.key} isKey={() => !!r.input} categoryOf={() => inputCategory(r.input, r.key)} />
+            </>
+          )}
+        </Fragment>
+      ))}
+      {roots.some((c) => !shown.has(c)) && (
+        <>
+          {" "}· driven by{" "}
+          {roots.map((c) => (
+            <span key={c} className={`mx-term is-${c}`}>
+              <span className={`mx-term-badge is-${c}`} aria-hidden="true">
+                {INPUT_CATEGORIES[c].letter}
+              </span>
+              {INPUT_CATEGORIES[c].label.toLowerCase()}
+            </span>
+          ))}
+        </>
+      )}
+    </small>
   );
 }

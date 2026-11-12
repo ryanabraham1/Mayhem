@@ -108,6 +108,29 @@ test("input categories show as glyphs, group the inputs, and explain transitions
   await page.screenshot({ path: info.outputPath("categories.png") });
 });
 
+test("an input derived from another machine's input names that machine and its source", async ({ page }) => {
+  page.on("pageerror", (error) => { throw error; });
+  await page.goto("/");
+  const flag = (key: string, extra: object = {}) => ({ key, name: key, type: "boolean", initial: false, ...extra });
+  const machine = (id: string, inputs: object[]) => ({
+    format: "mayhem-machine", version: 1, id, name: id, initial: "IDLE", states: [{ id: "IDLE", name: "Idle" }, { id: "BUSY", name: "Busy" }], inputs,
+    transitions: [{ id: "go", from: "IDLE", to: "BUSY", condition: { kind: "signal", key: (inputs[0] as { key: string }).key, op: "eq", value: true } }],
+  });
+  const imports = page.locator("label", { hasText: "Import machine" }).locator("input[type=file]");
+  await page.getByRole("button", { name: "State machines", exact: true }).click();
+  for (const [m, name] of [
+    [machine("Superstructure", [flag("jitter", { name: "Jitter requested (Y)", category: "operator" })]), "Jitter requested (Y)"],
+    [machine("IntakeSequence", [flag("jitterDemand", { name: "Jitter wanted", category: "internal", derivedFrom: [{ machine: "Superstructure", key: "jitter" }] })]), "Jitter wanted"],
+  ] as const) {
+    await imports.setInputFiles({ name: `${m.id}.machine.json`, mimeType: "application/json", buffer: Buffer.from(JSON.stringify(m)) });
+    await expect(page.locator(".mx-input-row", { hasText: name })).toBeVisible(); // imported and selected
+  }
+  const derived = page.locator(".mx-derived");
+  await expect(derived).toContainText("from Superstructure · Ojitter");
+  await expect(derived.locator(".mx-term.is-operator .mx-term-badge")).toHaveText("O");
+  await expect(derived).toHaveAttribute("title", "Derived from Superstructure · jitter (operator: Jitter requested (Y)); driven by operator input");
+});
+
 test("inspector exits wrap as text in a narrow window, with the target below the condition", async ({ page }, info) => {
   page.on("pageerror", (error) => { throw error; });
   await page.goto("/");

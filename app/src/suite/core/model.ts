@@ -144,18 +144,43 @@ export interface SignalDefinition {
    * default), timer (stateTime), auto (request made by autonomous).
    */
   category?: InputCategory;
-  /** Inputs an internal flag is computed from, e.g. ["shoot", "intake"]. */
-  derivedFrom?: string[];
+  /**
+   * Inputs an internal flag is computed from, e.g. ["shoot", "intake"], or another machine's
+   * input in the same project, e.g. [{ machine: "Superstructure", key: "jitter" }].
+   */
+  derivedFrom?: InputRef[];
 }
-/** Problem with an input's `category`/`derivedFrom`, or undefined. `keys`: all input keys. */
-export function inputSourceProblem(input: { category?: unknown; derivedFrom?: unknown }, keys: Set<string>): string | undefined {
+/** A `derivedFrom` entry: an input key of the same machine (or project), or another machine's input. */
+export type InputRef = string | { machine: string; key: string };
+/** `Machine.key` for messages; a plain key for same-machine refs. */
+export const inputRefText = (r: InputRef) => (typeof r === "string" ? r : `${r.machine}.${r.key}`);
+const isInputRef = (r: unknown): r is InputRef =>
+  typeof r === "string"
+    ? r.length > 0
+    : !!r && typeof r === "object" && !Array.isArray(r) && Object.keys(r).length === 2 &&
+      typeof (r as any).machine === "string" && !!(r as any).machine && typeof (r as any).key === "string" && !!(r as any).key;
+/**
+ * Problem with an input's `category`/`derivedFrom`, or undefined. `keys`: all input keys of
+ * its machine. `machines` (machine ID → input keys) resolves `{ machine, key }` refs; without
+ * it only their shape is checked (a single manifest cannot see the other machines).
+ */
+export function inputSourceProblem(
+  input: { category?: unknown; derivedFrom?: unknown },
+  keys: Set<string>,
+  machines?: Map<string, Set<string>>,
+): string | undefined {
   if (input.category !== undefined && !(INPUT_CATEGORY_KEYS as readonly unknown[]).includes(input.category))
     return `category must be one of ${INPUT_CATEGORY_KEYS.join(", ")}.`;
   if (input.derivedFrom !== undefined) {
-    if (!Array.isArray(input.derivedFrom) || input.derivedFrom.some((k) => typeof k !== "string" || !k))
-      return "derivedFrom must be a list of input keys.";
-    const unknown = (input.derivedFrom as string[]).filter((k) => !keys.has(k) && k !== "stateTime");
-    if (unknown.length) return `derivedFrom names unknown inputs: ${unknown.join(", ")}.`;
+    if (!Array.isArray(input.derivedFrom) || !input.derivedFrom.every(isInputRef))
+      return 'derivedFrom must be a list of input keys or { "machine", "key" } references.';
+    const refs = input.derivedFrom as InputRef[];
+    const machinesUnknown = machines ? refs.flatMap((r) => (typeof r !== "string" && !machines.has(r.machine) ? [r.machine] : [])) : [];
+    if (machinesUnknown.length) return `derivedFrom names unknown machines: ${[...new Set(machinesUnknown)].join(", ")}.`;
+    const unknown = refs.filter((r) =>
+      typeof r === "string" ? !keys.has(r) && r !== "stateTime" : !!machines && !machines.get(r.machine)!.has(r.key),
+    );
+    if (unknown.length) return `derivedFrom names unknown inputs: ${unknown.map(inputRefText).join(", ")}.`;
   }
   return undefined;
 }
@@ -289,6 +314,20 @@ export function validateProject(input: unknown): Issue[] {
     error("revision", "Expected a nonnegative integer revision.");
   if (!record(input.extensions))
     error("extensions", "Expected an extension object.");
+  // Input keys of each extensions.machines manifest, so `derivedFrom` can name another machine's input.
+  const machineList: unknown[] = Array.isArray(input.extensions?.machines) ? input.extensions.machines : [];
+  const inputKeys = (m: unknown) =>
+    new Set<string>(record(m) && Array.isArray(m.inputs) ? m.inputs.flatMap((i: any) => (record(i) && typeof i.key === "string" ? [i.key] : [])) : []);
+  const machineKeys = new Map<string, Set<string>>();
+  for (const m of machineList) if (record(m) && typeof m.id === "string") machineKeys.set(m.id, inputKeys(m));
+  machineList.forEach((m, i) => {
+    if (!record(m) || !Array.isArray(m.inputs)) return;
+    const own = inputKeys(m);
+    m.inputs.forEach((s: unknown, j: number) => {
+      const problem = record(s) ? inputSourceProblem(s, own, machineKeys) : undefined;
+      if (problem) error(`extensions.machines.${i}.inputs.${j}`, problem);
+    });
+  });
   for (const key of ["width", "height"])
     if (!finite(input.field?.[key]) || input.field[key] <= 0)
       error(`field.${key}`, "Expected positive field dimensions.");
@@ -334,7 +373,7 @@ export function validateProject(input: unknown): Issue[] {
   else {
     const allKeys = new Set<string>(input.signals.flatMap((s: any) => (record(s) && typeof s.key === "string" ? [s.key] : [])));
     input.signals.forEach((s: any, i: number) => {
-      const problem = record(s) ? inputSourceProblem(s, allKeys) : undefined;
+      const problem = record(s) ? inputSourceProblem(s, allKeys, machineKeys) : undefined;
       if (problem) error(`signals.${i}`, problem);
     });
     input.signals.forEach((s: any, i: number) => {

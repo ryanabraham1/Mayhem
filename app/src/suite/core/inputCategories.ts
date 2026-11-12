@@ -1,8 +1,8 @@
-import { evaluate, type Condition, type InputCategory, type Signals, type Transition } from "./model.ts";
+import { evaluate, type Condition, type InputCategory, type InputRef, type Signals, type Transition } from "./model.ts";
 import { conditionSignals } from "./machines.ts";
 
 export type { InputCategory } from "./model.ts";
-export { inputSourceProblem } from "./model.ts";
+export { inputRefText, inputSourceProblem, type InputRef } from "./model.ts";
 export const INPUT_CATEGORY_ORDER: InputCategory[] = ["operator", "auto", "sensor", "internal", "timer"];
 /** Each category is shown as a colored letter badge (no color-only cues, no emoji). */
 export const INPUT_CATEGORIES: Record<InputCategory, { label: string; letter: string; description: string }> = {
@@ -18,9 +18,10 @@ export const isInputCategory = (v: unknown): v is InputCategory =>
 /** Optional input metadata shared by project signals and machine inputs. */
 export interface InputSource {
   key: string;
+  name?: string;
   category?: InputCategory;
-  /** Inputs this (usually internal) flag is computed from. */
-  derivedFrom?: string[];
+  /** Inputs this (usually internal) flag is computed from: own keys or `{ machine, key }`. */
+  derivedFrom?: InputRef[];
 }
 
 /** Category of an input; missing means "internal", except the built-in `stateTime` (timer). */
@@ -32,6 +33,37 @@ export function categoryOf(input: InputSource | undefined, key = input?.key): In
 export function categoryLookup(inputs: InputSource[]): (key: string) => InputCategory {
   const byKey = new Map(inputs.map((i) => [i.key, i]));
   return (key) => categoryOf(byKey.get(key), key);
+}
+
+/** Machine ID → its inputs, for following `{ machine, key }` refs. */
+export type InputScope = Map<string, InputSource[]>;
+/** The machine and input a `derivedFrom` entry of `machine` names (`input` undefined if unknown). */
+export function resolveInputRef(ref: InputRef, machine: string, scope: InputScope) {
+  const [owner, key] = typeof ref === "string" ? [machine, ref] : [ref.machine, ref.key];
+  return { machine: owner, key, input: scope.get(owner)?.find((i) => i.key === key) };
+}
+/**
+ * Categories an input ultimately comes from: its own category if it lists no sources, else the
+ * root categories of every source, following refs across machines (so an internal demand can
+ * be shown as driven by an operator button). Unknown sources and cycles add nothing.
+ */
+export function rootCategories(machine: string, key: string, scope: InputScope): InputCategory[] {
+  const found = new Set<InputCategory>();
+  const seen = new Set<string>();
+  const visit = (m: string, k: string) => {
+    const id = JSON.stringify([m, k]);
+    if (seen.has(id)) return;
+    seen.add(id);
+    const input = scope.get(m)?.find((i) => i.key === k);
+    if (!input && !(k === "stateTime" && scope.has(m))) return;
+    if (!input?.derivedFrom?.length) found.add(categoryOf(input, k));
+    else for (const r of input.derivedFrom) {
+      const next = resolveInputRef(r, m, scope);
+      visit(next.machine, next.key);
+    }
+  };
+  visit(machine, key);
+  return INPUT_CATEGORY_ORDER.filter((c) => found.has(c));
 }
 
 /** Signal keys a condition reads, in order of first appearance. */
