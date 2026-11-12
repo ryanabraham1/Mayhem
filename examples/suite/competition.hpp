@@ -21,12 +21,12 @@ inline bool guard_2([[maybe_unused]] const mayhem::RobotHooks& h) { return (std:
 inline bool guard_3([[maybe_unused]] const mayhem::RobotHooks& h) { return (mayhem::Compare(h.Signal("shooterReady"), mayhem::CompareOp::Eq, mayhem::SignalValue{true})).value_or(false); }
 inline bool guard_4([[maybe_unused]] const mayhem::RobotHooks& h) { return (mayhem::Compare(h.Signal("shotComplete"), mayhem::CompareOp::Eq, mayhem::SignalValue{true})).value_or(false); }
 inline constexpr std::array<mayhem::AutoNode,6> nodes = {{
-  {"pickup",mayhem::NodeKind::Pose,{{5.8,2.4,-0.35},0.06,0.04,0.15,0.12,0,mayhem::HeadingMode::Fixed,0,0,false,false,true,nullptr,0},8,"",{3.5,3,5,10,3.2,4,0.45,2,0},nullptr,0,-1,false},
-  {"collect",mayhem::NodeKind::Action,{},5,"intake.acquire",{3.5,3,5,10,3.2,4,0.45,2,0},nullptr,0,-1,false},
-  {"return-lane",mayhem::NodeKind::Pose,{{3.2,2.4,1.1},0.06,0.04,0.15,0.12,0.2,mayhem::HeadingMode::Fixed,0,0,false,false,true,nullptr,0},8,"",{1.2,3,5,10,3.2,4,0.45,2,0},nullptr,0,3,true},
-  {"score",mayhem::NodeKind::Pose,{{3.2,5.6,1.1},0.06,0.04,0.15,0.12,0,mayhem::HeadingMode::Fixed,0,0,false,false,true,nullptr,0},8,"",{3.5,3,5,10,3.2,4,0.45,2,0},nullptr,0,-1,false},
-  {"shoot",mayhem::NodeKind::Action,{},5,"shooter.fire",{3.5,3,5,10,3.2,4,0.45,2,0},nullptr,0,-1,false},
-  {"done",mayhem::NodeKind::Finish,{},1,"",{3.5,3,5,10,3.2,4,0.45,2,0},nullptr,0,-1,false},
+  {"pickup",mayhem::NodeKind::Pose,{{5.8,2.4,-0.35},0.06,0.04,0.15,0.12,0,mayhem::HeadingMode::Fixed,0,0,false,false,true,nullptr,0,0},8,"",{3.5,3,5,10,3.2,4,0.45,2,0,false},nullptr,0,-1,false},
+  {"collect",mayhem::NodeKind::Action,{},5,"intake.acquire",{3.5,3,5,10,3.2,4,0.45,2,0,false},nullptr,0,-1,false},
+  {"return-lane",mayhem::NodeKind::Pose,{{3.2,2.4,1.1},0.06,0.04,0.15,0.12,0.2,mayhem::HeadingMode::Fixed,0,0,false,false,true,nullptr,0,0},8,"",{1.2,3,5,10,3.2,4,0.45,2,0,false},nullptr,0,3,true},
+  {"score",mayhem::NodeKind::Pose,{{3.2,5.6,1.1},0.06,0.04,0.15,0.12,0,mayhem::HeadingMode::Fixed,0,0,false,false,true,nullptr,0,0},8,"",{3.5,3,5,10,3.2,4,0.45,2,0,false},nullptr,0,-1,false},
+  {"shoot",mayhem::NodeKind::Action,{},5,"shooter.fire",{3.5,3,5,10,3.2,4,0.45,2,0,false},nullptr,0,-1,false},
+  {"done",mayhem::NodeKind::Finish,{},1,"",{3.5,3,5,10,3.2,4,0.45,2,0,false},nullptr,0,-1,false},
 }};
 inline constexpr std::array<mayhem::AutoTransition,5> transitions = {{
   {"at-pickup","pickup","collect",guard_0},

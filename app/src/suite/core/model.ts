@@ -21,12 +21,19 @@ export interface Constraints {
   crossTrackKp?: number;
   /** Speed floor while outside the end tolerance; 0 disables it. */
   minVelocity?: number;
+  /**
+   * Slow down before a slower step ahead instead of after its handoff:
+   * speed <= sqrt(cap² + 2·maxAcceleration·d), d = distance to that step's handoff point.
+   * Off by default (BLine behavior). The editor previews such paths with the native follower.
+   */
+  anticipateSpeedCaps?: boolean;
 }
 /** Path-follower settings applied when a project omits them (defaults). */
 export const PATH_DEFAULTS = {
   handoffRadius: 0.45,
   crossTrackKp: 2,
   minVelocity: 0,
+  anticipateSpeedCaps: false,
 } as const;
 export type ResolvedConstraints = Required<Constraints>;
 export const resolveConstraints = (
@@ -51,6 +58,11 @@ export interface Goal extends Pose {
   headingMode?: "fixed" | "pointAt" | "motion" | "free";
   aimX?: number;
   aimY?: number;
+  /**
+   * Radians added to the motion or point-at heading: π faces backward while moving
+   * (or away from the aim point). Ignored by fixed and free headings.
+   */
+  headingOffset?: number;
   translationTolerance: number;
   rotationTolerance: number;
   velocityTolerance: number;
@@ -280,6 +292,11 @@ export function validateProject(input: unknown): Issue[] {
       error(`robot.constraints.${key}`, "Expected a positive finite number.");
   for (const key of Object.keys(PATH_DEFAULTS)) {
     const v = input.robot?.constraints?.[key];
+    if (key === "anticipateSpeedCaps") {
+      if (v !== undefined && typeof v !== "boolean")
+        error(`robot.constraints.${key}`, "Expected true or false.");
+      continue;
+    }
     if (
       v !== undefined &&
       (!finite(v) || v < 0 || (key !== "minVelocity" && v === 0))
@@ -352,7 +369,9 @@ export function validateProject(input: unknown): Issue[] {
     if (value === undefined) return;
     if (!record(value)) return error(path, "Expected motion constraints.");
     for (const [key, v] of Object.entries(value))
-      if (
+      if (key === "anticipateSpeedCaps") {
+        if (typeof v !== "boolean") error(path + "." + key, "Expected true or false.");
+      } else if (
         !(key in DEFAULT_CONSTRAINTS || key in PATH_DEFAULTS) ||
         !finite(v) ||
         v < 0 ||
@@ -455,6 +474,8 @@ export function validateProject(input: unknown): Issue[] {
             !["fixed", "pointAt", "motion", "free"].includes(n.goal.headingMode)
           )
             error(p + ".goal.headingMode", "Invalid heading policy.");
+          if (n.goal && n.goal.headingOffset !== undefined && !finite(n.goal.headingOffset))
+            error(p + ".goal.headingOffset", "Expected a finite heading offset in radians.");
           if (
             n.goal?.headingMode === "pointAt" &&
             (!finite(n.goal.aimX) || !finite(n.goal.aimY))

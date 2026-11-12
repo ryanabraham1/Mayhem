@@ -127,16 +127,17 @@ class AutoRunner {
     Velocity command; bool ready=false;
     bool handedOff=false;
     if(current_->kind==NodeKind::Pose) {
-      std::array<const Goal*,kMaxLookahead> anchors{}; std::size_t count=0;
+      std::array<const Goal*,kMaxLookahead> anchors{}; std::array<double,kMaxLookahead> caps{}; std::size_t count=0;
       const AutoNode* walk=current_; bool final=true;
       while(walk && count<anchors.size()) {
+        caps[count]=walk->constraints.maxVelocity;
         anchors[count++]=&walk->goal;
         if(!walk->intermediate) {final=true;break;}
         final=false;
         walk=walk->next>=0 && static_cast<std::size_t>(walk->next)<routine_.nodeCount ? &routine_.nodes[walk->next] : nullptr;
         if(walk==current_) break;
       }
-      const auto result=follower_.Calculate(pose,measured,anchors.data(),count,final,current_->constraints,dt);
+      const auto result=follower_.Calculate(pose,measured,anchors.data(),count,final,current_->constraints,dt,caps.data());
       if(!result.valid) return Fail();
       last_=result; command=result.command;ready=result.reached;handedOff=result.handoff;
       if(observer_) observer_->GoalProgress(current_->id,result.translationError,result.rotationError,result.reached,Now());

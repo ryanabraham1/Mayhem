@@ -48,6 +48,9 @@ struct Constraints {
   double maxAngularAcceleration = 26.179938779914941, translationKp = 5, rotationKp = 3;
   // Default intermediate handoff radius, cross-track gain, and speed floor (0 = off).
   double handoffRadius = .45, crossTrackKp = 2, minVelocity = 0;
+  // Slow down before a slower step ahead (speed <= sqrt(cap^2 + 2 a d), d = distance to
+  // its handoff point) instead of after its handoff. Needs per-anchor caps; off = BLine.
+  bool anticipateSpeedCaps = false;
 };
 enum class HeadingMode { Fixed, PointAt, Motion, Free };
 enum class MarkerKind { Rotation, Event };
@@ -65,6 +68,8 @@ struct Goal {
   double aimX = 0, aimY = 0;
   bool stop = false, projectedHandoff = false, profiled = true;
   const PathMarker* markers = nullptr; std::size_t markerCount = 0;
+  // Radians added to the Motion or PointAt heading (pi: face backward while moving).
+  double headingOffset = 0;
 };
 struct ControlState {
   Velocity previous; double settled = 0;
@@ -90,14 +95,19 @@ inline double Wrap(double angle) { return std::atan2(std::sin(angle), std::cos(a
 class PathFollower {
  public:
   static constexpr double kDefaultMaxDt = .1;
+  // Below this distance to the target, Motion heading follows the segment direction.
+  static constexpr double kMotionMinDistance = .1;
   // Ignored unless finite and positive.
   void SetMaxDt(double maxDt) { if (std::isfinite(maxDt) && maxDt > 0) maxDt_ = maxDt; }
   double MaxDt() const { return maxDt_; }
   void Reset(Pose pose, Velocity measured = {}) {
     state_ = {measured, 0, pose.x, pose.y, pose.heading, NAN, 0, true, INFINITY};
   }
+  // caps (optional, `count` entries): max velocity of the step owning each anchor; used
+  // only with c.anticipateSpeedCaps.
   ControlResult Calculate(Pose pose, Velocity measured, const Goal* const* anchors,
-                          std::size_t count, bool final, const Constraints& c, double dt) {
+                          std::size_t count, bool final, const Constraints& c, double dt,
+                          const double* caps = nullptr) {
     if (count == 0 || !anchors[0]) return Invalid();
     if (!state_.started) Reset(pose, state_.previous);
     const Goal& T = *anchors[0];
@@ -116,7 +126,7 @@ class PathFollower {
       const Goal* g = anchors[i];
       if (!g) return Invalid();
       const double gv[] = {g->pose.x, g->pose.y, g->pose.heading, g->translationTolerance,
-        g->rotationTolerance, g->velocityTolerance, g->settleTime, g->handoffRadius};
+        g->rotationTolerance, g->velocityTolerance, g->settleTime, g->handoffRadius, g->headingOffset};
       for (double v : gv) if (!std::isfinite(v)) return Invalid();
       if (g->translationTolerance <= 0 || g->rotationTolerance <= 0 || g->velocityTolerance <= 0 ||
           g->settleTime < 0 || g->handoffRadius < 0 ||
@@ -174,6 +184,14 @@ class PathFollower {
         if (!haveNext && g.headingMode == HeadingMode::Fixed) {
           haveNext = true; nextHeading = g.pose.heading; nextRemaining = after; nextProfiled = g.profiled;
         }
+        // A Motion step ahead: face its direction of travel by the handoff into its segment
+        // (the previous anchor's handoff circle), so the heading never steps at the handoff.
+        if (!haveNext && i > 0 && g.headingMode == HeadingMode::Motion && len > 1e-9) {
+          const Goal& before = *anchors[i - 1];
+          haveNext = true; nextHeading = std::atan2(g.pose.y - segStartY, g.pose.x - segStartX) + g.headingOffset;
+          nextRemaining = after + len + (before.handoffRadius > 0 ? before.handoffRadius : c.handoffRadius);
+          nextProfiled = true;
+        }
         segStartX = g.pose.x; segStartY = g.pose.y;
       }
     }
@@ -189,8 +207,14 @@ class PathFollower {
       }
     }
     const double interpolated = desiredHeading;
-    if (T.headingMode == HeadingMode::PointAt) desiredHeading = std::atan2(T.aimY - pose.y, T.aimX - pose.x);
-    else if (T.headingMode == HeadingMode::Motion && distance > T.translationTolerance) desiredHeading = std::atan2(dy, dx);
+    if (T.headingMode == HeadingMode::PointAt) desiredHeading = std::atan2(T.aimY - pose.y, T.aimX - pose.x) + T.headingOffset;
+    else if (T.headingMode == HeadingMode::Motion) {
+      // Toward the target; near it, along the segment (stable at the end of a path).
+      double motion = interpolated;
+      if (distance > std::max(T.translationTolerance, kMotionMinDistance)) motion = std::atan2(dy, dx);
+      else if (L > 1e-9) motion = std::atan2(segY, segX);
+      desiredHeading = motion + T.headingOffset;
+    }
     if (isFinal && T.headingMode == HeadingMode::Fixed && distance <= T.translationTolerance) desiredHeading = T.pose.heading;
     const double angle = Wrap(desiredHeading - pose.heading);
     out.translationError = distance; out.rotationError = std::abs(angle);
@@ -206,6 +230,16 @@ class PathFollower {
     // Translation: P on remaining distance clamped to max velocity, optional floor,
     // aimed at the target, plus cross-track correction along the segment's right normal.
     double speed = std::min(c.translationKp * remaining, c.maxVelocity);
+    if (c.anticipateSpeedCaps && caps) {
+      // Distance to the slower step's handoff point, less one step of travel (the rate
+      // limiter applies a speed change one tick after it is requested).
+      double d = distance - radius - speed * dt;
+      for (std::size_t i = 1; i < count; ++i) {
+        if (std::isfinite(caps[i]) && caps[i] < speed)
+          speed = std::min(speed, std::sqrt(caps[i] * caps[i] + 2 * c.maxAcceleration * std::max(0.0, d)));
+        d += std::hypot(anchors[i]->pose.x - anchors[i - 1]->pose.x, anchors[i]->pose.y - anchors[i - 1]->pose.y);
+      }
+    }
     if (c.minVelocity > 0 && remaining > T.translationTolerance)
       speed = std::max(speed, std::min(c.minVelocity, c.maxVelocity));
     double vx = distance > 1e-9 ? speed * dx / distance : 0;
@@ -225,7 +259,8 @@ class PathFollower {
     if (!std::isfinite(vx) || !std::isfinite(vy) || !std::isfinite(omega)) return Invalid();
     state_.previous = {vx, vy, omega};
     if (handoff) {
-      state_.rotHeading = interpolated; state_.rotRemaining = tail;
+      // Continue from the heading requested now (Motion/PointAt included), so it never jumps.
+      state_.rotHeading = desiredHeading; state_.rotRemaining = tail;
       state_.sx = T.pose.x; state_.sy = T.pose.y; state_.events = 0; state_.settled = 0;
       state_.acceptedRemaining = std::min(progressAlong, tail);
     } else {

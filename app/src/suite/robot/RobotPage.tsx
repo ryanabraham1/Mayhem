@@ -372,7 +372,9 @@ export function RobotPage({ s }: { s: SuiteState }) {
                   })
                 }
               />
-              {Object.entries(resolveConstraints(project.robot.constraints)).map(([key, value]) => (
+              {Object.entries(resolveConstraints(project.robot.constraints))
+                .filter((entry): entry is [string, number] => typeof entry[1] === "number")
+                .map(([key, value]) => (
                 <NumberField
                   key={key}
                   label={constraintLabels[key]?.[0] ?? key}
@@ -381,11 +383,21 @@ export function RobotPage({ s }: { s: SuiteState }) {
                   min={key === "minVelocity" ? 0 : 0.001}
                   change={(v) =>
                     s.commit((p) => {
-                      p.robot.constraints[key as keyof typeof p.robot.constraints] = v;
+                      (p.robot.constraints as unknown as Record<string, number>)[key] = v;
                     })
                   }
                 />
               ))}
+              <Toggle
+                label="Slow down before slower steps"
+                hint="Decelerate toward a slower step ahead (v² = cap² + 2·a·d) instead of braking after its handoff. Off matches BLine."
+                checked={!!project.robot.constraints.anticipateSpeedCaps}
+                onChange={(on) =>
+                  s.commit((p) => {
+                    p.robot.constraints.anticipateSpeedCaps = on;
+                  })
+                }
+              />
             </div>
           </Panel>
           <ViewerPanel />

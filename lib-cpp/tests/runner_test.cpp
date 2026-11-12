@@ -120,5 +120,38 @@ int main() {
     assert(tail[1]=="transition Autonomous drive-test/arrive drive done");
     assert(tail[2]=="enter Autonomous done 7");
   }
+  // Motion heading faces travel through a pickup; headingOffset pi drives backward;
+  // anticipateSpeedCaps reaches a slower step's handoff at its cap.
+  {
+    struct Pickup final : mayhem::RobotHooks {
+      double headingAtEvent=NAN, travelAtEvent=NAN; mayhem::Pose pose; mayhem::Velocity v;
+      void PathEvent(std::string_view) override {headingAtEvent=pose.heading;travelAtEvent=std::atan2(v.vy,v.vx);}
+    };
+    const mayhem::PathMarker intake[]={{mayhem::MarkerKind::Event,.6,0,"intake",true}};
+    auto drive=[&](double offset,bool anticipate,double cap,double& entry) {
+      mayhem::Goal a{{4,1,0}}; a.headingMode=mayhem::HeadingMode::Free;
+      mayhem::Goal b{{7,1,0}}; b.headingMode=mayhem::HeadingMode::Motion; b.headingOffset=offset; b.markers=intake; b.markerCount=1;
+      mayhem::Goal c{{7,4,3.14159265358979323846}};
+      mayhem::Constraints fast; fast.anticipateSpeedCaps=anticipate;
+      mayhem::Constraints slow=fast; slow.maxVelocity=cap;
+      const mayhem::AutoNode nodes[]={{"a",mayhem::NodeKind::Pose,a,15,"",fast,nullptr,0,1,true},{"b",mayhem::NodeKind::Pose,b,15,"",slow,nullptr,0,2,true},
+        {"c",mayhem::NodeKind::Pose,c,15,"",fast},{"f",mayhem::NodeKind::Finish,{},1,"",{}}};
+      const mayhem::AutoTransition edges[]={{"1","a","b",[](const mayhem::RobotHooks&){return true;}},{"2","b","c",[](const mayhem::RobotHooks&){return true;}},{"3","c","f",[](const mayhem::RobotHooks&){return true;}}};
+      Pickup hooks; mayhem::AutoRunner r({"p","a",nodes,4,edges,3},hooks); hooks.pose={1,1,1.5707963267948966}; r.Start();
+      entry=-1;
+      for(int i=0;i<3000&&r.Status()==mayhem::RunStatus::Running;i++){
+        hooks.v=r.Tick(hooks.pose,hooks.v,.02);
+        if(entry<0&&r.ActiveState()=="b") entry=std::hypot(hooks.v.vx,hooks.v.vy);
+        hooks.pose.x+=hooks.v.vx*.02;hooks.pose.y+=hooks.v.vy*.02;hooks.pose.heading=mayhem::Wrap(hooks.pose.heading+hooks.v.omega*.02);
+      }
+      assert(r.Status()==mayhem::RunStatus::Completed);
+      return std::abs(mayhem::Wrap(hooks.headingAtEvent-hooks.travelAtEvent-offset));
+    };
+    double entry=0;
+    assert(drive(0,false,4.5,entry)<10*3.14159265358979323846/180);
+    assert(drive(3.14159265358979323846,false,4.5,entry)<10*3.14159265358979323846/180);
+    drive(0,false,1,entry); assert(entry>2);
+    drive(0,true,1,entry); assert(entry<=1.05);
+  }
   std::cout<<"Auto runner checks passed\n";
 }

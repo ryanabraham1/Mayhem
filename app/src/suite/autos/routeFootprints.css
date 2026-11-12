@@ -1,0 +1,36 @@
+.mx-footprint rect {
+  fill: none;
+  stroke: var(--mx-path);
+  stroke-width: 0.025;
+  opacity: 0.35;
+}
+.mx-footprint .mx-footprint-front {
+  stroke: var(--mx-path);
+  stroke-width: 0.07;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+.mx-footprints {
+  pointer-events: none;
+}
+.mx-footprint.is-warning rect {
+  stroke: var(--mx-bad, #d33);
+  stroke-width: 0.04;
+  opacity: 0.9;
+}
+.mx-footprint.is-warning .mx-footprint-front {
+  stroke: var(--mx-bad, #d33);
+}
+.mx-footprint-lint {
+  pointer-events: auto;
+  cursor: help;
+}
+.mx-footprint-lint circle {
+  fill: var(--mx-bad, #d33);
+}
+.mx-footprint-lint text {
+  fill: #fff;
+  font-size: 0.22px;
+  font-weight: 700;
+  pointer-events: none;
+}

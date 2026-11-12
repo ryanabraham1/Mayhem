@@ -194,11 +194,11 @@ export function exportCpp(project: SuiteProject): string {
         c = resolveNodeConstraints(project, r, n);
       const markers = g?.markers?.length ? `markers_${i}.data(),markers_${i}.size()` : "nullptr,0";
       const goal = g
-        ? `{{${g.x},${g.y},${g.heading}},${g.translationTolerance},${g.rotationTolerance},${g.velocityTolerance},${g.settleTime},${g.handoffRadius},mayhem::HeadingMode::${g.headingMode === "pointAt" ? "PointAt" : g.headingMode === "motion" ? "Motion" : g.headingMode === "free" ? "Free" : "Fixed"},${g.aimX ?? 0},${g.aimY ?? 0},${!!g.stop},${g.projectedHandoff ?? false},${g.profiled ?? true},${markers}}`
+        ? `{{${g.x},${g.y},${g.heading}},${g.translationTolerance},${g.rotationTolerance},${g.velocityTolerance},${g.settleTime},${g.handoffRadius},mayhem::HeadingMode::${g.headingMode === "pointAt" ? "PointAt" : g.headingMode === "motion" ? "Motion" : g.headingMode === "free" ? "Free" : "Fixed"},${g.aimX ?? 0},${g.aimY ?? 0},${!!g.stop},${g.projectedHandoff ?? false},${g.profiled ?? true},${markers},${g.headingOffset ?? 0}}`
         : "{}";
       const next = autoNext(r, n);
       const nextIndex = next ? r.nodes.indexOf(next) : -1;
-      return `{${quoted(n.id)},mayhem::NodeKind::${n.kind === "pose" ? "Pose" : n.kind === "finish" ? "Finish" : n.kind === "custom" ? "Custom" : "Action"},${goal},${n.timeout},${quoted(n.action ?? "")},{${c.maxVelocity},${c.maxAcceleration},${c.maxAngularVelocity},${c.maxAngularAcceleration},${c.translationKp},${c.rotationKp},${c.handoffRadius},${c.crossTrackKp},${c.minVelocity}},${n.during?.length ? `during_${i}.data(),during_${i}.size()` : "nullptr,0"},${nextIndex},${isIntermediate(r, n)}}`;
+      return `{${quoted(n.id)},mayhem::NodeKind::${n.kind === "pose" ? "Pose" : n.kind === "finish" ? "Finish" : n.kind === "custom" ? "Custom" : "Action"},${goal},${n.timeout},${quoted(n.action ?? "")},{${c.maxVelocity},${c.maxAcceleration},${c.maxAngularVelocity},${c.maxAngularAcceleration},${c.translationKp},${c.rotationKp},${c.handoffRadius},${c.crossTrackKp},${c.minVelocity},${c.anticipateSpeedCaps}},${n.during?.length ? `during_${i}.data(),during_${i}.size()` : "nullptr,0"},${nextIndex},${isIntermediate(r, n)}}`;
     });
     output.push(
       ...declare("mayhem::AutoNode", "nodes", nodes),

@@ -74,6 +74,8 @@ if (!result.valid) {
 
 The output is **field-relative meters/second and radians/second**. Convert for your drivetrain API when necessary. Set real robot limits and tune feedback on hardware. An outer watchdog, disabled/cancellation logic, localization checks, and obstacle routing belong to the caller. Invalid numeric/controller input returns zero with `valid=false`.
 
+`Goal::headingOffset` (radians) is added to the `Motion` and `PointAt` headings (pi: face backward while moving). `Motion` faces the direction of travel toward the active anchor (along the segment within 0.1 m of it); a `Motion` anchor ahead is a rotation target, reached by the previous anchor's handoff, and every handoff carries the heading actually commanded, so the heading never steps. Hold a heading until progress t with a rotation marker at t carrying that heading. `Constraints::anticipateSpeedCaps` (default false, BLine behavior) makes the follower slow down for a slower step ahead (`speed <= sqrt(cap^2 + 2 a d)`, d = distance to its handoff point); `PathFollower::Calculate` takes the per-anchor caps as an optional last argument and `AutoRunner` passes each step's `maxVelocity`. Both new fields are last in their structs, so existing positional initializers still compile.
+
 `handoffRadius > 0` permits reaching the intermediate target while moving. A final target should normally leave it at zero and settle. Heading modes are Fixed, PointAt, Motion, and Free. Translation and angular speed use separate constraints.
 
 ## Optional exported routine executor

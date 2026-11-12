@@ -57,6 +57,12 @@ export interface ControllerState extends Velocity {
   events?: number;
   /** Smallest remaining path distance reached; rotation progress is monotonic. */
   acceptedRemaining?: number;
+  /**
+   * Set while a path is driven by follow() (the native follower). The rest of that path
+   * stays on follow() across handoffs; switching to the kinematic preview mid-path would
+   * restart it from rest.
+   */
+  native?: boolean;
 }
 export interface ControlResult {
   command: Velocity;
@@ -81,6 +87,17 @@ export interface ControlResult {
 export interface PathAhead {
   anchors: Goal[];
   final: boolean;
+  /** Max velocity of the step owning each anchor (caps[i] applies on the segment into anchors[i]). */
+  caps?: number[];
+}
+/** Below this distance to the target, Motion heading follows the segment direction instead. */
+export const MOTION_MIN_DISTANCE = 0.1;
+/** Heading that faces the direction of travel toward `T` (Motion mode), before any offset. */
+function motionHeading(T: Goal, pose: Pose, sx: number, sy: number, fallback: number): number {
+  const dx = T.x - pose.x,
+    dy = T.y - pose.y;
+  if (Math.hypot(dx, dy) > Math.max(T.translationTolerance, MOTION_MIN_DISTANCE)) return Math.atan2(dy, dx);
+  return Math.hypot(T.x - sx, T.y - sy) > 1e-9 ? Math.atan2(T.y - sy, T.x - sx) : fallback;
 }
 export const freshState = (pose: Pose, v: Velocity = { vx: 0, vy: 0, omega: 0 }): ControllerState => ({
   ...v,
@@ -231,6 +248,16 @@ export function follow(
         }
       if (!next && hasHeading(g))
         next = { heading: g.heading, remaining: after, profiled: g.profiled ?? true };
+      // A Motion step ahead: face its direction of travel by the handoff into its segment
+      // (the previous anchor's handoff circle), so the heading never steps at the handoff.
+      if (!next && i > 0 && g.headingMode === "motion" && len > 1e-9) {
+        const before = path.anchors[i - 1];
+        next = {
+          heading: Math.atan2(g.y - segStartY, g.x - segStartX) + (g.headingOffset ?? 0),
+          remaining: after + len + (before.handoffRadius > 0 ? before.handoffRadius : k.handoffRadius),
+          profiled: true,
+        };
+      }
       segStartX = g.x;
       segStartY = g.y;
     }
@@ -248,9 +275,9 @@ export function follow(
   // The heading requested by path progress, before per-step overrides.
   const interpolated = desiredHeading;
   if (T.headingMode === "pointAt")
-    desiredHeading = Math.atan2((T.aimY ?? T.y) - pose.y, (T.aimX ?? T.x) - pose.x);
-  else if (T.headingMode === "motion" && distance > T.translationTolerance)
-    desiredHeading = Math.atan2(dy, dx);
+    desiredHeading = Math.atan2((T.aimY ?? T.y) - pose.y, (T.aimX ?? T.x) - pose.x) + (T.headingOffset ?? 0);
+  else if (T.headingMode === "motion")
+    desiredHeading = motionHeading(T, pose, sx, sy, interpolated) + (T.headingOffset ?? 0);
   if (isFinal && hasHeading(T) && distance <= T.translationTolerance)
     desiredHeading = T.heading;
   const angle = wrap(desiredHeading - pose.heading);
@@ -280,6 +307,18 @@ export function follow(
   // clamped to max velocity, with an optional speed floor, pointed at the
   // active target, plus cross-track correction along the segment normal.
   let speed = Math.min(k.translationKp * remaining, k.maxVelocity);
+  // Optional: be at or below each slower step's cap when reaching its handoff point.
+  if (k.anticipateSpeedCaps && path.caps) {
+    // Distance to the slower step's handoff point, less one step of travel (the rate
+    // limiter applies a speed change one tick after it is requested).
+    let d = distance - radius - speed * dt;
+    for (let i = 1; i < path.anchors.length; i++) {
+      const cap = path.caps[i];
+      if (Number.isFinite(cap) && cap < speed)
+        speed = Math.min(speed, Math.sqrt(cap * cap + 2 * k.maxAcceleration * Math.max(0, d)));
+      d += Math.hypot(path.anchors[i].x - path.anchors[i - 1].x, path.anchors[i].y - path.anchors[i - 1].y);
+    }
+  }
   if (k.minVelocity > 0 && remaining > T.translationTolerance)
     speed = Math.max(speed, Math.min(k.minVelocity, k.maxVelocity));
   let vx = distance > 1e-9 ? (speed * dx) / distance : 0,
@@ -308,10 +347,10 @@ export function follow(
   const omega = omegaDesired;
   if (![vx, vy, omega].every(Number.isFinite)) return invalid();
   // On handoff, the next segment starts at T and inherits the rotation context.
-  // An early handoff continues from the heading requested right now, so the
-  // heading target never jumps to an anchor heading the robot cut short of.
+  // An early handoff continues from the heading requested right now (including a
+  // Motion or point-at override), so the heading target never jumps.
   const carry = handoff
-    ? { rotHeading: interpolated, rotRemaining: tail }
+    ? { rotHeading: desiredHeading, rotRemaining: tail }
     : { rotHeading: prior.rotHeading ?? pose.heading, rotRemaining: Number.isFinite(prior.rotRemaining ?? Number.NaN) ? prior.rotRemaining : along };
   return {
     command: { vx, vy, omega },
@@ -352,18 +391,25 @@ export const isIntermediate = (routine: AutoRoutine, node: AutoNode) =>
   node.kind === "pose" && !!node.goal && !node.goal.stop &&
   (!!autoNext(routine, node) || node.goal.handoffRadius > 0);
 /** Anchors ahead of a pose step, following unconditional pose chains. */
-export function pathAhead(routine: AutoRoutine, node: AutoNode): PathAhead {
+export function pathAhead(routine: AutoRoutine, node: AutoNode, project?: SuiteProject): PathAhead {
   const anchors: Goal[] = [node.goal!];
+  const nodes = [node];
   const seen = new Set([node.id]);
   let current = node;
+  const result = (final: boolean): PathAhead => ({
+    anchors,
+    final,
+    ...(project ? { caps: nodes.map((n) => resolveNodeConstraints(project, routine, n).maxVelocity) } : {}),
+  });
   while (anchors.length < MAX_LOOKAHEAD && isIntermediate(routine, current)) {
     const next = autoNext(routine, current);
-    if (!next || seen.has(next.id)) return { anchors, final: false };
+    if (!next || seen.has(next.id)) return result(false);
     seen.add(next.id);
     anchors.push(next.goal!);
+    nodes.push(next);
     current = next;
   }
-  return { anchors, final: !isIntermediate(routine, current) };
+  return result(!isIntermediate(routine, current));
 }
 export interface TraceEvent {
   time: number;
@@ -484,7 +530,7 @@ export function step(
     );
     return next;
   }
-  const preview = node.kind === "pose" && node.goal && !freezeDrive
+  const preview = node.kind === "pose" && node.goal && !freezeDrive && !frame.controller.native
     ? previewTick(project, routine, node, frame.pose, frame.controller, dt)
     : undefined;
   // BLine resolves all intermediate handoffs before calculating movement.
@@ -533,7 +579,7 @@ export function step(
     const result = follow(
       frame.pose,
       frame.velocity,
-      pathAhead(routine, node),
+      pathAhead(routine, node, project),
       resolveNodeConstraints(project, routine, node),
       frame.controller,
       dt,
@@ -545,7 +591,7 @@ export function step(
       return next;
     }
     for (const key of result.fired) event("event", `Event trigger ${key}`);
-    next.controller = result.state;
+    next.controller = { ...result.state, native: true };
     next.reached = result.reached;
     handedOff = result.handoff;
     next.velocity = freezeDrive ? { vx: 0, vy: 0, omega: 0 } : result.command;

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type PointerEvent } from "react";
+import { useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
   CircleDot,
@@ -76,6 +76,7 @@ export function FieldView({
   duplicate,
   resetStart,
   trail = [],
+  overlay,
   speedPath,
   maxSpeed = 1,
 }: {
@@ -97,6 +98,8 @@ export function FieldView({
   resetStart?: () => void;
   /** Poses already driven in the preview, drawn behind the robot. */
   trail?: Pose[];
+  /** Extra field-coordinate SVG drawn above the route and below the robot (y is flipped). */
+  overlay?: ReactNode;
   /** The whole previewed route with speed (m/s); drawn colored by speed instead of the trail. */
   speedPath?: { x: number; y: number; speed: number }[];
   /** Speed drawn fully green. */
@@ -608,6 +611,7 @@ export function FieldView({
             pointerEvents="none"
           />
         )}
+        {overlay}
         <g
           transform={`translate(${pose.x},${height - pose.y}) rotate(${(-pose.heading * 180) / Math.PI})`}
           style={{ pointerEvents: "none" }}

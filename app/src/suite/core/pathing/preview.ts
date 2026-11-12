@@ -187,7 +187,9 @@ export function previewTick(
         (n) =>
           !n.goal ||
           (n.goal.headingMode &&
-            !["fixed", "free"].includes(n.goal.headingMode)),
+            !["fixed", "free"].includes(n.goal.headingMode)) ||
+          // Cap anticipation is a Mayhem follower feature; preview it natively.
+          resolveNodeConstraints(project, routine, n).anticipateSpeedCaps,
       ) ||
       openEnded
     )
