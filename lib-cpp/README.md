@@ -13,6 +13,7 @@ Use the pieces you need:
 | `pose_controller.hpp` | Standalone live-pose controller; no framework, IO, network, or per-tick allocation |
 | `signals.hpp` | Typed fail-closed guard inputs (`SignalValue`, `Compare`, `Not`/`All`/`Any`, `SignalSource`) and `ManifestView` |
 | `auto_runner.hpp` | Optional graph executor with typed guards, arbitrary action callbacks, concurrent actions, cancellation, watchdogs, goal telemetry, and optional observation |
+| `state_machine.hpp` | `StateMachine`: runs an exported `mayhem-machine` graph (typed guards, priority, built-in `stateTime`, optional observer) |
 | `alliance.hpp` | `AllianceRoutine`: flipped/mirrored copies of a blue-origin routine (poses, aim points, rotation markers, start) |
 | `state_observer.hpp` | Optional observation interface for any robot state machine |
 | `wpilib.hpp` | `DriveToPose` command and WPILOG observer |
@@ -108,6 +109,35 @@ runner.Attach(observer, mayhem_generated::autonomous::manifest,
 ```
 
 `Attach(observer, ManifestView manifest = {}, Clock clock = nullptr, std::string_view machine = "Autonomous")` reports `Enter`, `Guard` (one per evaluated transition, input `"condition"`), `Transition`, and `GoalProgress` (every pose tick, with the follower's errors and `reached`) under the `Autonomous` machine. If the observer type has `Describe(json)` and `RegisterGuard(transition, input)` (as `WpiLogObserver`, `NtStateObserver`, and a composite like the 3256 robot's observer do), `Attach` describes the manifest and registers every guard. Transition IDs reported to observers are `"<routine id>/<transition id>"` (`mayhem::QualifiedTransitionId`), matching the exported Autonomous manifest; `RobotHooks` callbacks still receive the unqualified IDs. Without a clock, timestamps are 0, which `WpiLogObserver` records as the current time. `Attach` allocates; ticks do not (beyond what the observer's sink does).
+
+## Mechanism state machines
+
+`node scripts/mayhem.mjs cpp` exports every `extensions.machines` graph as a `mayhem::MachineView` (`mayhem_generated::machine_<i>::machine`, plus a namespace alias named after the machine ID when it is a valid C++ identifier, e.g. `mayhem_generated::Superstructure::machine`, and the `mayhem_generated::machines` array). Run one with `mayhem::StateMachine` (C++17, `state_machine.hpp`):
+
+```cpp
+#include <mayhem/state_machine.hpp>
+
+// Signals from a callback (or pass any const mayhem::SignalSource&).
+mayhem::StateMachine intake(mayhem_generated::IntakeSequence::machine,
+                            [this](std::string_view key) { return IntakeSignal(key); });
+intake.Attach(observer, [] { return frc::Timer::GetFPGATimestamp().value(); });
+
+// Every loop, after updating the inputs:
+intake.Tick(dt);                  // true if a transition was taken
+switch (intake.StateIndex()) { /* drive mechanisms from the state */ }
+```
+
+| Member | Meaning |
+| --- | --- |
+| `StateMachine(MachineView, const SignalSource&)` / `StateMachine(MachineView, std::function<SignalValue(std::string_view)>)` | Resolves states to indices and enters `initial`. Allocates. |
+| `bool Tick(double dt)` | Adds `dt` to `StateTime()`, evaluates the active state's outgoing guards in declaration order, takes at most one transition (which resets `StateTime()` to 0). Non-finite or negative `dt` does not advance time; guards still run. |
+| `bool Reset()` | Re-enter `initial` with `StateTime() = 0`. |
+| `std::string_view State()`, `int StateIndex()`, `double StateTime()`, `std::string_view LastTransition()` | Current state, its index in the view's `states`, seconds in it, last transition taken. |
+| `bool Valid()` | False if `initial` or a transition endpoint is not a declared state; then `State()` is empty and `Tick` does nothing. |
+| `SignalValue Signal(std::string_view)` | What guards see. |
+| `template <class O> void Attach(O& observer, Clock clock = nullptr)`, `Detach()` | Describe the embedded manifest and register every guard (input `"condition"`) when the observer supports it; report `Enter` (immediately, and on each entry), `Guard` (every evaluation), and `Transition`. |
+
+Guards are the same fail-closed typed comparisons as `AutoRunner`: a missing or mistyped input is false, including under `Not`; the first true guard in declaration order wins. The built-in `stateTime` input (`mayhem::kStateTimeSignal`) is the real seconds since entering the state and takes precedence over a robot signal of the same name, so `stateTime > 2.5` deadlines need no robot code; declare it as a number input in the manifest so the editor and viewer accept it. Log it on the input's channel too if you want log replay to evaluate those guards. `Tick` and `Reset` never allocate (tested by counting `operator new`); construction and `Attach` do. The machine only decides state: robot code reads it and drives outputs, and owns disabled handling.
 
 ## Alliance flipping
 
