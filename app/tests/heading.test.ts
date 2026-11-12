@@ -174,5 +174,5 @@ int main() {
       expect(Math.abs(wrap(preview.frame.pose.heading - Math.PI))).toBeLessThanOrEqual(DEFAULT_GOAL.rotationTolerance + 1e-6);
       expect(Math.abs(time - preview.frame.time)).toBeLessThan(0.1);
     }
-  });
+  }, 30_000); // compiles C++: slow on a busy machine
 });

@@ -158,7 +158,7 @@ test("a priority supervisor (every state to every state) reads as a ladder, with
   await expect(ladder.locator("li").nth(1)).toContainText("Oshoot ∧ Ojitter");
   // Chips say where they come from instead of a bare "any".
   const chip = page.locator(".mx-state", { hasText: "Shoot + jitter" }).locator(".mx-any");
-  await expect(chip).toContainText("from any state ·");
+  await expect(chip).toHaveText("from any state");
   await expect(chip).toHaveAttribute("title", /Shoot \+ jitter: from any state\nshoot \(operator\) ∧ jitter \(operator\)/);
   await expect(page.locator(".mx-edge")).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("supervisor-ladder.png") });

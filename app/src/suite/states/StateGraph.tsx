@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import dagre from "@dagrejs/dagre";
 import { Circle, Code2, Flag, Navigation, Zap } from "lucide-react";
 import {
   ANY_STATE,
@@ -15,10 +16,8 @@ import { ConditionText, glyphText } from "./ConditionText";
 
 const W = 196,
   H = 78,
-  GAP_X = 150,
   GAP_Y = 46,
-  PAD = 28,
-  BAND_GAP = 84;
+  PAD = 28;
 
 /** A code reference as its file name (plus any :line), so the distinctive part stays visible. */
 export function shortSource(source: string, max = 26): string {
@@ -27,11 +26,34 @@ export function shortSource(source: string, max = 26): string {
   return elideMiddle(file.length < text.length && text.length <= max ? text : file, max);
 }
 
-/** Longest-path layering from the initial state, ignoring edges that close cycles. */
-function layout(graph: AutoRoutine, available: number, availableHeight: number) {
+interface Box { w: number; h: number }
+interface Wire { key: string; from: string; to: string }
+/** Where a wire runs (start to arrowhead) and the center of its label. */
+interface WireGeometry { points: { x: number; y: number }[]; lx: number; ly: number }
+const CHIP = 20;
+
+/**
+ * Layered top-to-bottom layout (dagre) with each edge label as an obstacle of its measured size,
+ * so labels never overlap each other, states or other wires' labels. Edges that close a cycle
+ * (found from the initial state) are laid out reversed, so the flow reads top to bottom from the
+ * initial state, and get their own lanes instead of looping under the states. `lift` reserves
+ * room above a state for its "from any state" chips. Without wires, states form a grid.
+ */
+export function layoutGraph(nodes: string[], initial: string, wires: Wire[], labels: Map<string, Box>, lift: (id: string) => number) {
+  const positions = new Map<string, { x: number; y: number }>();
+  const geometry = new Map<string, WireGeometry>();
+  if (!wires.length) {
+    const perRow = Math.max(1, Math.ceil(Math.sqrt(nodes.length)));
+    const rowHeight = H + GAP_Y + Math.max(0, ...nodes.map(lift));
+    nodes.forEach((id, i) =>
+      positions.set(id, { x: PAD + (i % perRow) * (W + GAP_Y * 2), y: PAD + Math.floor(i / perRow) * rowHeight + lift(id) }),
+    );
+    const rows = Math.ceil(nodes.length / perRow);
+    return { positions, geometry, width: PAD * 2 + Math.min(perRow, nodes.length) * (W + GAP_Y * 2) - GAP_Y * 2, height: PAD * 2 + rows * rowHeight };
+  }
+  // Back edges: a depth-first search from the initial state (then any unvisited state).
   const out = new Map<string, string[]>();
-  for (const t of graph.transitions)
-    if (t.from !== t.to) out.set(t.from, [...(out.get(t.from) ?? []), t.to]);
+  for (const w of wires) if (w.from !== w.to) out.set(w.from, [...(out.get(w.from) ?? []), w.to]);
   const back = new Set<string>();
   const state = new Map<string, 1 | 2>();
   const visit = (id: string) => {
@@ -42,67 +64,43 @@ function layout(graph: AutoRoutine, available: number, availableHeight: number) 
     }
     state.set(id, 2);
   };
-  visit(graph.initial);
-  for (const n of graph.nodes) if (!state.has(n.id)) visit(n.id);
-  const depth = new Map<string, number>([[graph.initial, 0]]);
-  for (let pass = 0; pass < graph.nodes.length; pass++)
-    for (const t of graph.transitions) {
-      const from = depth.get(t.from);
-      if (from === undefined || t.from === t.to || back.has(`${t.from}>${t.to}`)) continue;
-      if ((depth.get(t.to) ?? -1) < from + 1) depth.set(t.to, from + 1);
-    }
-  // States not reached from the initial one: start each source (no forward incoming edge) at
-  // column 0 and relax again, so separate clusters lay out side by side instead of stacking.
-  if (depth.size < graph.nodes.length) {
-    const hasIncoming = new Set(
-      graph.transitions.filter((t) => t.from !== t.to && !back.has(`${t.from}>${t.to}`)).map((t) => t.to),
-    );
-    for (const n of graph.nodes) if (!depth.has(n.id) && !hasIncoming.has(n.id)) depth.set(n.id, 0);
-    for (let pass = 0; pass < graph.nodes.length; pass++)
-      for (const t of graph.transitions) {
-        const from = depth.get(t.from);
-        if (from === undefined || t.from === t.to || back.has(`${t.from}>${t.to}`)) continue;
-        if ((depth.get(t.to) ?? -1) < from + 1) depth.set(t.to, from + 1);
-      }
+  if (nodes.includes(initial)) visit(initial);
+  for (const id of nodes) if (!state.has(id)) visit(id);
+
+  const g = new dagre.graphlib.Graph({ multigraph: true });
+  g.setGraph({ rankdir: "TB", nodesep: 36, edgesep: 18, ranksep: 44, marginx: PAD, marginy: PAD });
+  g.setDefaultEdgeLabel(() => ({}));
+  for (const id of nodes) g.setNode(id, { width: W, height: H + lift(id) });
+  for (const w of wires) {
+    const label = labels.get(w.key) ?? { w: 80, h: 22 };
+    const reversed = back.has(`${w.from}>${w.to}`);
+    g.setEdge(reversed ? w.to : w.from, reversed ? w.from : w.to, { width: label.w + 8, height: label.h + 8, labelpos: "c" }, w.key);
   }
-  // Anything still unplaced (pure cycles) fills a compact grid after the last column.
-  const maxDepth = Math.max(0, ...depth.values());
-  const rest = graph.nodes.filter((n) => !depth.has(n.id));
-  const perColumn = Math.max(2, Math.ceil(Math.sqrt(rest.length)));
-  rest.forEach((n, i) => depth.set(n.id, maxDepth + 1 + Math.floor(i / perColumn)));
-  const byDepth = new Map<number, string[]>();
-  for (const n of graph.nodes) {
-    const d = depth.get(n.id)!;
-    byDepth.set(d, [...(byDepth.get(d) ?? []), n.id]);
+  dagre.layout(g);
+  for (const id of nodes) {
+    const n = g.node(id);
+    positions.set(id, { x: n.x - W / 2, y: n.y - (H + lift(id)) / 2 + lift(id) });
   }
-  // A layer taller than the view splits into side-by-side sub-columns.
-  const maxRows = Math.max(2, Math.floor((availableHeight - PAD * 2 - 60 + GAP_Y) / (H + GAP_Y)));
-  const columns = new Map<number, string[]>();
-  for (const d of [...byDepth.keys()].sort((a, b) => a - b)) {
-    const ids = byDepth.get(d)!;
-    for (let i = 0; i < ids.length; i += maxRows) columns.set(columns.size, ids.slice(i, i + maxRows));
+  for (const w of wires) {
+    const reversed = back.has(`${w.from}>${w.to}`);
+    const e = g.edge({ v: reversed ? w.to : w.from, w: reversed ? w.from : w.to, name: w.key });
+    const points = [...(e.points ?? [])];
+    if (reversed) points.reverse();
+    geometry.set(w.key, { points, lx: e.x ?? points[0].x, ly: e.y ?? points[0].y });
   }
-  const tallest = Math.max(...[...columns.values()].map((c) => c.length));
-  const columnCount = columns.size;
-  // Wrap columns into bands when the machine is wider than the view.
-  const perBand = Math.max(1, Math.min(columnCount, Math.floor((available - PAD * 2 + GAP_X) / (W + GAP_X))));
-  const bandHeight = tallest * (H + GAP_Y) - GAP_Y + BAND_GAP;
-  const positions = new Map<string, { x: number; y: number }>();
-  for (const [d, ids] of columns) {
-    const offset = ((tallest - ids.length) * (H + GAP_Y)) / 2;
-    const band = Math.floor(d / perBand),
-      column = d % perBand;
-    ids.forEach((id, i) =>
-      positions.set(id, {
-        x: PAD + column * (W + GAP_X),
-        y: PAD + band * bandHeight + offset + i * (H + GAP_Y),
-      }),
-    );
+  const size = g.graph();
+  return { positions, geometry, width: Math.ceil(size.width ?? 0), height: Math.ceil(size.height ?? 0) };
+}
+
+/** A smooth path through the layout's points (Catmull-Rom as cubic Béziers). */
+function smoothPath(points: { x: number; y: number }[]) {
+  if (points.length < 2) return "";
+  let d = `M${points[0].x},${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i - 1] ?? points[i], p1 = points[i], p2 = points[i + 1], p3 = points[i + 2] ?? p2;
+    d += ` C${p1.x + (p2.x - p0.x) / 6},${p1.y + (p2.y - p0.y) / 6} ${p2.x - (p3.x - p1.x) / 6},${p2.y - (p3.y - p1.y) / 6} ${p2.x},${p2.y}`;
   }
-  const bands = Math.ceil(columnCount / perBand);
-  const width = PAD * 2 + perBand * (W + GAP_X) - GAP_X;
-  const height = PAD * 2 + bands * bandHeight - BAND_GAP + 60;
-  return { positions, width, height };
+  return d;
 }
 
 export function StateGraph({
@@ -137,6 +135,7 @@ export function StateGraph({
   const scroller = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [allWires, setAllWires] = useState(false);
+  useEffect(() => setAllWires(false), [graph.id]);
   // Transitions that leave (almost) every state for the same target on the same condition
   // (or are declared `from: "*"`) form one "from any state" group: a chip on the target and a
   // row in the priority list instead of a wire from each state.
@@ -198,9 +197,10 @@ export function StateGraph({
     const keys = new Set([...inputs.map((i) => i.key), "stateTime"]);
     return (k: string) => keys.has(k);
   }, [inputs]);
-  // Glyphs take room: keep labels a little shorter than the two-line box allows.
+  // The transition's name, else its condition; only a very long condition is shortened (to the
+  // terms that tell it apart from its siblings). The full condition is on hover and in the inspector.
   const labels = useMemo(
-    () => edgeLabels(graph.transitions, 32, (id) => graph.nodes.find((n) => n.id === id)?.name ?? id, signalLabel),
+    () => edgeLabels(graph.transitions, 96, (id) => graph.nodes.find((n) => n.id === id)?.name ?? id, signalLabel),
     [graph, signalLabel],
   );
   // Every wire to draw; `from: "*"` transitions are drawn once per state they leave.
@@ -241,7 +241,42 @@ export function StateGraph({
     selectEdge?.(t.id);
   };
   const groupLive = (g: AnyStateGroup) => g.transitions.some((t) => leavesState(t, active) && evaluate(t.condition, signals));
-  const { positions, width, height } = useMemo(() => layout(wired, box.w || 1200, box.h || 700), [wired, box.w, box.h]);
+  // Label boxes are measured (hidden copies below) and fed to the layout as obstacles.
+  const measurer = useRef<HTMLDivElement>(null);
+  const [labelBoxes, setLabelBoxes] = useState(new Map<string, Box>());
+  const labelKey = wires.map((w) => `${w.key}\u0000${labels.get(w.t.id)?.label}`).join("\u0001");
+  useLayoutEffect(() => {
+    const next = new Map<string, Box>();
+    for (const el of measurer.current?.querySelectorAll<HTMLElement>("[data-wire]") ?? []) {
+      const text = el.textContent ?? "";
+      // Without layout (tests), estimate from the text.
+      next.set(el.dataset.wire!, el.offsetWidth
+        ? { w: Math.ceil(el.offsetWidth) + 1, h: Math.ceil(el.offsetHeight) + 1 }
+        : { w: Math.min(180, text.length * 7 + 18), h: 18 * Math.ceil((text.length * 7 + 18) / 180) + 4 });
+    }
+    setLabelBoxes((old) =>
+      old.size === next.size && [...next].every(([k, b]) => old.get(k)?.w === b.w && old.get(k)?.h === b.h) ? old : next,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [labelKey]);
+  const chipCount = (id: string) => globals.groups.filter((g) => g.to === id).length;
+  const { positions, geometry, width, height } = useMemo(
+    () =>
+      layoutGraph(
+        wired.nodes.map((n) => n.id),
+        graph.initial,
+        wires.map((w) => ({ key: w.key, from: w.from, to: w.t.to })),
+        labelBoxes,
+        (id) => chipCount(id) * CHIP,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wired, wires, labelBoxes, graph.initial, globals],
+  );
+  // Hovering or selecting a state highlights its wires and dims the rest.
+  const [hovered, setHovered] = useState<string>();
+  useEffect(() => setHovered(undefined), [graph.id]);
+  const focus = hovered ?? selected;
+  // Only hovering dims the other wires; the selection (always set) just strengthens its own.
   useEffect(() => {
     const el = scroller.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -250,7 +285,7 @@ export function StateGraph({
     return () => observer.disconnect();
   }, []);
   // Shrink large machines to fit, but never below a readable size; scroll beyond that.
-  const scale = box.w ? Math.max(0.7, Math.min(1, (box.w - 16) / width, (box.h - 16) / height)) : 1;
+  const scale = box.w ? Math.max(0.8, Math.min(1, (box.w - 16) / width, (box.h - 16) / height)) : 1;
   const ladder = globals.groups.length > 0 && (
     <section className={`mx-any-ladder ${wires.length ? "" : "is-primary"}`} aria-label="Transitions from any state">
       <header>
@@ -290,7 +325,17 @@ export function StateGraph({
     {ladder}
     <div className="mx-graph-scroll" ref={scroller}>
       <div className="mx-graph-sizer" style={{ width: width * scale, height: height * scale }}>
-      <div className="mx-graph" style={{ width, height, transform: `scale(${scale})` }}>
+      <div className={`mx-graph ${hovered ? "has-focus" : ""}`} style={{ width, height, transform: `scale(${scale})` }}>
+        <div className="mx-edge-measure" ref={measurer} aria-hidden="true">
+          {wires.map((w) => {
+            const label = labels.get(w.t.id)?.label;
+            return label ? (
+              <span key={w.key} data-wire={w.key} className={`mx-edge-label ${w.t.name ? "is-named" : ""}`}>
+                <ConditionText text={label} isKey={isKey} categoryOf={categoryOf} />
+              </span>
+            ) : null;
+          })}
+        </div>
         <svg width={width} height={height} aria-label="State transitions" className="mx-graph-wires">
           <defs>
             <marker id="mx-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
@@ -300,59 +345,33 @@ export function StateGraph({
               <path d="M0,0 L8,4 L0,8 z" fill="var(--mx-accent)" />
             </marker>
           </defs>
-          {wires.map(({ key, t, from }, index) => {
-            const a = positions.get(from),
-              b = positions.get(t.to);
-            if (!a || !b) return null;
-            const sameBand = Math.abs(a.y - b.y) < H * 2 + GAP_Y * 2 && b.y + H > a.y - GAP_Y && a.y + H > b.y - GAP_Y;
-            const forward = b.x > a.x && sameBand;
-            const down = b.y > a.y + H + GAP_Y && !sameBand;
-            let d: string, lx: number, ly: number;
-            if (down) {
-              // Wraps to the next band: leave from the bottom, enter from the top.
-              const x1 = a.x + W / 2,
-                y1 = a.y + H,
-                x2 = b.x + W / 2,
-                y2 = b.y - 2,
-                mid = (y1 + y2) / 2;
-              d = `M${x1},${y1} C${x1},${mid + 30} ${x2},${mid - 30} ${x2},${y2}`;
-              lx = (x1 + x2) / 2;
-              ly = mid;
-            } else if (forward) {
-              const x1 = a.x + W,
-                y1 = a.y + H / 2,
-                x2 = b.x - 2,
-                y2 = b.y + H / 2,
-                mid = (x1 + x2) / 2;
-              d = `M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`;
-              lx = mid;
-              ly = (y1 + y2) / 2;
-            } else {
-              // Back or same-column edge: loop underneath both states.
-              const drop = Math.max(a.y, b.y) + H + 26 + (index % 3) * 10;
-              const x1 = a.x + W / 2 + 18,
-                x2 = b.x + W / 2 - 18;
-              d = `M${x1},${a.y + H} C${x1},${drop} ${x2},${drop} ${x2},${b.y + H + 2}`;
-              lx = (x1 + x2) / 2;
-              ly = drop - 6;
-            }
+          {wires.map(({ key, t, from }) => {
+            const geo = geometry.get(key);
+            if (!geo) return null;
             const fromActive = from === active;
             const live = fromActive && evaluate(t.condition, signals);
             const info = labels.get(t.id)!;
             const label = info.label;
-            const picked = selectedEdge === t.id;
+            const picked = selectedEdge === t.id && (t.from !== ANY_STATE || from === selected);
+            const near = from === focus || t.to === focus;
+            const box = labelBoxes.get(key);
+            const title = [t.name, glyphText(compactCondition(t.condition, signalLabel), isKey, categoryOf), t.description]
+              .filter(Boolean)
+              .join("\n");
             return (
-              <g key={key} className={`mx-edge ${live ? "is-live" : ""} ${fromActive ? "is-from-active" : ""} ${picked ? "is-picked" : ""}`}>
-                <path d={d} fill="none" markerEnd={`url(#${live ? "mx-arrow-live" : "mx-arrow"})`}>
-                  <title>{[t.name, glyphText(info.condition, isKey, categoryOf), t.description].filter(Boolean).join("\n")}</title>
+              <g
+                key={key}
+                className={`mx-edge ${live ? "is-live" : ""} ${fromActive ? "is-from-active" : ""} ${picked ? "is-picked" : ""} ${near ? "is-near" : "is-far"}`}
+              >
+                <path d={smoothPath(geo.points)} fill="none" markerEnd={`url(#${live ? "mx-arrow-live" : "mx-arrow"})`}>
+                  <title>{title}</title>
                 </path>
-                {label && (
-                  <foreignObject x={lx - 75} y={ly - 18} width="150" height="36">
-                    <div className="mx-edge-slot">
+                {label && box && (
+                  <foreignObject x={geo.lx - box.w / 2} y={geo.ly - box.h / 2} width={box.w} height={box.h}>
                     <button
                       type="button"
                       className={`mx-edge-label ${t.name ? "is-named" : ""}`}
-                      title={[t.name, glyphText(info.condition, isKey, categoryOf), t.description].filter(Boolean).join("\n")}
+                      title={title}
                       aria-label={`Transition ${label}: ${info.condition}`}
                       onClick={() => {
                         select(from);
@@ -361,7 +380,6 @@ export function StateGraph({
                     >
                       <ConditionText text={label} isKey={isKey} categoryOf={categoryOf} />
                     </button>
-                    </div>
                   </foreignObject>
                 )}
               </g>
@@ -386,6 +404,8 @@ export function StateGraph({
               style={{ left: p.x, top: p.y, width: W, height: H }}
               title={[node.name, node.source, node.description].filter(Boolean).join("\n")}
               onClick={() => select(node.id)}
+              onMouseEnter={() => setHovered(node.id)}
+              onMouseLeave={() => setHovered(undefined)}
               onContextMenu={menu && ((e) => menu(e, node.id))}
             >
               {globals.groups
@@ -397,8 +417,7 @@ export function StateGraph({
                     style={{ top: -11 - i * 20 }}
                     title={groupTitle(g)}
                   >
-                    {g.missing.length ? `from any state but ${g.missing.length}` : "from any state"} ·{" "}
-                    <ConditionText text={elideMiddle(g.label, 18)} isKey={isKey} categoryOf={categoryOf} />
+                    {g.missing.length ? `from any state but ${g.missing.length}` : "from any state"}
                   </span>
                 ))}
               <span className="mx-state-kind">

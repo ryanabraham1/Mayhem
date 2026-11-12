@@ -12,3 +12,9 @@ generator's speed caps and radii for a three-leg route with and without manual
 pins. The native inputs were authored independently of Mayhem's adapter, using
 the same defaults and robot dimensions. Adapter tests compare the full output
 values and solve status against those external results.
+
+`robot-machines.json` holds real state machines from the 3256 offseason robot's
+`robot.mayhem.json`: `oldShotCycle` (commit ba22adc, unnamed transitions whose labels
+overlapped in the old graph layout) and `current` (Superstructure, a fully connected priority
+supervisor; IntakeSequence; ShotCycle). `e2e/state-graph-layout.spec.ts` checks that their
+edge labels never overlap each other or a state and stay inside the graph.

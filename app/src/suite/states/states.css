@@ -1,34 +1,54 @@
 /* Edge labels are buttons: clicking one selects the edge in the inspector. */
 /* Up to two lines; the text is already shortened to fit (core/edgeLabels.ts). */
-.mx-edge-slot {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-}
-button.mx-edge-label {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+/* Edge labels wrap to at most 180px; the layout measures each one (hidden copies in
+   .mx-edge-measure) and keeps every label clear of states and other labels. */
+.mx-graph .mx-edge-label {
+  display: block;
+  box-sizing: border-box;
+  width: max-content;
   max-width: 180px;
+  margin: 0;
+  padding: 2px 8px;
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
-  line-height: 1.35;
-  white-space: normal;
   text-align: center;
-  line-height: 14px;
+  line-height: 15px;
   border-radius: 10px;
   cursor: pointer;
   font-family: var(--mx-mono);
+  font-size: 10.5px;
+  overflow-wrap: break-word;
 }
-button.mx-edge-label:hover,
+.mx-graph foreignObject > .mx-edge-label {
+  width: 100%;
+  height: 100%;
+}
+.mx-edge-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.mx-edge-measure .mx-edge-label {
+  position: absolute;
+}
+/* A hovered or selected state: its wires stand out, the others step back. */
+.mx-graph.has-focus .mx-edge.is-far {
+  opacity: 0.28;
+}
+.mx-graph.has-focus .mx-edge.is-near path {
+  stroke-width: 2.25;
+}
+.mx-graph button.mx-edge-label:hover,
 .mx-edge.is-picked .mx-edge-label {
   border-color: var(--mx-accent);
   color: var(--mx-ink);
 }
-button.mx-edge-label.is-named {
-  font-family: inherit;
+.mx-graph .mx-edge-label.is-named {
+  font-family: var(--mx-font);
+  font-size: 11.5px;
   font-weight: 600;
 }
 .mx-edge.is-picked path {

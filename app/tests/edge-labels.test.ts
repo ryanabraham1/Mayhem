@@ -150,3 +150,33 @@ describe('transitions from any state ("*")', () => {
     expect(() => parseMachineManifest(badFrom)).toThrow(/Invalid machine transition/);
   });
 });
+
+describe("state graph layout", () => {
+  it("keeps label boxes clear of each other and of states, and draws back edges toward their target", async () => {
+    const { layoutGraph } = await import("../src/suite/states/StateGraph.tsx");
+    const nodes = ["OFF", "SPIN", "AIM", "FEED", "FAULT"];
+    const wires = [
+      ["a", "OFF", "SPIN"], ["b", "SPIN", "AIM"], ["c", "AIM", "FEED"], ["d", "FEED", "SPIN"],
+      ["e", "AIM", "SPIN"], ["f", "SPIN", "FAULT"], ["g", "AIM", "FAULT"], ["h", "FAULT", "OFF"],
+    ].map(([key, from, to]) => ({ key, from, to }));
+    const labels = new Map(wires.map((w) => [w.key, { w: 150, h: 40 }]));
+    const { positions, geometry } = layoutGraph(nodes, "OFF", wires, labels, () => 0);
+    const boxes = [
+      ...nodes.map((id) => ({ id, ...positions.get(id)!, w: 196, h: 78 })),
+      ...wires.map((w) => {
+        const g = geometry.get(w.key)!;
+        return { id: w.key, x: g.lx - 75, y: g.ly - 20, w: 150, h: 40 };
+      }),
+    ];
+    const hits = boxes.flatMap((a, i) =>
+      boxes.slice(i + 1).filter((b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h).map((b) => `${a.id}/${b.id}`),
+    );
+    expect(hits).toEqual([]);
+    // FAULT → OFF closes a cycle: laid out reversed, but its points still end at OFF.
+    const back = geometry.get("h")!.points;
+    const off = positions.get("OFF")!;
+    const end = back[back.length - 1];
+    expect(Math.abs(end.x - (off.x + 98))).toBeLessThan(98 + 1);
+    expect(Math.abs(end.y - (off.y + 39))).toBeLessThan(39 + 1);
+  });
+});
