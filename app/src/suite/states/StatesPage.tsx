@@ -15,7 +15,7 @@ import {
   Radio,
 } from "lucide-react";
 import { copyText, openContextMenu } from "../ContextMenu";
-import { evaluate, type Signals } from "../core/model.ts";
+import { ANY_STATE, evaluate, leavesState, type Signals } from "../core/model.ts";
 import { edgeLabels } from "../core/edgeLabels.ts";
 import {
   INPUT_CATEGORIES,
@@ -211,7 +211,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
   const settle = (from: string, values: Signals) => {
     let state = from;
     for (let hop = 0; hop < 12; hop++) {
-      const edge = graph.transitions.find((t) => t.from === state && evaluate(t.condition, values));
+      const edge = graph.transitions.find((t) => leavesState(t, state) && evaluate(t.condition, values));
       if (!edge || edge.to === state) break;
       state = edge.to;
     }
@@ -591,8 +591,8 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
           <section className="mx-insp-section">
             <h3>Leaves this state when</h3>
             {graph.transitions
-              .filter((t) => t.from === node.id)
-              .map((t) => {
+              .filter((t) => leavesState(t, node.id))
+              .map((t, i) => {
                 const ok = evaluate(t.condition, signals);
                 const info = edgeInfo.get(t.id)!;
                 return (
@@ -610,7 +610,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                       }
                     }}
                   >
-                    <span className="mx-guard-priority" title="Priority: checked in this order">{info.priority}</span>
+                    <span className="mx-guard-priority" title="Priority: checked in this order">{i + 1}</span>
                     {ok ? <Check size={14} /> : <Circle size={13} />}
                     <span className="mx-guard-main">
                       {t.name && <strong>{t.name}</strong>}
@@ -618,6 +618,11 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                         <ConditionText text={info.condition} isKey={isKey} categoryOf={categoryOf} />
                       </code>
                       {t.description && <small>{t.description}</small>}
+                      {t.from === ANY_STATE && (
+                        <small className="mx-guard-any">
+                          From any state{t.except?.length ? ` except ${t.except.map(stateName).join(", ")}` : ""}
+                        </small>
+                      )}
                     </span>
                     <button
                       type="button"
@@ -633,10 +638,10 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                   </div>
                 );
               })}
-            {!graph.transitions.some((t) => t.from === node.id) && (
+            {!graph.transitions.some((t) => leavesState(t, node.id)) && (
               <p className="mx-help">Terminal state. Nothing leaves it.</p>
             )}
-            {graph.transitions.filter((t) => t.from === node.id).length > 1 && (
+            {graph.transitions.filter((t) => leavesState(t, node.id)).length > 1 && (
               <p className="mx-help">Checked in order; the first true condition wins.</p>
             )}
           </section>

@@ -6,7 +6,7 @@ import type {
   Transition,
 } from "./model.ts";
 import { valueAt, type Recording } from "./analysis.ts";
-import { inputSourceProblem } from "./model.ts";
+import { ANY_STATE, inputSourceProblem } from "./model.ts";
 export interface MachineManifest {
   format: "mayhem-machine";
   version: 1;
@@ -14,7 +14,11 @@ export interface MachineManifest {
   name: string;
   initial: string;
   states: { id: string; name: string; description?: string; source?: string }[];
-  /** Optional `name` (edge label) and `description` (hover/inspector) on each transition. */
+  /**
+   * Optional `name` (edge label) and `description` (hover/inspector) on each transition.
+   * `from: "*"` leaves every state except its target and any `except` states, at its
+   * position in priority order.
+   */
   transitions: Transition[];
   /** Each input may carry `category` and `derivedFrom` (see SignalDefinition). */
   inputs: (SignalDefinition & { channel?: string })[];
@@ -99,10 +103,15 @@ export function parseMachineManifest(value: unknown): MachineManifest {
       !record(t) ||
       !text(t.id) ||
       edges.has(t.id) ||
-      !states.has(t.from) ||
+      !(states.has(t.from) || t.from === ANY_STATE) ||
       !states.has(t.to)
     )
       throw new Error("Invalid machine transition.");
+    if (
+      t.except !== undefined &&
+      (t.from !== ANY_STATE || !Array.isArray(t.except) || t.except.some((s: unknown) => typeof s !== "string" || !states.has(s)))
+    )
+      throw new Error(`Transition ${t.id}: except needs from "${ANY_STATE}" and must list state IDs.`);
     if (
       (t.name !== undefined && (typeof t.name !== "string" || !t.name.trim())) ||
       (t.description !== undefined && typeof t.description !== "string")

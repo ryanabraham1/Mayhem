@@ -179,4 +179,49 @@ int main() {
     // 0.51 s deadline from the built-in stateTime: the 26th 20 ms tick (0.52 s) exceeds it.
     expect(execFileSync(exe, { encoding: "utf8" }).trim()).toBe("Idle 26 2 Second auto");
   });
+
+  it("exports from \"*\" transitions with except, keeping priority per state", () => {
+    const p = load();
+    const sig = (key: string) => ({ kind: "signal" as const, key, op: "eq" as const, value: true });
+    (p.extensions as any).machines = [
+      {
+        format: "mayhem-machine", version: 1, id: "Super", name: "Super", initial: "IDLE",
+        states: ["IDLE", "SHOOT", "INTAKE", "HOME"].map((id) => ({ id, name: id })),
+        inputs: ["home", "shoot", "intake", "idle"].map((key) => ({ key, name: key, type: "boolean", initial: false })),
+        transitions: [
+          { id: "toHome", from: "*", to: "HOME", condition: sig("home") },
+          { id: "toShoot", from: "*", to: "SHOOT", except: ["HOME"], condition: sig("shoot") },
+          { id: "intake", from: "IDLE", to: "INTAKE", condition: sig("intake") },
+          { id: "toIdle", from: "*", to: "IDLE", condition: sig("idle") },
+        ],
+      },
+    ];
+    const cpp = exportCpp(p);
+    expect(cpp).toContain('{"toHome","*","HOME",guard_0}');
+    expect(cpp).toContain('{"toShoot","*","SHOOT",guard_1,except_1.data(),except_1.size()}');
+    writeFileSync(resolve(dir, "super.hpp"), cpp);
+    writeFileSync(
+      resolve(dir, "super.cpp"),
+      `#include "super.hpp"
+#include <cstdio>
+#include <set>
+#include <string>
+int main() {
+  std::set<std::string> on;
+  mayhem::StateMachine m(mayhem_generated::Super::machine, [&](std::string_view k) -> mayhem::SignalValue {
+    return on.count(std::string(k)) > 0; });
+  std::string trace = std::string(m.Valid() ? "valid" : "invalid");
+  auto step = [&](std::set<std::string> next) { on = next; m.Tick(.02); trace += " " + std::string(m.State()); };
+  step({"shoot", "intake"}); step({"shoot"}); step({"home", "shoot"}); step({"shoot", "idle"});
+  std::printf("%s\\n", trace.c_str());
+}`,
+    );
+    const exe = resolve(dir, "super");
+    execFileSync(process.env.CXX ?? "clang++", [
+      "-std=c++17", "-Wall", "-Wextra", "-Werror", `-I${resolve(root, "lib-cpp/include")}`,
+      resolve(dir, "super.cpp"), "-o", exe,
+    ]);
+    // shoot beats intake from IDLE; SHOOT stays; home wins; from HOME toShoot is excepted.
+    expect(execFileSync(exe, { encoding: "utf8" }).trim()).toBe("valid SHOOT SHOOT HOME IDLE");
+  });
 });

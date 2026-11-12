@@ -115,7 +115,14 @@ export interface Transition {
   name?: string;
   /** Why this edge exists; shown on hover and in the inspector. */
   description?: string;
+  /** With `from: "*"` (machines only): states it does not leave. */
+  except?: string[];
 }
+/** `from` of a machine transition that leaves every state except its target (and `except`). */
+export const ANY_STATE = "*";
+/** Whether `t` is checked while `state` is active ("*" covers every state but its target and `except`). */
+export const leavesState = (t: Transition, state: string) =>
+  t.from === ANY_STATE ? t.to !== state && !t.except?.includes(state) : t.from === state;
 export interface AutoRoutine {
   constraintGeneration?: {
     signature: string;

@@ -226,17 +226,21 @@ export function exportCpp(project: SuiteProject): string {
   const aliases = new Set<string>();
   machines.forEach((m, mi) => {
     output.push(`namespace machine_${mi} {`, `inline constexpr std::string_view id = ${quoted(m.id)};`);
-    m.transitions.forEach((t, i) =>
+    m.transitions.forEach((t, i) => {
       output.push(
         `inline bool guard_${i}([[maybe_unused]] const mayhem::SignalSource& h) { return (${expression(t.condition)}).value_or(false); }`,
-      ),
-    );
+      );
+      if (t.except?.length) output.push(...declare("std::string_view", `except_${i}`, t.except.map(quoted)));
+    });
     output.push(
       ...declare("mayhem::MachineState", "states", m.states.map((s) => `{${quoted(s.id)}}`)),
       ...declare(
         "mayhem::MachineTransition",
         "transitions",
-        m.transitions.map((t, i) => `{${quoted(t.id)},${quoted(t.from)},${quoted(t.to)},guard_${i}}`),
+        m.transitions.map(
+          (t, i) =>
+            `{${quoted(t.id)},${quoted(t.from)},${quoted(t.to)},guard_${i}${t.except?.length ? `,except_${i}.data(),except_${i}.size()` : ""}}`,
+        ),
       ),
       ...manifest(m),
       `inline constexpr mayhem::MachineView machine{id,${quoted(m.initial)},states.data(),states.size(),transitions.data(),transitions.size(),manifest};`,

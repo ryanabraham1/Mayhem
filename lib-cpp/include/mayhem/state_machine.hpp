@@ -10,7 +10,11 @@
 
 namespace mayhem {
 struct MachineState { std::string_view id; };
-struct MachineTransition { std::string_view id, from, to; bool (*guard)(const SignalSource&); };
+// `from` "*" (kAnyState) leaves every state except `to` and the `except` states.
+struct MachineTransition {
+  std::string_view id, from, to; bool (*guard)(const SignalSource&);
+  const std::string_view* except = nullptr; std::size_t exceptCount = 0;
+};
 struct MachineView {
   std::string_view id, initial;
   const MachineState* states; std::size_t stateCount;
@@ -19,10 +23,13 @@ struct MachineView {
 };
 // Built-in input: real seconds since the active state was entered.
 inline constexpr std::string_view kStateTimeSignal = "stateTime";
+// MachineTransition::from for a transition checked in every state but its target.
+inline constexpr std::string_view kAnyState = "*";
 
 // Evaluates one machine graph. Each Tick(dt) adds dt to StateTime(), then evaluates the
 // active state's outgoing guards in declaration order (declaration order is priority)
-// and takes at most one transition. Guards fail closed: a missing or mistyped input is
+// and takes at most one transition. A "*" transition is checked, at its position, in every
+// state except its target and its `except` states; observers see the actual source state. Guards fail closed: a missing or mistyped input is
 // false, including under Not. The machine only decides state; robot code reads State()
 // and drives mechanisms. Construction resolves states to indices and allocates;
 // Tick/Reset never allocate. A graph whose initial state or a transition endpoint is
@@ -63,13 +70,13 @@ class StateMachine final : public SignalSource {
     if (current_ < 0) return false;
     if (std::isfinite(dt) && dt > 0) stateTime_ += dt;
     for (std::size_t i = 0; i < machine_.transitionCount; ++i) {
-      if (from_[i] != current_) continue;
+      if (from_[i] == kAny ? skip_[i * machine_.stateCount + current_] : from_[i] != current_) continue;
       const auto& t = machine_.transitions[i];
       const bool accepted = t.guard && t.guard(*this);
       if (observer_) observer_->Guard(machine_.id, t.id, kGuardInput, accepted, Now());
       if (!accepted) continue;
       lastTransition_ = static_cast<int>(i);
-      if (observer_) observer_->Transition(machine_.id, t.id, t.from, t.to, Now());
+      if (observer_) observer_->Transition(machine_.id, t.id, State(), t.to, Now());
       Enter(to_[i]);
       return true;
     }
@@ -101,8 +108,18 @@ class StateMachine final : public SignalSource {
     initial_ = Index(machine_.initial);
     valid_ = initial_ >= 0 && (machine_.transitionCount == 0 || machine_.transitions);
     for (std::size_t i = 0; valid_ && i < machine_.transitionCount; ++i) {
-      from_[i] = Index(machine_.transitions[i].from); to_[i] = Index(machine_.transitions[i].to);
-      valid_ = from_[i] >= 0 && to_[i] >= 0;
+      const auto& t = machine_.transitions[i];
+      from_[i] = t.from == kAnyState ? kAny : Index(t.from); to_[i] = Index(t.to);
+      valid_ = from_[i] != -1 && to_[i] >= 0 && (t.exceptCount == 0 || (from_[i] == kAny && t.except));
+      if (!valid_ || from_[i] != kAny) continue;
+      // States a "*" transition does not leave: its target and `except`.
+      if (skip_.empty()) skip_.assign(machine_.transitionCount * machine_.stateCount, 0);
+      skip_[i * machine_.stateCount + to_[i]] = 1;
+      for (std::size_t e = 0; valid_ && e < t.exceptCount; ++e) {
+        const int s = Index(t.except[e]);
+        valid_ = s >= 0;
+        if (valid_) skip_[i * machine_.stateCount + s] = 1;
+      }
     }
     Reset();
   }
@@ -113,7 +130,8 @@ class StateMachine final : public SignalSource {
   double Now() const { return clock_ ? clock_() : 0; }
   MachineView machine_;
   const SignalSource* source_ = nullptr; SignalCallback callback_;
-  std::vector<int> from_, to_;
+  static constexpr int kAny = -2;
+  std::vector<int> from_, to_; std::vector<char> skip_;
   int initial_ = -1, current_ = -1, lastTransition_ = -1; bool valid_ = false;
   double stateTime_ = 0;
   StateObserver* observer_ = nullptr; Clock clock_ = nullptr;

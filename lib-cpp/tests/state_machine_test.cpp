@@ -178,5 +178,38 @@ int main() {
     }
     assert(allocations == start);
   }
+  {
+    // "*" transitions: checked at their position in every state but the target and `except`,
+    // so a priority supervisor needs one transition per target. Observers see the real source.
+    static const mayhem::MachineState states[] = {{"IDLE"}, {"SHOOT"}, {"INTAKE"}, {"HOME"}};
+    static const std::string_view notHome[] = {"HOME"};
+    static const mayhem::MachineTransition edges[] = {
+      {"toHome", "*", "HOME", [](const SignalSource& h) { return mayhem::Compare(h.Signal("home"), CompareOp::Eq, true).value_or(false); }},
+      {"toShoot", "*", "SHOOT", [](const SignalSource& h) { return mayhem::Compare(h.Signal("shoot"), CompareOp::Eq, true).value_or(false); }, notHome, 1},
+      {"intake", "IDLE", "INTAKE", [](const SignalSource& h) { return mayhem::Compare(h.Signal("intake"), CompareOp::Eq, true).value_or(false); }},
+      {"toIdle", "*", "IDLE", [](const SignalSource& h) { return mayhem::Compare(h.Signal("idle"), CompareOp::Eq, true).value_or(false); }},
+    };
+    Inputs in;
+    mayhem::StateMachine m({"Super", "IDLE", states, 4, edges, 4}, in);
+    Recorder rec;
+    m.Attach(rec);
+    in.values["idle"] = true;
+    assert(m.Valid() && !m.Tick(.02) && m.State() == "IDLE");  // toIdle never leaves IDLE itself
+    in.values["idle"] = false;
+    in.values["shoot"] = true; in.values["intake"] = true;
+    assert(m.Tick(.02) && m.State() == "SHOOT" && m.LastTransition() == "toShoot");  // priority over "intake"
+    assert(rec.log.back() == "enter Super SHOOT 0" && rec.log[rec.log.size() - 2] == "transition Super toShoot IDLE SHOOT");
+    assert(!m.Tick(.02) && m.State() == "SHOOT");  // toShoot does not leave SHOOT itself
+    in.values["home"] = true;
+    assert(m.Tick(.02) && m.State() == "HOME");
+    in.values["home"] = false; in.values["idle"] = true;
+    assert(m.Tick(.02) && m.State() == "IDLE");  // except HOME: toShoot is skipped, toIdle wins
+    assert(rec.log[rec.log.size() - 2] == "transition Super toIdle HOME IDLE");
+    static const std::string_view bogus[] = {"NOPE"};
+    const mayhem::MachineTransition badExcept[] = {{"x", "*", "IDLE", nullptr, bogus, 1}};
+    const mayhem::MachineTransition exceptOnPlain[] = {{"x", "SHOOT", "IDLE", nullptr, notHome, 1}};
+    assert(!mayhem::StateMachine({"B", "IDLE", states, 4, badExcept, 1}, in).Valid());
+    assert(!mayhem::StateMachine({"B", "IDLE", states, 4, exceptOnPlain, 1}, in).Valid());
+  }
   std::cout << "State machine checks passed\n";
 }

@@ -1,4 +1,4 @@
-import { evaluate, type Condition, type InputCategory, type InputRef, type Signals, type Transition } from "./model.ts";
+import { evaluate, leavesState, type Condition, type InputCategory, type InputRef, type Signals, type Transition } from "./model.ts";
 import { conditionSignals } from "./machines.ts";
 
 export type { InputCategory } from "./model.ts";
@@ -90,7 +90,7 @@ export function transitionCause(
   before: Signals,
   after: Signals,
 ): TransitionCause | undefined {
-  const edges = transitions.filter((t) => t.from === from && t.to === to);
+  const edges = transitions.filter((t) => leavesState(t, from) && t.to === to);
   if (!edges.length) return undefined;
   const transition = edges.find((t) => evaluate(t.condition, after)) ?? edges[0];
   const keys = conditionKeys(transition.condition);

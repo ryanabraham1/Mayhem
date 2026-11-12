@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { compactCondition, edgeLabels, elideMiddle } from "../src/suite/core/edgeLabels.ts";
 import { exportCpp } from "../src/suite/core/export-cpp.ts";
 import { exampleMachine, parseMachineManifest } from "../src/suite/core/machines.ts";
-import { parseProject, validateProject, type Condition, type Transition } from "../src/suite/core/model.ts";
+import { leavesState, parseProject, validateProject, type Condition, type Transition } from "../src/suite/core/model.ts";
+import { transitionCause } from "../src/suite/core/inputCategories.ts";
 
 const sig = (key: string, value: boolean | number | string = true, op: "eq" | "gt" | "lt" = "eq"): Condition => ({ kind: "signal", key, op, value });
 const all = (...conditions: Condition[]): Condition => ({ kind: "all", conditions });
@@ -116,4 +117,36 @@ it("uses signal display labels for positive and negative booleans", () => {
   const label = (key: string) => key === "pieceDetected" ? "Piece detected" : key;
   expect(compactCondition(sig("pieceDetected"), label)).toBe("Piece detected");
   expect(compactCondition(sig("pieceDetected", false), label)).toBe("¬(Piece detected)");
+});
+
+describe('transitions from any state ("*")', () => {
+  const machine = () => ({
+    format: "mayhem-machine", version: 1, id: "Super", name: "Super", initial: "IDLE",
+    states: ["IDLE", "SHOOT", "HOME"].map((id) => ({ id, name: id })),
+    inputs: ["home", "shoot"].map((key) => ({ key, name: key, type: "boolean", initial: false })),
+    transitions: [
+      { id: "toHome", from: "*", to: "HOME", condition: sig("home") },
+      { id: "toShoot", from: "*", to: "SHOOT", except: ["HOME"], condition: sig("shoot") },
+    ] as any[],
+  });
+  it("leave every state but the target and except, and explain a state change", () => {
+    const m = parseMachineManifest(machine());
+    const [home, shoot] = m.transitions;
+    expect(["IDLE", "SHOOT", "HOME"].filter((s) => leavesState(home, s))).toEqual(["IDLE", "SHOOT"]);
+    expect(["IDLE", "SHOOT", "HOME"].filter((s) => leavesState(shoot, s))).toEqual(["IDLE"]);
+    expect(leavesState({ id: "x", from: "IDLE", to: "SHOOT", condition: sig("shoot") }, "IDLE")).toBe(true);
+    expect(transitionCause(m.transitions, "SHOOT", "HOME", { home: false }, { home: true })?.transition.id).toBe("toHome");
+    expect(transitionCause(m.transitions, "HOME", "SHOOT", {}, {})).toBeUndefined();
+  });
+  it("reject except without \"*\" and unknown except states", () => {
+    const plain = machine();
+    plain.transitions[1] = { ...plain.transitions[1], from: "IDLE" };
+    expect(() => parseMachineManifest(plain)).toThrow(/toShoot: except needs from "\*"/);
+    const unknown = machine();
+    unknown.transitions[1].except = ["NOPE"];
+    expect(() => parseMachineManifest(unknown)).toThrow(/except/);
+    const badFrom = machine();
+    badFrom.transitions[0].from = "**";
+    expect(() => parseMachineManifest(badFrom)).toThrow(/Invalid machine transition/);
+  });
 });

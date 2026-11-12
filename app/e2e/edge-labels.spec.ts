@@ -131,6 +131,66 @@ test("an input derived from another machine's input names that machine and its s
   await expect(derived).toHaveAttribute("title", "Derived from Superstructure · jitter (operator: Jitter requested (Y)); driven by operator input");
 });
 
+test("a priority supervisor (every state to every state) reads as a ladder, with wires on demand", async ({ page }, info) => {
+  page.on("pageerror", (error) => { throw error; });
+  await page.goto("/");
+  const sig = (key: string, value = true) => ({ kind: "signal", key, op: "eq", value });
+  const targets = [
+    { id: "CANCEL", name: "Cancel", when: sig("cancel") },
+    { id: "SHOOT_AND_JITTER", name: "Shoot + jitter", when: { kind: "all", conditions: [sig("shoot"), sig("jitter")] } },
+    { id: "SHOOT", name: "Shoot", when: sig("shoot") },
+    { id: "JITTER", name: "Jitter", when: sig("jitter") },
+    { id: "IDLE", name: "Nothing requested", when: { kind: "all", conditions: [sig("shoot", false), sig("jitter", false)] } },
+  ];
+  const states = targets.map((t) => ({ id: t.id, name: t.name }));
+  const inputs = ["cancel", "shoot", "jitter"].map((key) => ({ key, name: key, type: "boolean", initial: false, category: key === "cancel" ? "internal" : "operator" }));
+  // Expanded the way a generator without "*" writes it: every target from every other state.
+  const expanded = {
+    format: "mayhem-machine", version: 1, id: "Supervisor", name: "Supervisor", initial: "IDLE", states, inputs,
+    transitions: states.flatMap((from) => targets.filter((t) => t.id !== from.id).map((t) => ({ id: `${from.id}->${t.id}`, from: from.id, to: t.id, condition: t.when }))),
+  };
+  const imports = page.locator("label", { hasText: "Import machine" }).locator("input[type=file]");
+  await page.getByRole("button", { name: "State machines", exact: true }).click();
+  await imports.setInputFiles({ name: "supervisor.machine.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(expanded)) });
+  const ladder = page.getByLabel("Transitions from any state");
+  await expect(ladder.locator("li")).toHaveCount(5);
+  await expect(ladder.locator("li").nth(1)).toContainText("→ Shoot + jitter");
+  await expect(ladder.locator("li").nth(1)).toContainText("Oshoot ∧ Ojitter");
+  // Chips say where they come from instead of a bare "any".
+  const chip = page.locator(".mx-state", { hasText: "Shoot + jitter" }).locator(".mx-any");
+  await expect(chip).toContainText("from any state ·");
+  await expect(chip).toHaveAttribute("title", /Shoot \+ jitter: from any state\nshoot \(operator\) ∧ jitter \(operator\)/);
+  await expect(page.locator(".mx-edge")).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath("supervisor-ladder.png") });
+  // The selected state's exits stay in priority order; picking a ladder row picks that exit.
+  await page.locator(".mx-state", { hasText: "Shoot" }).filter({ hasNotText: "jitter" }).click();
+  const exits = page.locator(".mx-guard-edge");
+  await expect(exits).toHaveCount(4);
+  await expect(exits.nth(0)).toContainText("→ Cancel");
+  await expect(exits.nth(1)).toContainText("→ Shoot + jitter");
+  await ladder.locator("li").nth(1).getByRole("button").click();
+  await expect(page.locator(".mx-guard-edge.is-picked")).toContainText("→ Shoot + jitter");
+  await ladder.getByRole("button", { name: "Show all wires" }).click();
+  await expect(page.locator(".mx-edge")).toHaveCount(20);
+  await page.screenshot({ path: info.outputPath("supervisor-wires.png") });
+
+  // The same machine with from "*": five transitions, same ladder, exits say where they apply.
+  const star = {
+    ...expanded, id: "Supervisor2", name: "Supervisor star",
+    transitions: targets.map((t) => ({ id: `to-${t.id}`, from: "*", to: t.id, condition: t.when, ...(t.id === "JITTER" ? { except: ["CANCEL"] } : {}) })),
+  };
+  await imports.setInputFiles({ name: "star.machine.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(star)) });
+  await expect(ladder.locator("li")).toHaveCount(5);
+  await expect(ladder.locator("li").nth(3)).toContainText("not from Cancel");
+  await expect(page.locator(".mx-state", { hasText: "Jitter" }).filter({ hasNotText: "Shoot" }).locator(".mx-any")).toContainText("from any state but 1");
+  await page.locator(".mx-state", { hasText: "Cancel" }).click();
+  await expect(exits).toHaveCount(3); // not JITTER (except), not itself
+  await expect(exits.first()).toContainText("From any state");
+  // Simulating follows "*" transitions.
+  await page.getByRole("switch", { name: "shoot" }).click();
+  await expect(page.locator(".mx-state.is-active")).toContainText("Shoot");
+});
+
 test("inspector exits wrap as text in a narrow window, with the target below the condition", async ({ page }, info) => {
   page.on("pageerror", (error) => { throw error; });
   await page.goto("/");
