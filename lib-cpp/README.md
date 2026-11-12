@@ -13,6 +13,7 @@ Use the pieces you need:
 | `pose_controller.hpp` | Standalone live-pose controller; no framework, IO, network, or per-tick allocation |
 | `signals.hpp` | Typed fail-closed guard inputs (`SignalValue`, `Compare`, `Not`/`All`/`Any`, `SignalSource`) and `ManifestView` |
 | `auto_runner.hpp` | Optional graph executor with typed guards, arbitrary action callbacks, concurrent actions, cancellation, watchdogs, goal telemetry, and optional observation |
+| `alliance.hpp` | `AllianceRoutine`: flipped/mirrored copies of a blue-origin routine (poses, aim points, rotation markers, start) |
 | `state_observer.hpp` | Optional observation interface for any robot state machine |
 | `wpilib.hpp` | `DriveToPose` command and WPILOG observer |
 | `networktables_observer.hpp` | NetworkTables observer and observer fanout |
@@ -107,6 +108,33 @@ runner.Attach(observer, mayhem_generated::autonomous::manifest,
 ```
 
 `Attach(observer, ManifestView manifest = {}, Clock clock = nullptr, std::string_view machine = "Autonomous")` reports `Enter`, `Guard` (one per evaluated transition, input `"condition"`), `Transition`, and `GoalProgress` (every pose tick, with the follower's errors and `reached`) under the `Autonomous` machine. If the observer type has `Describe(json)` and `RegisterGuard(transition, input)` (as `WpiLogObserver`, `NtStateObserver`, and a composite like the 3256 robot's observer do), `Attach` describes the manifest and registers every guard. Transition IDs reported to observers are `"<routine id>/<transition id>"` (`mayhem::QualifiedTransitionId`), matching the exported Autonomous manifest; `RobotHooks` callbacks still receive the unqualified IDs. Without a clock, timestamps are 0, which `WpiLogObserver` records as the current time. `Attach` allocates; ticks do not (beyond what the observer's sink does).
+
+## Alliance flipping
+
+Exported routines are blue-origin. Do not hand-copy nodes to flip them; use `AllianceRoutine` (C++17, `alliance.hpp`):
+
+```cpp
+#include <mayhem/alliance.hpp>
+
+// Construct once (allocates its node and marker copies), next to the runner.
+mayhem::AllianceRoutine routine(mayhem_generated::routine_0::info,
+                                mayhem_generated::fieldLength, mayhem_generated::fieldWidth);
+mayhem::AutoRunner runner(routine.View(), hooks);
+
+// autonomousInit: the alliance is known now. Apply() never allocates.
+routine.Apply(red ? mayhem::FieldTransform::Flip : mayhem::FieldTransform::None);
+drive.ResetPose(routine.StartPose());  // if your robot resets odometry
+runner.Start(measuredVelocity);
+```
+
+| `FieldTransform` | Mapping | Use |
+| --- | --- | --- |
+| `None` | unchanged | blue |
+| `Flip` | `x' = L - x`, `y' = W - y`, `h' = h + pi` (180 degree rotation, `FlipPose`) | red on a rotationally symmetric field (2022, 2025, 2026) |
+| `Mirror` | `y' = W - y`, `h' = -h` (`MirrorPose`) | left/right variant of the same auto |
+| `MirrorLength` | `x' = L - x`, `h' = pi - h` | red on a mirror-symmetric field (2023, 2024) |
+
+Every field-frame value is transformed: each node's goal pose (x, y, heading), `aimX`/`aimY` (PointAt), every rotation marker's heading, and the routine start pose (`StartPose()`; `Resolve(pose)` transforms any other blue pose, e.g. for a field preview). Event markers, progress `t`, tolerances, limits, actions, transitions, and guards are unchanged, and the view shares the blue transitions. `Apply()` always re-derives from the blue source, so calling it every enable is safe; apply before `Start()`, not mid-run. It returns false and applies `None` if the field size is not finite and positive. The object is movable (views stay valid) but not copyable. Never transform measured odometry; it is already blue-origin. The free functions `TransformPose`, `TransformGoal`, `TransformMarker`, and `TransformHeading` are available for custom code.
 
 ## Optional state observation
 
