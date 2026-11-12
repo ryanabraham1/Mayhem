@@ -5,13 +5,13 @@ import {
   resolveConstraints,
   resolveNodeConstraints,
   autoStepLabel,
-  conditionLabel,
   evaluate,
   type AutoNode,
   type Goal,
   type PathMarker,
 } from "../core/model.ts";
 import { isIntermediate } from "../core/runtime.ts";
+import { compactCondition } from "../core/edgeLabels.ts";
 import { ConditionEditor } from "../ConditionEditor";
 import type { SuiteState } from "../useSuiteProject";
 import {
@@ -588,12 +588,47 @@ export function AutoInspector({
                   ) : (
                     <Circle size={13} />
                   )}
-                  <code>{conditionLabel(t.condition)}</code>
+                  {t.name && <strong>{t.name}</strong>}
+                  <code title={t.description}>{compactCondition(t.condition)}</code>
                   <span className="mx-transition-to">
                     → {routine.nodes.find((n) => n.id === t.to)?.name}
                   </span>
                 </summary>
                 <div className="mx-transition-body">
+                  <Field label="Name (edge label)">
+                    <input
+                      aria-label="Transition name"
+                      key={t.id + (t.name ?? "")}
+                      defaultValue={t.name ?? ""}
+                      placeholder={compactCondition(t.condition)}
+                      onBlur={(e) => {
+                        const name = e.target.value.trim();
+                        if (name === (t.name ?? "")) return;
+                        s.editRoutine((r) => {
+                          const edge = r.transitions.find((x) => x.id === t.id)!;
+                          if (name) edge.name = name;
+                          else delete edge.name;
+                        });
+                      }}
+                    />
+                  </Field>
+                  <Field label="Description">
+                    <textarea
+                      aria-label="Transition description"
+                      rows={2}
+                      key={t.id + (t.description ?? "")}
+                      defaultValue={t.description ?? ""}
+                      onBlur={(e) => {
+                        const description = e.target.value.trim();
+                        if (description === (t.description ?? "")) return;
+                        s.editRoutine((r) => {
+                          const edge = r.transitions.find((x) => x.id === t.id)!;
+                          if (description) edge.description = description;
+                          else delete edge.description;
+                        });
+                      }}
+                    />
+                  </Field>
                   <Field label="Next step">
                     <select
                       aria-label="Transition destination"

@@ -13,6 +13,7 @@ export interface MachineManifest {
   name: string;
   initial: string;
   states: { id: string; name: string; description?: string; source?: string }[];
+  /** Optional `name` (edge label) and `description` (hover/inspector) on each transition. */
   transitions: Transition[];
   inputs: (SignalDefinition & { channel?: string })[];
   stateChannel?: string;
@@ -96,6 +97,11 @@ export function parseMachineManifest(value: unknown): MachineManifest {
       !states.has(t.to)
     )
       throw new Error("Invalid machine transition.");
+    if (
+      (t.name !== undefined && (typeof t.name !== "string" || !t.name.trim())) ||
+      (t.description !== undefined && typeof t.description !== "string")
+    )
+      throw new Error(`Transition ${t.id}: name must be nonempty text and description text.`);
     edges.add(t.id);
     check(t.condition);
   }

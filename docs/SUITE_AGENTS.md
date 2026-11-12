@@ -99,6 +99,8 @@ Typical loop: anomalies → what changed at that time → table of the suspects 
 
 `examples/suite/intake.machine.json` demonstrates the `mayhem-machine` v1 format. It lists state IDs, typed inputs, transitions/conditions, optional code references, and optional existing channel names. Import it in State machines, store it under project `extensions.machines`, or publish its JSON at `/Mayhem/Schema/<machine>`.
 
+Every transition (machine manifests and routines alike) can carry an optional `name` (short edge label, e.g. `"Hood clear"`) and `description` (why the edge exists). The graph shows `name` when present; otherwise a compact condition (`deploy ∧ ¬hoodClear`, `stateTime > 2.5`, `shotDemand ∨ ¬enabled`) that, when too long, keeps only the terms that tell the state's edges apart (`… shoot ∧ jitter`). Hover an edge or click its label for the full condition and description; the inspector lists a state's outgoing edges in priority order. Name your transitions: it is the cheapest way to make a large machine reviewable. Both fields round-trip through the editor, `validate`, and the exported manifests.
+
 The defaults are `/Mayhem/States/<machine>/state` for state and the input's key for its channel. You can use custom `stateChannel` and per-input `channel` names. Supply actual inputs as well as the schema: a diagram cannot reconstruct unlogged decisions. Optional C++ observers publish state, transitions, guard results, and goal errors to NetworkTables or WPILOG. See `lib-cpp/README.md`.
 
 Use the live view to inspect actual values. Use recording playback to review prior transitions and values at the same cursor. Local input controls are for exploring a manifest; they do not change the robot.

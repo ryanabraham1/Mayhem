@@ -99,6 +99,10 @@ export interface Transition {
   from: string;
   to: string;
   condition: Condition;
+  /** Short label shown on the edge instead of the condition (e.g. "Hood clear"). */
+  name?: string;
+  /** Why this edge exists; shown on hover and in the inspector. */
+  description?: string;
 }
 export interface AutoRoutine {
   constraintGeneration?: {
@@ -545,6 +549,10 @@ export function validateProject(input: unknown): Issue[] {
         transitionIds.add(t.id);
         if (!nodes.has(t.from) || !nodes.has(t.to))
           error(p, "Transition endpoints must exist.");
+        if (t.name !== undefined && (typeof t.name !== "string" || !t.name.trim()))
+          error(p + ".name", "Transition names must be nonempty text.");
+        if (t.description !== undefined && typeof t.description !== "string")
+          error(p + ".description", "Transition descriptions must be text.");
         checkCondition(t.condition, p + ".condition");
       });
       const reachable = new Set([r.initial]);

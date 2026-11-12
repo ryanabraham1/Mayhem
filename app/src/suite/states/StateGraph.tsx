@@ -1,18 +1,26 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Circle, Code2, Flag, Navigation, Zap } from "lucide-react";
 import {
-  conditionLabel,
   evaluate,
   type AutoRoutine,
   type Signals,
 } from "../core/model.ts";
+import { compactCondition, edgeLabels, elideMiddle } from "../core/edgeLabels.ts";
+import "./states.css";
 
 const W = 196,
-  H = 72,
+  H = 78,
   GAP_X = 150,
   GAP_Y = 46,
   PAD = 28,
   BAND_GAP = 84;
+
+/** A code reference as its file name (plus any :line), so the distinctive part stays visible. */
+export function shortSource(source: string, max = 26): string {
+  const text = source.trim();
+  const file = text.includes("/") ? `…/${text.slice(text.lastIndexOf("/") + 1)}` : text;
+  return elideMiddle(file.length < text.length && text.length <= max ? text : file, max);
+}
 
 /** Longest-path layering from the initial state, ignoring edges that close cycles. */
 function layout(graph: AutoRoutine, available: number, availableHeight: number) {
@@ -94,14 +102,22 @@ function layout(graph: AutoRoutine, available: number, availableHeight: number) 
 
 export function StateGraph({
   graph,
+  signalLabel = (key: string) => key,
   signals,
   selected,
   active,
   select,
   menu,
   machine = false,
+  selectedEdge,
+  selectEdge,
 }: {
+  signalLabel?: (key: string) => string;
   machine?: boolean;
+  /** Highlighted transition, e.g. the one picked in the inspector. */
+  selectedEdge?: string;
+  /** Click on an edge label. */
+  selectEdge?: (id: string) => void;
   /** Right-click on a state. */
   menu?: (event: MouseEvent, id: string) => void;
   graph: AutoRoutine;
@@ -117,21 +133,25 @@ export function StateGraph({
   const globals = useMemo(() => {
     const groups = new Map<string, Set<string>>();
     for (const t of graph.transitions) {
-      const key = `${t.to}\u0000${conditionLabel(t.condition)}`;
+      const key = `${t.to}\u0000${compactCondition(t.condition, signalLabel)}`;
       groups.set(key, (groups.get(key) ?? new Set()).add(t.from));
     }
     const threshold = Math.max(3, Math.ceil((graph.nodes.length - 1) * 0.6));
     const ids = new Set<string>();
     const chips = new Map<string, string[]>();
     for (const t of graph.transitions) {
-      const label = conditionLabel(t.condition);
-      if ((groups.get(`${t.to}\u0000${label}`)?.size ?? 0) < threshold) continue;
+      const label = t.name ?? compactCondition(t.condition, signalLabel);
+      if ((groups.get(`${t.to}\u0000${compactCondition(t.condition, signalLabel)}`)?.size ?? 0) < threshold) continue;
       ids.add(t.id);
       const list = chips.get(t.to) ?? [];
       if (!list.includes(label)) chips.set(t.to, [...list, label]);
     }
     return { ids, chips };
-  }, [graph]);
+  }, [graph, signalLabel]);
+  const labels = useMemo(
+    () => edgeLabels(graph.transitions, 40, (id) => graph.nodes.find((n) => n.id === id)?.name ?? id, signalLabel),
+    [graph, signalLabel],
+  );
   const wired = useMemo(
     () => ({ ...graph, transitions: graph.transitions.filter((t) => !globals.ids.has(t.id)) }),
     [graph, globals],
@@ -197,16 +217,29 @@ export function StateGraph({
             }
             const fromActive = t.from === active;
             const live = fromActive && evaluate(t.condition, signals);
-            const label = t.condition.kind === "always" ? "" : conditionLabel(t.condition);
+            const info = labels.get(t.id)!;
+            const label = info.label;
+            const picked = selectedEdge === t.id;
             return (
-              <g key={t.id} className={`mx-edge ${live ? "is-live" : ""} ${fromActive ? "is-from-active" : ""}`}>
+              <g key={t.id} className={`mx-edge ${live ? "is-live" : ""} ${fromActive ? "is-from-active" : ""} ${picked ? "is-picked" : ""}`}>
                 <path d={d} fill="none" markerEnd={`url(#${live ? "mx-arrow-live" : "mx-arrow"})`}>
-                  <title>{conditionLabel(t.condition)}</title>
+                  <title>{info.title}</title>
                 </path>
                 {label && (
-                  <foreignObject x={lx - 70} y={ly - 11} width="140" height="22">
-                    <div className="mx-edge-label" title={label}>
+                  <foreignObject x={lx - 75} y={ly - 18} width="150" height="36">
+                    <div className="mx-edge-slot">
+                    <button
+                      type="button"
+                      className={`mx-edge-label ${t.name ? "is-named" : ""}`}
+                      title={info.title}
+                      aria-label={`Transition ${label}: ${info.condition}`}
+                      onClick={() => {
+                        select(t.from);
+                        selectEdge?.(t.id);
+                      }}
+                    >
                       {label}
+                    </button>
                     </div>
                   </foreignObject>
                 )}
@@ -230,6 +263,7 @@ export function StateGraph({
               aria-current={active === node.id ? "step" : undefined}
               className={`mx-state is-${machine ? "machine" : node.kind} ${selected === node.id ? "is-selected" : ""} ${active === node.id ? "is-active" : ""} ${graph.initial === node.id ? "is-initial" : ""}`}
               style={{ left: p.x, top: p.y, width: W, height: H }}
+              title={[node.name, node.source, node.description].filter(Boolean).join("\n")}
               onClick={() => select(node.id)}
               onContextMenu={menu && ((e) => menu(e, node.id))}
             >
@@ -244,7 +278,7 @@ export function StateGraph({
                     style={{ top: -11 - i * 20 }}
                     title={`From any state when ${label}`}
                   >
-                    any · {label}
+                    any · {elideMiddle(label, 24)}
                   </span>
                 );
               })}
@@ -255,7 +289,9 @@ export function StateGraph({
               <strong>{node.name}</strong>
               <small>
                 {machine
-                  ? (node.source ?? node.description ?? node.id)
+                  ? node.source
+                    ? shortSource(node.source)
+                    : elideMiddle(node.description ?? node.id, 26)
                   : node.kind === "pose"
                     ? "Measured arrival"
                     : node.action || "Done"}

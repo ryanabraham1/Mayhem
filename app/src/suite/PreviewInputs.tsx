@@ -1,5 +1,6 @@
 import type { AutoRoutine, SignalDefinition, Signals } from "./core/model";
-import { conditionLabel, evaluate } from "./core/model";
+import { evaluate } from "./core/model";
+import { compactCondition } from "./core/edgeLabels";
 import type { ActionStatus, Frame } from "./core/runtime";
 
 export function PreviewInputs({
@@ -90,7 +91,7 @@ export function PreviewInputs({
               >
                 {evaluate(t.condition, signals) ? "✓" : "○"}
               </span>{" "}
-              {conditionLabel(t.condition)} →{" "}
+              {t.name ?? compactCondition(t.condition)} →{" "}
               {routine.nodes.find((n) => n.id === t.to)?.name}
             </p>
           ))}

@@ -15,7 +15,8 @@ import {
   Radio,
 } from "lucide-react";
 import { copyText, openContextMenu } from "../ContextMenu";
-import { conditionLabel, evaluate, type Signals } from "../core/model.ts";
+import { evaluate, type Signals } from "../core/model.ts";
+import { edgeLabels } from "../core/edgeLabels.ts";
 import {
   exampleMachine,
   machineGraph,
@@ -46,6 +47,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
   const live = robot.live;
   const [choice, setChoice] = useState(`auto:${s.routine.id}`);
   const [selected, setSelected] = useState(s.routine.initial);
+  const [selectedEdge, setSelectedEdge] = useState<string>();
   const [manualInputs, setManualInputs] = useState<Signals>({});
   const [simState, setSimState] = useState<string | null>(null);
   const [source, setSource] = useState<Source>("simulate");
@@ -79,6 +81,8 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
     : undefined;
   const auto = project.routines.find((r) => r.id === choice.slice(5)) ?? s.routine;
   const graph = machine ? machineGraph(machine) : auto;
+  // Edges use input keys, as robot code does; the Inputs list maps keys to names.
+  const edgeInfo = useMemo(() => edgeLabels(graph.transitions), [graph.transitions]);
   const stateTopic = machine ? (machine.stateChannel ?? `/Mayhem/States/${machine.id}/state`) : "";
 
   const topicKey = JSON.stringify(
@@ -345,7 +349,12 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
             signals={signals}
             selected={node.id}
             active={active}
-            select={setSelected}
+            select={(id) => {
+              setSelected(id);
+              setSelectedEdge(undefined);
+            }}
+            selectedEdge={selectedEdge}
+            selectEdge={setSelectedEdge}
             menu={(e, id) => {
               setSelected(id);
               const target = graph.nodes.find((n) => n.id === id);
@@ -513,16 +522,41 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
               .filter((t) => t.from === node.id)
               .map((t) => {
                 const ok = evaluate(t.condition, signals);
+                const info = edgeInfo.get(t.id)!;
                 return (
-                  <button
+                  <div
                     key={t.id}
-                    className={`mx-guard ${ok ? "is-true" : ""}`}
-                    onClick={() => setSelected(t.to)}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selectedEdge === t.id}
+                    className={`mx-guard mx-guard-edge ${ok ? "is-true" : ""} ${selectedEdge === t.id ? "is-picked" : ""}`}
+                    onClick={() => setSelectedEdge(t.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedEdge(t.id);
+                      }
+                    }}
                   >
+                    <span className="mx-guard-priority" title="Priority: checked in this order">{info.priority}</span>
                     {ok ? <Check size={14} /> : <Circle size={13} />}
-                    <code>{conditionLabel(t.condition)}</code>
-                    <span>→ {graph.nodes.find((n) => n.id === t.to)?.name}</span>
-                  </button>
+                    <span className="mx-guard-main">
+                      {t.name && <strong>{t.name}</strong>}
+                      <code>{info.condition}</code>
+                      {t.description && <small>{t.description}</small>}
+                    </span>
+                    <button
+                      type="button"
+                      className="mx-link"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelected(t.to);
+                        setSelectedEdge(undefined);
+                      }}
+                    >
+                      → {graph.nodes.find((n) => n.id === t.to)?.name}
+                    </button>
+                  </div>
                 );
               })}
             {!graph.transitions.some((t) => t.from === node.id) && (
