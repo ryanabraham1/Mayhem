@@ -1,6 +1,6 @@
 [package]
 name = "mayhem"
-version = "0.9.17"
+version = "0.9.18"
 description = "Mayhem FRC autonomous, state-machine, and robot log tools"
 authors = ["Ryan Abraham"]
 license = ""
