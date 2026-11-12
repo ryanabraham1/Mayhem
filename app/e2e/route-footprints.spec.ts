@@ -1,11 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-test("the field shows robot footprints with the front along the previewed route", async ({ page }, info) => {
+test("the field shows the front's heading along the route and the robot at each pickup", async ({ page }, info) => {
   page.on("pageerror", (error) => { throw error; });
   await page.goto("/");
   await page.getByRole("button", { name: "Autonomous", exact: true }).click();
-  const prints = page.locator(".mx-footprints .mx-footprint");
-  await expect.poll(() => prints.count()).toBeGreaterThan(3);
-  await expect(prints.first().locator(".mx-footprint-front")).toHaveCount(1);
+  // Light chevrons along the route, not overlapping robot outlines.
+  await expect.poll(() => page.locator(".mx-heading-chevron").count()).toBeGreaterThan(3);
+  // Full outlines only where an event marker fires (the sample route has one pickup event).
+  const outlines = page.locator(".mx-footprints .mx-footprint");
+  await expect.poll(() => outlines.count()).toBeLessThanOrEqual(3);
   await page.screenshot({ path: info.outputPath("footprints.png") });
 });

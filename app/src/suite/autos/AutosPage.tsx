@@ -298,6 +298,7 @@ export function AutosPage({ s }: { s: SuiteState }) {
                 width={s.project.robot.width}
                 fieldHeight={s.project.field.height}
                 lints={pickupLints}
+                focus={leg?.nodeIds}
               />
             }
             selected={s.selected}

@@ -3,11 +3,13 @@ import type { Frame } from "../core/runtime.ts";
 import type { HeadingLint } from "../core/headingLint.ts";
 import "./routeFootprints.css";
 
+type Pose = Frame["pose"];
+
 /**
- * Robot outlines along the previewed route, with the front (intake side, +x) drawn as a
- * bold bar, so you can see where the robot faces as it passes game pieces. Pickup events
- * that fire with the front far off the direction of travel are drawn in red.
- * Field coordinates; rendered inside FieldView's <svg> (y is flipped there).
+ * Where the robot's front (intake side, +x) points along the previewed route: a small chevron
+ * every `spacing` meters, plus the robot outline wherever an event marker (a pickup) fires.
+ * Pickups that fire with the front far off the direction of travel are drawn in red with a
+ * "!" beside them. Field coordinates; rendered inside FieldView's <svg> (y is flipped there).
  */
 export function RouteFootprints({
   frames,
@@ -15,47 +17,66 @@ export function RouteFootprints({
   width,
   fieldHeight,
   lints = [],
-  spacing = 0.6,
+  focus,
+  spacing = 0.5,
 }: {
   frames: Frame[];
   length: number;
   width: number;
   fieldHeight: number;
   lints?: HeadingLint[];
-  /** Meters of travel between outlines. */
+  /** Only mark these steps (the focused leg); everything else is left alone. */
+  focus?: string[];
+  /** Meters of travel between heading chevrons. */
   spacing?: number;
 }) {
-  const poses = useMemo(() => {
-    const out: Frame["pose"][] = [];
-    let travelled = spacing;
-    for (let i = 0; i < frames.length; i++) {
-      if (i > 0) travelled += Math.hypot(frames[i].pose.x - frames[i - 1].pose.x, frames[i].pose.y - frames[i - 1].pose.y);
+  const shown = useMemo(() => {
+    const live = focus ? new Set(focus) : undefined;
+    return frames.filter((f) => !live || live.has(f.node));
+  }, [frames, focus]);
+  const chevrons = useMemo(() => {
+    const out: Pose[] = [];
+    let travelled = 0;
+    for (let i = 1; i < shown.length; i++) {
+      travelled += Math.hypot(shown[i].pose.x - shown[i - 1].pose.x, shown[i].pose.y - shown[i - 1].pose.y);
       if (travelled >= spacing) {
-        out.push(frames[i].pose);
+        out.push(shown[i].pose);
         travelled = 0;
       }
     }
     return out;
-  }, [frames, spacing]);
-  const outline = (key: string, p: Frame["pose"], className: string, title?: string) => (
-    <g
-      key={key}
-      className={className}
-      transform={`translate(${p.x},${fieldHeight - p.y}) rotate(${(-p.heading * 180) / Math.PI})`}
-    >
-      {title && <title>{title}</title>}
-      <rect x={-length / 2} y={-width / 2} width={length} height={width} rx=".08" />
-      <path className="mx-footprint-front" d={`M${length / 2},${-width / 2 + 0.06} V${width / 2 - 0.06}`} />
-    </g>
-  );
+  }, [shown, spacing]);
+  // Every event marker that fired, with its lint when the front was far off travel.
+  const pickups = useMemo(() => {
+    const bad = new Map(lints.map((l) => [l.time, l]));
+    return shown.flatMap((f) =>
+      f.events
+        .filter((e) => e.kind === "event" && e.time === f.time)
+        .map((e) => ({ pose: f.pose, key: e.message.replace(/^Event trigger /, ""), lint: bad.get(f.time) })),
+    );
+  }, [shown, lints]);
+  const at = (p: Pose) => `translate(${p.x},${fieldHeight - p.y}) rotate(${(-p.heading * 180) / Math.PI})`;
   return (
     <g className="mx-footprints" aria-label="Robot heading along the route">
-      {poses.map((p, i) => outline(String(i), p, "mx-footprint"))}
-      {lints.map((l, i) => (
-        <g key={`lint-${i}`} className="mx-footprint-lint" role="img" aria-label={l.message}>
-          {outline(`lint-outline-${i}`, l, "mx-footprint is-warning", l.message)}
-          <circle cx={l.x} cy={fieldHeight - l.y} r=".16" />
-          <text x={l.x} y={fieldHeight - l.y + 0.07} textAnchor="middle">!</text>
+      {chevrons.map((p, i) => (
+        <g key={i} className="mx-heading-chevron" transform={at(p)}>
+          <path className="mx-heading-chevron-halo" d="M-.07,-.09 L.08,0 L-.07,.09" />
+          <path d="M-.07,-.09 L.08,0 L-.07,.09" />
+        </g>
+      ))}
+      {pickups.map(({ pose, key, lint }, i) => (
+        <g key={`pickup-${i}`} className={`mx-footprint ${lint ? "is-warning" : ""}`}>
+          <title>{lint ? lint.message : `Event "${key}": front leads (within 45° of travel).`}</title>
+          <g transform={at(pose)}>
+            <rect x={-length / 2} y={-width / 2} width={length} height={width} rx=".08" />
+            <path className="mx-footprint-front" d={`M${length / 2 - 0.04},${-width / 2 + 0.1} V${width / 2 - 0.1}`} />
+          </g>
+          {lint && (
+            <g className="mx-footprint-flag" transform={`translate(${pose.x + length / 2 + 0.18},${fieldHeight - pose.y - width / 2 - 0.1})`}>
+              <circle r=".14" />
+              <text y=".06" textAnchor="middle">!</text>
+            </g>
+          )}
         </g>
       ))}
     </g>

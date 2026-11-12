@@ -1,36 +1,50 @@
+.mx-footprints {
+  pointer-events: none;
+}
+/* Heading along the route: small chevrons pointing where the front faces. */
+.mx-heading-chevron path {
+  fill: none;
+  stroke: var(--mx-ink);
+  stroke-width: 0.035;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* Pale outline so the chevron reads on top of any speed color. */
+.mx-heading-chevron .mx-heading-chevron-halo {
+  stroke: var(--mx-surface);
+  stroke-width: 0.085;
+  opacity: 0.9;
+}
+/* Robot outline where an event marker (pickup) fires. */
+.mx-footprint {
+  pointer-events: auto;
+  cursor: help;
+}
 .mx-footprint rect {
   fill: none;
   stroke: var(--mx-path);
   stroke-width: 0.025;
-  opacity: 0.35;
+  stroke-dasharray: 0.06 0.05;
+  opacity: 0.7;
 }
 .mx-footprint .mx-footprint-front {
   stroke: var(--mx-path);
-  stroke-width: 0.07;
+  stroke-width: 0.05;
   stroke-linecap: round;
-  opacity: 0.8;
-}
-.mx-footprints {
-  pointer-events: none;
 }
 .mx-footprint.is-warning rect {
-  stroke: var(--mx-bad, #d33);
-  stroke-width: 0.04;
+  stroke: var(--mx-bad);
+  stroke-dasharray: none;
   opacity: 0.9;
 }
 .mx-footprint.is-warning .mx-footprint-front {
-  stroke: var(--mx-bad, #d33);
+  stroke: var(--mx-bad);
 }
-.mx-footprint-lint {
-  pointer-events: auto;
-  cursor: help;
+.mx-footprint-flag circle {
+  fill: var(--mx-bad);
 }
-.mx-footprint-lint circle {
-  fill: var(--mx-bad, #d33);
-}
-.mx-footprint-lint text {
+.mx-footprint-flag text {
   fill: #fff;
-  font-size: 0.22px;
+  font-size: 0.2px;
   font-weight: 700;
-  pointer-events: none;
 }
