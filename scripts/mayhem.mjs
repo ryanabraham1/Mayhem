@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Node 22.18+ strips TypeScript: UI and agents share the exact authoring/preview core.
+// Node 24+ strips TypeScript: UI and agents share the exact authoring/preview core.
+import "./suite-imports.mjs";
 import {
   readFile,
   writeFile,
@@ -15,8 +16,8 @@ import { realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { parseProject, validateProject } from "../app/src/suite/core/model.ts";
 import { sampleProject } from "../app/src/suite/core/sample.ts";
-import { exportCpp } from "../app/src/suite/core/export-cpp.ts";
-import { simulate } from "../app/src/suite/core/runtime.ts";
+const { exportCpp } = await import("../app/src/suite/core/export-cpp.ts");
+const { simulate } = await import("../app/src/suite/core/runtime.ts");
 import { analyze, parseRecordingJSON, currentBreakdown } from "../app/src/suite/core/analysis.ts";
 import { listChannels, logTable, findAnomalies, whatChanged, logEvents } from "../app/src/suite/core/logquery.ts";
 import { NT4Observer } from "../app/src/suite/core/nt4.ts";

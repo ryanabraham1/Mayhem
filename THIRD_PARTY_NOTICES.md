@@ -52,3 +52,14 @@ This project incorporates limited portions of code from the following open-sourc
   Licensed under the MIT License.  
   Source: <https://github.com/mjansen4857/pathplanner>
 ```
+
+## BLine-Web
+
+Mayhem's standard pose/translation path preview and automatic constraint
+generation use unmodified BLine-Web 1.0.0 simulation and optimizer source from commit `1e440b419dc33499e447fbca4ddc2fea69497b71`:
+https://github.com/edanliahovetsky/BLine-Web
+
+The source and complete BSD-3-Clause license are retained in
+`app/src/suite/core/vendor/bline/`. The Mayhem adapter is
+`app/src/suite/core/blinePreview.ts`. This editor preview uses ideal kinematics;
+the native robot follower remains a feedback controller.

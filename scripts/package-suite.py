@@ -16,8 +16,11 @@ def main():
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+-]*", args.version):
         parser.error("version must be a safe filename component")
     args.output.mkdir(parents=True, exist_ok=True)
-    tools = [ROOT / "scripts/mayhem.mjs", *sorted((ROOT / "app/src/suite/core").glob("*.ts")),
-             *sorted((ROOT / "app/src/suite/core").glob("*.json")),
+    core = ROOT / "app/src/suite/core"
+    core_files = [p for p in sorted(core.rglob("*")) if p.is_file()
+                  and (p.suffix in {".ts", ".json", ".md"} or p.name == "LICENSE")]
+    tools = [ROOT / "scripts/mayhem.mjs", ROOT / "scripts/suite-imports.mjs", *core_files,
+             ROOT / "THIRD_PARTY_NOTICES.md",
              ROOT / "docs/SUITE_AGENTS.md", ROOT / "docs/ROBOT_LOGGING.md",
              ROOT / "docs/TEAM_LOGS.md", *sorted((ROOT / "examples/suite").glob("*.json"))]
     cpp = [p for p in sorted((ROOT / "lib-cpp").rglob("*")) if p.is_file()

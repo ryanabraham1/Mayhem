@@ -30,7 +30,33 @@ In the desktop app, **Agents → Save project file** creates a live file link in
 4. Select a step to edit its name, position, heading policy, arrival tolerances, settle time, handoff radius and limits. Shift-drag a heading knob to snap to 15°. Use the step inspector for callback IDs, concurrent actions, transition conditions, branches, timeouts and failure behavior. Callback IDs must be implemented by your robot code.
 5. Reorder steps in the rail, then check project issues and preview the result. Undo/redo uses Command/Ctrl+Z and Shift+Command/Ctrl+Z; Delete removes the selected step.
 
-The suite uses a pose-to-pose controller. Its preview does not perform the classic solver's obstacle-avoidance or time-optimal planning and does not execute your robot's custom code.
+Standard pose and translation chains use BLine Web's actual ideal kinematic preview engine. Match the starting pose, every translation/rotation target, handoff modes/radii, and velocity/acceleration limits when comparing with bline.run. The preview does not use PID gains, perform obstacle avoidance, or execute your robot's custom code. The exported robot follower uses measured-pose feedback and still requires tuning.
+
+## Tune constraints
+
+Open **Constraints** above the field. The **Map** shows each segment’s speed and
+handoff radius side by side. **Generate** uses BLine’s constraint generator to
+solve speed caps and corner radii together, running in a worker so editing stays
+responsive. Hatched blocks are Auto; solid blocks are Manual. The final handoff
+block says Stop because the endpoint finishes by tolerance.
+
+Click a block to select that segment on the field. Switch to **Manual** to pin a
+speed or radius; Generate preserves these pins. Switch back to **Auto** to let
+the generator manage it. Clear generated constraints removes only automatic
+outputs. When poses or limits change, the map says **Path changed** until you
+generate again. A best-effort result says **Review limits**; an unsolvable run
+asks you to adjust manual values rather than claiming success.
+
+**Path limits** edits velocity, acceleration, turn speed/acceleration and default
+handoff radius for this routine, inherited from Robot. **Range** applies just the
+values you change to a From/Through step range. A segment’s limits apply while
+driving toward its target. Per-segment manual limits override generated and path
+limits. Generated speed caps cannot raise a newly lowered path speed limit.
+
+Selecting a pose opens a compact **Pose** tab with X, Y, heading, Stop here and
+handoff radius where applicable. **Constraints** holds its motion overrides.
+**Advanced** holds heading policies, markers, arrival tolerances, callbacks,
+watchdogs and transition conditions. Selecting another pose returns to Pose.
 
 ## Preview the path and routine
 
@@ -40,6 +66,8 @@ The bottom dock provides play/pause (Space), reset, a time scrubber, and **Input
 | --- | --- |
 | **Path only** (default) | Drives the pose sequence on the first branch, skipping actions and sensor conditions. Use it to inspect the whole route. |
 | **Full routine** | Checks arrival, simulated callback results, transition conditions and watchdogs. Set typed inputs and callback statuses in the expanded dock. |
+
+Playback interpolates fixed 20 ms simulation samples at the display refresh rate; exported frames retain the fixed simulation steps. Mayhem-specific point-at/motion heading policies and explicit conditional open-ended handoffs use the measured-pose controller preview.
 
 If Full routine waits at an action or condition, the status explains what is blocking it. **Freeze drivetrain** exercises watchdog failure. **Export trace JSON** records the preview mode, inputs, action statuses, events and frames. Preview is bounded to 600 seconds or 1,000 execution events; a successful preview still needs robot integration and tuning.
 

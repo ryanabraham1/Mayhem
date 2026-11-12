@@ -1,0 +1,43 @@
+{
+  "commit": "1e440b419dc33499e447fbca4ddc2fea69497b71",
+  "cases": [
+    {
+      "pinned": false,
+      "status": "valid",
+      "limits": [
+        {
+          "id": "p0",
+          "maxVelocity": 4.36,
+          "handoffRadius": 0.958
+        },
+        {
+          "id": "p1",
+          "maxVelocity": 2.99,
+          "handoffRadius": 0.697
+        },
+        {
+          "id": "p2",
+          "maxVelocity": 4.5
+        }
+      ]
+    },
+    {
+      "pinned": true,
+      "status": "valid",
+      "limits": [
+        {
+          "id": "p0"
+        },
+        {
+          "id": "p1",
+          "maxVelocity": 4.32,
+          "handoffRadius": 1.02
+        },
+        {
+          "id": "p2",
+          "maxVelocity": 4.5
+        }
+      ]
+    }
+  ]
+}

@@ -439,7 +439,7 @@ export function FieldView({
             ringRadius = isIntermediate(routine, node)
               ? goal.handoffRadius > 0
                 ? goal.handoffRadius
-                : (project.robot.constraints.handoffRadius ?? PATH_DEFAULTS.handoffRadius)
+                : (node.constraints?.handoffRadius ?? node.generatedConstraints?.handoffRadius ?? routine.constraints?.handoffRadius ?? project.robot.constraints.handoffRadius ?? PATH_DEFAULTS.handoffRadius)
               : goal.translationTolerance;
           return (
             <g

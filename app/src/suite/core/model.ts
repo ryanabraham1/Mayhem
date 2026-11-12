@@ -71,6 +71,8 @@ export interface Goal extends Pose {
   markers?: PathMarker[];
 }
 export interface AutoNode {
+  /** BLine generator output; explicit manual limits take precedence. */
+  generatedConstraints?: { maxVelocity?: number; handoffRadius?: number };
   id: string;
   name: string;
   kind: "pose" | "action" | "custom" | "finish";
@@ -83,9 +85,14 @@ export interface AutoNode {
   constraints?: Partial<Constraints>;
   during?: string[];
 }
-export function autoStepLabel(node:AutoNode):string {
-  if(node.kind==='pose')return node.goal?.headingMode==='free'?'Translation':'Pose';
-  return node.kind==='finish'?'Finish':node.kind==='custom'?'Custom':'Action';
+export function autoStepLabel(node: AutoNode): string {
+  if (node.kind === "pose")
+    return node.goal?.headingMode === "free" ? "Translation" : "Pose";
+  return node.kind === "finish"
+    ? "Finish"
+    : node.kind === "custom"
+      ? "Custom"
+      : "Action";
 }
 export interface Transition {
   id: string;
@@ -94,6 +101,12 @@ export interface Transition {
   condition: Condition;
 }
 export interface AutoRoutine {
+  constraintGeneration?: {
+    signature: string;
+    status: "valid" | "best-effort" | "unsolvable";
+  };
+  /** Path-wide limits, inherited from the robot and overridden per step. */
+  constraints?: Partial<Constraints>;
   start?: Pose;
   id: string;
   name: string;
@@ -126,6 +139,30 @@ export interface SuiteProject {
   routines: AutoRoutine[];
   /** Vendor/application extensions are preserved by every round trip. */
   extensions: Record<string, unknown>;
+}
+/** Generated speeds may tighten inherited limits, never raise a newly lowered
+ * path limit. Explicit per-segment manual overrides remain authoritative. */
+export function resolveNodeConstraints(
+  project: SuiteProject,
+  routine: AutoRoutine | undefined,
+  node: AutoNode | undefined,
+): ResolvedConstraints {
+  const inherited = resolveConstraints(
+    project.robot.constraints,
+    routine?.constraints,
+  );
+  const auto = node?.generatedConstraints;
+  return resolveConstraints(
+    inherited,
+    auto && {
+      ...auto,
+      maxVelocity:
+        auto.maxVelocity === undefined
+          ? undefined
+          : Math.min(inherited.maxVelocity, auto.maxVelocity),
+    },
+    node?.constraints,
+  );
 }
 export interface Issue {
   severity: "error" | "warning";
@@ -239,8 +276,14 @@ export function validateProject(input: unknown): Issue[] {
       error(`robot.constraints.${key}`, "Expected a positive finite number.");
   for (const key of Object.keys(PATH_DEFAULTS)) {
     const v = input.robot?.constraints?.[key];
-    if (v !== undefined && (!finite(v) || v < 0 || (key !== "minVelocity" && v === 0)))
-      error(`robot.constraints.${key}`, "Expected a valid path-follower setting.");
+    if (
+      v !== undefined &&
+      (!finite(v) || v < 0 || (key !== "minVelocity" && v === 0))
+    )
+      error(
+        `robot.constraints.${key}`,
+        "Expected a valid path-follower setting.",
+      );
   }
   const signals = new Map<string, string>();
   if (!Array.isArray(input.signals))
@@ -301,6 +344,21 @@ export function validateProject(input: unknown): Issue[] {
     )
       error(path, "Comparison must match the signal type.");
   };
+  const checkConstraints = (value: unknown, path: string) => {
+    if (value === undefined) return;
+    if (!record(value)) return error(path, "Expected motion constraints.");
+    for (const [key, v] of Object.entries(value))
+      if (
+        !(key in DEFAULT_CONSTRAINTS || key in PATH_DEFAULTS) ||
+        !finite(v) ||
+        v < 0 ||
+        (key !== "minVelocity" && v === 0)
+      )
+        error(
+          path + "." + key,
+          "Expected a known positive control constraint.",
+        );
+  };
   const routineIds = new Set<string>();
   if (!Array.isArray(input.routines) || !input.routines.length)
     error("routines", "At least one routine is required.");
@@ -320,6 +378,19 @@ export function validateProject(input: unknown): Issue[] {
         return;
       }
       routineIds.add(r.id);
+      checkConstraints(r.constraints, path + ".constraints");
+      if (
+        r.constraintGeneration !== undefined &&
+        (!record(r.constraintGeneration) ||
+          typeof r.constraintGeneration.signature !== "string" ||
+          !["valid", "best-effort", "unsolvable"].includes(
+            r.constraintGeneration.status,
+          ))
+      )
+        error(
+          path + ".constraintGeneration",
+          "Invalid constraint generation metadata.",
+        );
       if (r.start !== undefined) pose(r.start, path + ".start");
       if (typeof r.name !== "string" || !r.name.trim())
         error(path + ".name", "Routine name must be text.");
@@ -354,20 +425,23 @@ export function validateProject(input: unknown): Issue[] {
             n.during.some((v: unknown) => typeof v !== "string" || !v))
         )
           error(p + ".during", "During actions must be callback IDs.");
-        if (n.constraints !== undefined) {
-          if (!record(n.constraints))
-            error(p + ".constraints", "Expected per-step constraints.");
+        checkConstraints(n.constraints, p + ".constraints");
+        if (n.generatedConstraints !== undefined) {
+          if (!record(n.generatedConstraints))
+            error(
+              p + ".generatedConstraints",
+              "Expected generated constraints.",
+            );
           else
-            for (const [key, value] of Object.entries(n.constraints))
+            for (const [key, value] of Object.entries(n.generatedConstraints))
               if (
-                !(key in DEFAULT_CONSTRAINTS || key in PATH_DEFAULTS) ||
+                !["maxVelocity", "handoffRadius"].includes(key) ||
                 !finite(value) ||
-                value < 0 ||
-                (key !== "minVelocity" && value === 0)
+                value <= 0
               )
                 error(
-                  p + ".constraints." + key,
-                  "Expected a known positive control constraint.",
+                  p + ".generatedConstraints." + key,
+                  "Expected a positive generated limit.",
                 );
         }
         if (n.kind === "pose") {
@@ -424,7 +498,10 @@ export function validateProject(input: unknown): Issue[] {
                 else if (m.kind === "rotation") {
                   if (!finite(m.heading))
                     error(mp + ".heading", "Expected a finite heading.");
-                  if (m.profiled !== undefined && typeof m.profiled !== "boolean")
+                  if (
+                    m.profiled !== undefined &&
+                    typeof m.profiled !== "boolean"
+                  )
                     error(mp + ".profiled", "Expected true or false.");
                 } else if (m.kind === "event") {
                   if (typeof m.key !== "string" || !m.key.trim())

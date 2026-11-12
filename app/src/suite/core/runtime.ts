@@ -41,8 +41,9 @@ import {
   type Constraints,
   type Goal,
   type AutoNode,
-  resolveConstraints,
+  resolveConstraints, resolveNodeConstraints,
 } from "./model.ts";
+import { blinePreviewTick } from "./blinePreview.ts";
 export const wrap = (v: number) => Math.atan2(Math.sin(v), Math.cos(v));
 export interface ControllerState extends Velocity {
   settled: number;
@@ -393,13 +394,19 @@ export function initialFrame(
   project: SuiteProject,
   routine: AutoRoutine,
 ): Frame {
+  const start = routine.start ?? project.robot.start;
+  const state = freshState(start);
+  const first = routine.nodes.find(n => n.id === routine.initial);
+  const preview = first?.kind === "pose" && first.goal
+    ? blinePreviewTick(project, routine, first, start, state, 0.02, true)
+    : undefined;
   return {
     actions: {},
     time: 0,
     node: routine.initial,
-    pose: { ...(routine.start ?? project.robot.start) },
+    pose: { ...(preview?.pose ?? start) },
     velocity: { vx: 0, vy: 0, omega: 0 },
-    controller: freshState(routine.start ?? project.robot.start),
+    controller: preview?.state ?? state,
     signals: Object.fromEntries(project.signals.map((s) => [s.key, s.initial])),
     status:
       routine.nodes.find((n) => n.id === routine.initial)?.kind === "finish"
@@ -430,7 +437,7 @@ export function step(
   if (frame.status !== "running") return frame;
   if (!Number.isFinite(dt) || dt <= 0 || dt > 0.1)
     throw new Error("Control step must be in (0, 0.1] seconds.");
-  const node = routine.nodes.find((n) => n.id === frame.node);
+  let node = routine.nodes.find((n) => n.id === frame.node);
   if (!node) throw new Error(`Unknown state ${frame.node}`);
   const time = frame.time + dt;
   let next: Frame = { ...frame, time, signals: { ...signals } };
@@ -474,8 +481,24 @@ export function step(
     );
     return next;
   }
+  const preview = node.kind === "pose" && node.goal && !freezeDrive
+    ? blinePreviewTick(project, routine, node, frame.pose, frame.controller, dt)
+    : undefined;
+  // BLine resolves all intermediate handoffs before calculating movement.
+  // Keep the routine trace and action ownership on the same active target.
+  if (preview) {
+    for (const passed of preview.passed) {
+      const transition = routine.transitions.find(t => t.from === passed.id && t.condition.kind === "always");
+      if (!transition) break;
+      event("transition", `${passed.name} → ${routine.nodes.find(n => n.id === transition.to)?.name}`, transition.id);
+      next.node = transition.to;
+      next.enteredAt = time;
+      next.actions = {};
+    }
+    node = preview.active;
+  }
   if (options.mode !== "path") {
-    next.actions = { ...frame.actions };
+    next.actions = { ...next.actions };
     const callbacks = [
       ...(node.during ?? []),
       ...((node.kind === "action" || node.kind === "custom") && node.action
@@ -484,7 +507,7 @@ export function step(
     ];
     for (const id of callbacks) {
       const status =
-        frame.actions[id] === "succeeded"
+        next.actions[id] === "succeeded"
           ? "succeeded"
           : (options.actions?.[id] ?? "running");
       next.actions[id] = status;
@@ -497,12 +520,18 @@ export function step(
     }
   }
   let handedOff = false;
-  if (node.kind === "pose" && node.goal) {
+  if (preview) {
+    next.pose = preview.pose;
+    next.velocity = preview.velocity;
+    next.controller = preview.state;
+    next.reached = preview.reached;
+    for (const key of preview.fired) event("event", `Event trigger ${key}`);
+  } else if (node.kind === "pose" && node.goal) {
     const result = follow(
       frame.pose,
       frame.velocity,
       pathAhead(routine, node),
-      { ...project.robot.constraints, ...node.constraints },
+      resolveNodeConstraints(project, routine, node),
       frame.controller,
       dt,
     );

@@ -36,6 +36,21 @@ node scripts/mayhem.mjs live roborio-3256-frc.local '{"topics":["/Robot/BatteryV
 
 `save <file> '<JSON>'` takes `{ "project": <full project>, "expectedRevision": <current revision or null for a new file> }`. Saves are atomic and increment the revision. Re-read after a revision conflict. Do not delete another writer's lock during an active save.
 
+Use Node 24 or later. The entry point installs a local import hook for the
+vendored BLine source, including TypeScript syntax that needs transformation.
+No npm install or additional launcher flags are required. For portable tools,
+keep the extracted archive's full directory tree (including `vendor/bline` and
+`scripts/suite-imports.mjs`); copying just `mayhem.mjs` is insufficient.
+
+Routine `constraints` inherit from robot defaults. A node's `generatedConstraints`
+contains automatic `maxVelocity` and/or `handoffRadius`; node `constraints` are
+manual overrides. Generated speed caps can tighten but never raise the inherited
+path speed limit. Positive `goal.handoffRadius` is an explicit manual radius.
+The C++ exporter flattens these layers into the existing runtime fields. The
+editor preview uses BLine Web's ideal kinematics and joint constraint generator;
+the C++ feedback controller is unchanged. Do not infer robot tracking accuracy
+from a successful editor preview.
+
 The same functions are available as MCP tools over newline-delimited JSON-RPC on stdio:
 
 ```json

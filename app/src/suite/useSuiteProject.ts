@@ -15,6 +15,7 @@ import {
   type Frame,
   type PreviewMode,
 } from "./core/runtime.ts";
+import { interpolatePreviewFrame } from "./core/playback.ts";
 import { activateProject, loadProject, saveProject } from "./storage";
 import { desktop, invoke } from "./native";
 
@@ -49,6 +50,7 @@ export function useSuiteProject() {
     initialFrame(project, routine),
   ]);
   const [cursor, setCursor] = useState(0);
+  const [renderTime, setRenderTime] = useState(0);
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [diskConflict, setDiskConflict] = useState(false);
   const conflictRef = useRef(false);
@@ -64,7 +66,11 @@ export function useSuiteProject() {
   }, [project.name]);
 
   const issues = useMemo(() => validateProject(project), [project]);
-  const frame = frames[Math.min(cursor, frames.length - 1)];
+  const frame = interpolatePreviewFrame(
+    frames[Math.min(cursor, frames.length - 1)], frames[cursor + 1], renderTime,
+  );
+  const playbackRef = useRef({ frames, renderTime });
+  playbackRef.current = { frames, renderTime };
   const latest = frames[frames.length - 1];
 
   const reset = useCallback(
@@ -74,6 +80,7 @@ export function useSuiteProject() {
       setActions({});
       setFrames([initialFrame(p, r)]);
       setCursor(0);
+      setRenderTime(0);
     },
     [],
   );
@@ -209,45 +216,45 @@ export function useSuiteProject() {
     }
   };
 
-  // Preview playback: replay recorded frames first, then extend the run.
+  // Fixed 20 ms simulation, display-refresh rendering. Keep one sample ahead
+  // so the robot can interpolate instead of jumping two samples every 40 ms.
   useEffect(() => {
     if (!playing) return;
-    const timer = setInterval(() => {
-      if (cursor < frames.length - 1) {
-        setCursor(Math.min(cursor + 2, frames.length - 1));
-        return;
-      }
-      if (latest.status !== "running") {
-        setPlaying(false);
-        return;
-      }
+    let recorded = playbackRef.current.frames;
+    let playhead = playbackRef.current.renderTime;
+    let previous: number | undefined;
+    let request = 0;
+    const animate = (timestamp: number) => {
+      // Hidden/background windows pause instead of jumping the entire routine.
+      const elapsed = previous === undefined ? 0 : Math.min(0.1, Math.max(0, (timestamp - previous) / 1000));
+      previous = timestamp;
+      playhead += elapsed;
       const additions: Frame[] = [];
-      let current = latest;
-      for (let i = 0; i < 2 && current.status === "running"; i++) {
+      let current = recorded[recorded.length - 1];
+      while (current.status === "running" && current.time < playhead + 0.02) {
         current = step(project, routine, current, signals, 0.02, freezeDrive, {
-          mode: previewMode,
-          actions,
+          mode: previewMode, actions,
         });
         additions.push(current);
       }
       if (additions.length) {
-        setFrames([...frames, ...additions]);
-        setCursor(frames.length + additions.length - 1);
+        recorded = [...recorded, ...additions];
+        setFrames(recorded);
       }
-    }, 40);
-    return () => clearInterval(timer);
-  }, [
-    playing,
-    project,
-    routine,
-    signals,
-    freezeDrive,
-    cursor,
-    frames,
-    latest,
-    previewMode,
-    actions,
-  ]);
+      playhead = Math.min(playhead, current.time);
+      let index = recorded.findIndex(f => f.time > playhead + 1e-9);
+      index = index < 0 ? recorded.length - 1 : Math.max(0, index - 1);
+      setCursor(index);
+      setRenderTime(playhead);
+      if (current.status !== "running" && playhead >= current.time - 1e-9) {
+        setPlaying(false);
+        return;
+      }
+      request = requestAnimationFrame(animate);
+    };
+    request = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(request);
+  }, [playing, project, routine, signals, freezeDrive, previewMode, actions]);
   // Whole-run forecast from the start: total time and timeline markers.
   const forecast = useMemo(
     () =>
@@ -279,6 +286,7 @@ export function useSuiteProject() {
     let index = recorded.findIndex((f) => f.time >= time - 1e-9);
     if (index < 0) index = recorded.length - 1;
     setCursor(index);
+    setRenderTime(recorded[index].time);
   };
   const togglePlay = () => {
     if (!playing && latest.status !== "running" && cursor >= frames.length - 1)
@@ -680,7 +688,11 @@ export function useSuiteProject() {
     frame,
     latest,
     cursor,
-    setCursor,
+    setCursor: (index: number) => {
+      const bounded = Math.max(0, Math.min(index, frames.length - 1));
+      setCursor(bounded);
+      setRenderTime(frames[bounded].time);
+    },
     playing,
     setPlaying,
     togglePlay,

@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { afterAll, expect, it } from "vitest";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -64,7 +66,11 @@ it("returns a compact analyze_log summary and supports channel/time queries", as
       warnings: [],
       channels: [
         { name: "/Robot/Battery", type: "double", samples: samples(() => 12) },
-        { name: "/Arm/supplyCurrent", type: "double", samples: samples((i) => i) },
+        {
+          name: "/Arm/supplyCurrent",
+          type: "double",
+          samples: samples((i) => i),
+        },
       ],
     }),
   );
@@ -83,4 +89,28 @@ it("returns a compact analyze_log summary and supports channel/time queries", as
   expect(q.query.channels[0].series.length).toBeLessThanOrEqual(4);
   const full: any = await execute("analyze_log", { path: log, detail: "full" });
   expect(full.channels).toHaveLength(2);
+});
+
+it("starts the supported MCP entry with native Node, outside Vitest's resolver", () => {
+  const script = fileURLToPath(
+    new URL("../../scripts/mayhem.mjs", import.meta.url),
+  );
+  const requests = [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+    { jsonrpc: "2.0", id: 2, method: "tools/list" },
+  ];
+  const output = execFileSync(process.execPath, [script, "mcp"], {
+    encoding: "utf8",
+    input: requests.map((r) => JSON.stringify(r)).join("\n") + "\n",
+  });
+  const responses = output
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  expect(responses[0].result.serverInfo.name).toBe("mayhem-suite");
+  expect(
+    responses[1].result.tools.some(
+      (t: { name: string }) => t.name === "simulate_auto",
+    ),
+  ).toBe(true);
 });

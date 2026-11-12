@@ -1,4 +1,8 @@
-import { resolveConstraints, type Condition, type SuiteProject } from "./model.ts";
+import {
+  resolveNodeConstraints,
+  type Condition,
+  type SuiteProject,
+} from "./model.ts";
 import { autoNext, isIntermediate } from "./runtime.ts";
 /** Original header-only runtime export. No optimizer output or fixed trajectory clock. */
 export function exportCpp(project: SuiteProject): string {
@@ -71,8 +75,10 @@ export function exportCpp(project: SuiteProject): string {
     );
     r.nodes.forEach((n, i) => {
       const g = n.goal,
-        c = resolveConstraints(project.robot.constraints, n.constraints);
-      const markers = g?.markers?.length ? `markers_${i}.data(),markers_${i}.size()` : "nullptr,0";
+        c = resolveNodeConstraints(project, r, n);
+      const markers = g?.markers?.length
+        ? `markers_${i}.data(),markers_${i}.size()`
+        : "nullptr,0";
       const goal = g
         ? `{{${g.x},${g.y},${g.heading}},${g.translationTolerance},${g.rotationTolerance},${g.velocityTolerance},${g.settleTime},${g.handoffRadius},mayhem::HeadingMode::${g.headingMode === "pointAt" ? "PointAt" : g.headingMode === "motion" ? "Motion" : g.headingMode === "free" ? "Free" : "Fixed"},${g.aimX ?? 0},${g.aimY ?? 0},${!!g.stop},${g.projectedHandoff ?? false},${g.profiled ?? true},${markers}}`
         : "{}";

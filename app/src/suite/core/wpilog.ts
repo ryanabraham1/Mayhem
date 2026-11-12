@@ -139,11 +139,16 @@ export function parseWPILog(buffer: ArrayBuffer, name: string): Recording {
           : undefined;
         if (arrays[channel.type]) {
           const width = arrays[channel.type];
-          if (size % width || size / width > 512)
-            throw new Error(
-              `Invalid or oversized numeric array in ${channel.name}.`,
-            );
-          for (let i = 0; i < size / width; i++) {
+          if (size % width)
+            throw new Error(`Invalid numeric array payload size in ${channel.name}.`);
+          const count = size / width;
+          if (count > 512)
+            warnings.add(`${channel.name}: numeric arrays above 512 elements were skipped; other channels were decoded normally.`);
+          // Field2d paths can contain thousands of values. Treat the expansion
+          // limit as a per-entry decoding limit, not a file-format error. Skip
+          // these samples entirely so visualization arrays cannot consume the
+          // global sample budget and prevent access to mechanism channels.
+          for (let i = 0; i < (count > 512 ? 0 : count); i++) {
             const at = offset + i * width;
             if (channel.type === "int64[]") {
               const n = Number(view.getBigInt64(at, true));
