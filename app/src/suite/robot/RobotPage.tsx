@@ -26,18 +26,16 @@ import {
   Panel,
   Segmented,
   Toggle,
-  deg,
   formatBytes,
-  rad,
   timeAgo,
 } from "../ui";
 
-// [label, unit, shown in degrees]; the project stores radians.
-const constraintLabels: Record<string, [string, string, boolean?]> = {
+// [label, unit]; the project stores SI units, so turn limits are shown in rad/s.
+const constraintLabels: Record<string, [string, string]> = {
   maxVelocity: ["Max speed", "m/s"],
   maxAcceleration: ["Max acceleration", "m/s²"],
-  maxAngularVelocity: ["Max turn rate", "°/s", true],
-  maxAngularAcceleration: ["Max turn acceleration", "°/s²", true],
+  maxAngularVelocity: ["Max turn rate", "rad/s"],
+  maxAngularAcceleration: ["Max turn acceleration", "rad/s²"],
   translationKp: ["Translation kP", ""],
   rotationKp: ["Rotation kP", ""],
   handoffRadius: ["Handoff radius", "m"],
@@ -383,19 +381,19 @@ function LimitsPanel({ s }: { s: SuiteState }) {
         />
         {Object.entries(resolveConstraints(project.robot.constraints)).flatMap(([key, value]) => {
           if (typeof value !== "number") return [];
-          const [label, unit, degrees] = constraintLabels[key] ?? [key, ""];
+          const [label, unit] = constraintLabels[key] ?? [key, ""];
           return (
             <NumberField
               key={key}
               label={label}
               unit={unit}
-              value={degrees ? deg(value) : value}
-              digits={degrees ? 0 : 4}
-              step={degrees ? 5 : 0.05}
+              value={value}
+              digits={4}
+              step={0.05}
               min={key === "minVelocity" ? 0 : 0.001}
               change={(v) =>
                 s.commit((p) => {
-                  (p.robot.constraints as unknown as Record<string, number>)[key] = degrees ? rad(v) : v;
+                  (p.robot.constraints as unknown as Record<string, number>)[key] = v;
                 })
               }
             />
