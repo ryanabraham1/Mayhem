@@ -313,6 +313,15 @@ int main() {
     }
     expect(jump).toBeLessThan(0.1);
   });
+  it("integrates a loop overrun as 0.1 s instead of failing, like the C++ follower", () => {
+    const start = { x: 0, y: 0, heading: 0 };
+    const r = follow(start, { vx: 0, vy: 0, omega: 0 },
+      { anchors: [{ ...DEFAULT_GOAL, x: 3, y: 0 }], final: true },
+      DEFAULT_CONSTRAINTS, freshState(start), 0.4);
+    expect(r.valid).toBe(true);
+    expect(r.command.vx).toBeGreaterThan(0);
+    expect(r.command.vx).toBeLessThanOrEqual(DEFAULT_CONSTRAINTS.maxAcceleration * 0.1 + 1e-9);
+  });
   it("hands off immediately on a zero-length segment", () => {
     const g = { ...DEFAULT_GOAL, x: 2, y: 2 };
     const r = follow({ x: 2.05, y: 2, heading: 0 }, { vx: 0, vy: 0, omega: 0 },

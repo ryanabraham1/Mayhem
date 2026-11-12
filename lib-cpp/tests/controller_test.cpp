@@ -74,6 +74,14 @@ int main(int argc, char**) {
   controller.Reset();
   assert(controller.Calculate({0, 0, 3.13}, {}, g, c, .02).command.omega > 0);
   assert(!controller.Calculate({}, {}, g, c, 0).valid);
+  // A loop overrun is integrated as MaxDt() (0.1 s): valid, and rate limited to 12 * 0.1.
+  {
+    mayhem::PoseController overrun; const mayhem::Goal far{{3, 0, 0}};
+    const auto r = overrun.Calculate({}, {}, far, c, .4);
+    assert(r.valid && r.command.vx > 0 && r.command.vx <= c.maxAcceleration * .1 + 1e-9);
+    assert(std::abs(r.translationError - 3) < 1e-9 && r.rotationError == 0);
+    assert(!overrun.Calculate({}, {}, far, c, std::numeric_limits<double>::infinity()).valid);
+  }
   g.pose.x = std::numeric_limits<double>::quiet_NaN();
   assert(!controller.Calculate({}, {}, g, c, .02).valid);
   g = {{5.8, 2.4, -.35}};

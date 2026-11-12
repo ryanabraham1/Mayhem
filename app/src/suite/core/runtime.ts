@@ -105,6 +105,8 @@ const hasHeading = (g: Goal) => !g.headingMode || g.headingMode === "fixed";
  * Rotation: heading interpolates between rotation targets by monotonic path
  * progress. Completion: final target within translation and rotation tolerance.
  */
+/** Longest step follow() integrates; longer steps are clamped (C++ PathFollower::kDefaultMaxDt). */
+export const MAX_FOLLOW_DT = 0.1;
 export function follow(
   pose: Pose,
   measured: Velocity,
@@ -141,7 +143,6 @@ export function follow(
   if (
     numbers.some((v) => !Number.isFinite(v)) ||
     dt <= 0 ||
-    dt > 0.1 ||
     [k.maxVelocity, k.maxAcceleration, k.maxAngularVelocity, k.maxAngularAcceleration,
       k.translationKp, k.rotationKp, k.handoffRadius, k.crossTrackKp].some((v) => v <= 0) ||
     k.minVelocity < 0 ||
@@ -162,6 +163,8 @@ export function follow(
     )
   )
     return invalid();
+  // A loop overrun integrates as 0.1 s, like PathFollower::kDefaultMaxDt.
+  dt = Math.min(dt, MAX_FOLLOW_DT);
   // Geometry of the active segment S -> T.
   const segX = T.x - sx,
     segY = T.y - sy,

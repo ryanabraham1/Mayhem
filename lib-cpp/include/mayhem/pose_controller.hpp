@@ -76,6 +76,9 @@ struct ControlResult {
   // Markers [eventsBegin, eventsEnd) of the active anchor were passed this tick.
   std::size_t eventsBegin = 0, eventsEnd = 0;
   double progress = 0, remaining = 0;
+  // Distance to the active anchor, and |heading error| against the heading the
+  // follower is steering to this tick (PointAt, Motion, markers included).
+  double translationError = 0, rotationError = 0;
 };
 inline double Wrap(double angle) { return std::atan2(std::sin(angle), std::cos(angle)); }
 // Path follower ported from BLine-Lib's FollowPath, RotationProgress and ChassisRateLimiter
@@ -83,8 +86,13 @@ inline double Wrap(double angle) { return std::atan2(std::sin(angle), std::cos(a
 // THIRD_PARTY_NOTICES.md). Mirrors follow() in app/src/suite/core/runtime.ts.
 // anchors[0] is the active translation target; `final` means anchors[count-1] ends the
 // path. No scheduler, vendor, network, file IO, allocation, or agent dependency.
+// A dt above MaxDt() (a loop overrun) is integrated as MaxDt() instead of failing.
 class PathFollower {
  public:
+  static constexpr double kDefaultMaxDt = .1;
+  // Ignored unless finite and positive.
+  void SetMaxDt(double maxDt) { if (std::isfinite(maxDt) && maxDt > 0) maxDt_ = maxDt; }
+  double MaxDt() const { return maxDt_; }
   void Reset(Pose pose, Velocity measured = {}) {
     state_ = {measured, 0, pose.x, pose.y, pose.heading, NAN, 0, true, INFINITY};
   }
@@ -99,10 +107,11 @@ class PathFollower {
       c.maxAngularAcceleration, c.translationKp, c.rotationKp, c.handoffRadius, c.crossTrackKp,
       c.minVelocity};
     for (double v : nums) if (!std::isfinite(v)) return Invalid();
-    if (dt <= 0 || dt > .1 || c.maxVelocity <= 0 || c.maxAcceleration <= 0 ||
+    if (dt <= 0 || c.maxVelocity <= 0 || c.maxAcceleration <= 0 ||
         c.maxAngularVelocity <= 0 || c.maxAngularAcceleration <= 0 || c.translationKp <= 0 ||
         c.rotationKp <= 0 || c.handoffRadius <= 0 || c.crossTrackKp <= 0 || c.minVelocity < 0)
       return Invalid();
+    dt = std::min(dt, maxDt_);
     for (std::size_t i = 0; i < count; ++i) {
       const Goal* g = anchors[i];
       if (!g) return Invalid();
@@ -184,6 +193,7 @@ class PathFollower {
     else if (T.headingMode == HeadingMode::Motion && distance > T.translationTolerance) desiredHeading = std::atan2(dy, dx);
     if (isFinal && T.headingMode == HeadingMode::Fixed && distance <= T.translationTolerance) desiredHeading = T.pose.heading;
     const double angle = Wrap(desiredHeading - pose.heading);
+    out.translationError = distance; out.rotationError = std::abs(angle);
     const bool inPose = isFinal && distance <= T.translationTolerance &&
                         ((T.headingMode == HeadingMode::Free && !rotationTargeted) || std::abs(angle) <= T.rotationTolerance);
     const bool slow = std::hypot(measured.vx, measured.vy) <= T.velocityTolerance &&
@@ -230,14 +240,16 @@ class PathFollower {
   const ControlState& State() const { return state_; }
  private:
   ControlResult Invalid() { state_ = {}; ControlResult r; r.valid = false; return r; }
-  ControlState state_;
+  ControlState state_; double maxDt_ = kDefaultMaxDt;
 };
 
 // Single-pose convenience wrapper: drive to one goal (a one-anchor path). A goal
 // with a handoff radius passes through instead of stopping.
 class PoseController {
  public:
-  void Reset(Velocity measured = {}) { follower_ = {}; previous_ = measured; fresh_ = true; }
+  void Reset(Velocity measured = {}) { follower_.Restart(); previous_ = measured; fresh_ = true; }
+  // Longest dt integrated per call; a longer loop is clamped (see PathFollower).
+  void SetMaxDt(double maxDt) { follower_.SetMaxDt(maxDt); }
   ControlResult Calculate(Pose pose, Velocity measured, const Goal& goal,
                           const Constraints& c, double dt) {
     if (fresh_) { follower_.Reset(pose, previous_); fresh_ = false; }

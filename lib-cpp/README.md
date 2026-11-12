@@ -11,7 +11,8 @@ Use the pieces you need:
 | Header | Purpose |
 | --- | --- |
 | `pose_controller.hpp` | Standalone live-pose controller; no framework, IO, network, or per-tick allocation |
-| `auto_runner.hpp` | Optional graph executor with typed guards, arbitrary action callbacks, concurrent actions, cancellation, and watchdogs |
+| `signals.hpp` | Typed fail-closed guard inputs (`SignalValue`, `Compare`, `Not`/`All`/`Any`, `SignalSource`) and `ManifestView` |
+| `auto_runner.hpp` | Optional graph executor with typed guards, arbitrary action callbacks, concurrent actions, cancellation, watchdogs, goal telemetry, and optional observation |
 | `state_observer.hpp` | Optional observation interface for any robot state machine |
 | `wpilib.hpp` | `DriveToPose` command and WPILOG observer |
 | `networktables_observer.hpp` | NetworkTables observer and observer fanout |
@@ -63,7 +64,49 @@ Generate a header with `node scripts/mayhem.mjs cpp project.mayhem.json > autos.
 
 Derive `RobotHooks` in your robot project. Return real typed `SignalValue`s; implement `BeginAction`, `TickAction`, and `EndAction` with your existing mechanism/scheduler code. `TickAction` explicitly returns Running, Succeeded, or Failed. `EndAction` also receives cancellation. Do not return success merely because time elapsed. String signal views must refer to storage that remains valid during guard evaluation.
 
-Construct `AutoRunner(routine, hooks)`, call `Start(measuredVelocity)` on autonomous start, and apply `Tick(measuredPose, measuredVelocity, dt)` each loop. On disable/interruption call `Cancel()` and explicitly stop outputs. Watch `Status()` for Completed/Failed/Cancelled. The runner owns neither your scheduler nor odometry resets; arbitrary robot code can bypass it entirely. Successful main and concurrent callbacks are latched and are not ticked again while transition guards wait. They receive exactly one EndAction on state exit. Concurrent actions remain owned by the state until it exits. The runner reserves callback-status storage on construction; its bookkeeping does not allocate during ticks or state transitions.
+Construct `AutoRunner(routine, hooks)` (optionally with `RunnerOptions`), call `Start(measuredVelocity)` on autonomous start, and apply `Tick(measuredPose, measuredVelocity, dt)` each loop. On disable/interruption call `Cancel()` and explicitly stop outputs. Watch `Status()` for Completed/Failed/Cancelled. The runner owns neither your scheduler nor odometry resets; arbitrary robot code can bypass it entirely. Successful main and concurrent callbacks are latched and are not ticked again while transition guards wait. They receive exactly one EndAction on state exit. Concurrent actions remain owned by the state until it exits. The runner reserves callback-status storage on construction; its bookkeeping does not allocate during ticks or state transitions.
+
+### Loop timing
+
+Pass the real seconds since the previous tick. A roboRIO loop overrun (the first enabled loop, GC, a log flush) must not kill an autonomous routine, so by default the runner **clamps** instead of failing:
+
+```cpp
+struct RunnerOptions {
+  double maxDt = 0.1;                    // PathFollower::kDefaultMaxDt
+  DtOverrun overrun = DtOverrun::Clamp;  // or DtOverrun::Fail
+};
+mayhem::AutoRunner runner(routine, hooks, options);
+```
+
+- `dt > maxDt`: the follower integrates `maxDt` (rate limits and settling advance by at most `maxDt`; a stalled loop cannot produce a large acceleration step). `Overruns()` counts these ticks since `Start()`. `DtOverrun::Fail` restores the old fail-the-routine behavior.
+- Node watchdogs (`timeout`) always count the **real** dt, so clamping cannot extend a watchdog.
+- `dt == 0` (WPILib may run `Execute` in the same timestamp as `Initialize`) changes nothing and returns the previous command.
+- Negative or non-finite `dt`, and a non-positive or non-finite `maxDt` (checked by `Start()`), fail.
+
+`PathFollower` and `PoseController` clamp the same way (`SetMaxDt`, default 0.1 s); only non-positive or non-finite `dt` is invalid there.
+
+### Goal telemetry and observation
+
+The runner exposes what the follower computed, so robot code does not re-derive goal errors:
+
+```cpp
+const mayhem::AutoNode* ActiveNode() const;
+const mayhem::Goal* ActiveGoal() const;            // nullptr outside pose states
+const mayhem::ControlResult& LastResult() const;  // latest follower result in this state
+double StateTime() const;                           // real seconds in the active state
+std::size_t Overruns() const;
+```
+
+`ControlResult` carries `translationError` (distance to the active anchor), `rotationError` (|error| to the heading the follower steers to this tick, including PointAt, Motion, and rotation markers), `reached`, `handoff`, `progress`, and `remaining`. `LastResult()` resets on each state entry.
+
+Optionally attach a `StateObserver` once during initialization:
+
+```cpp
+runner.Attach(observer, mayhem_generated::autonomous::manifest,
+              [] { return frc::Timer::GetFPGATimestamp().value(); });
+```
+
+`Attach(observer, ManifestView manifest = {}, Clock clock = nullptr, std::string_view machine = "Autonomous")` reports `Enter`, `Guard` (one per evaluated transition, input `"condition"`), `Transition`, and `GoalProgress` (every pose tick, with the follower's errors and `reached`) under the `Autonomous` machine. If the observer type has `Describe(json)` and `RegisterGuard(transition, input)` (as `WpiLogObserver`, `NtStateObserver`, and a composite like the 3256 robot's observer do), `Attach` describes the manifest and registers every guard. Transition IDs reported to observers are `"<routine id>/<transition id>"` (`mayhem::QualifiedTransitionId`), matching the exported Autonomous manifest; `RobotHooks` callbacks still receive the unqualified IDs. Without a clock, timestamps are 0, which `WpiLogObserver` records as the current time. `Attach` allocates; ticks do not (beyond what the observer's sink does).
 
 ## Optional state observation
 
