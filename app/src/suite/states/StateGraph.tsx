@@ -7,6 +7,8 @@ import {
 } from "../core/model.ts";
 import { compactCondition, edgeLabels, elideMiddle } from "../core/edgeLabels.ts";
 import "./states.css";
+import { categoryLookup, type InputSource } from "../core/inputCategories.ts";
+import { ConditionText, glyphText } from "./ConditionText";
 
 const W = 196,
   H = 78,
@@ -111,7 +113,10 @@ export function StateGraph({
   machine = false,
   selectedEdge,
   selectEdge,
+  inputs = [],
 }: {
+  /** The machine's inputs (or project signals), for category glyphs on conditions. */
+  inputs?: InputSource[];
   signalLabel?: (key: string) => string;
   machine?: boolean;
   /** Highlighted transition, e.g. the one picked in the inspector. */
@@ -148,8 +153,14 @@ export function StateGraph({
     }
     return { ids, chips };
   }, [graph, signalLabel]);
+  const categoryOf = useMemo(() => categoryLookup(inputs), [inputs]);
+  const isKey = useMemo(() => {
+    const keys = new Set([...inputs.map((i) => i.key), "stateTime"]);
+    return (k: string) => keys.has(k);
+  }, [inputs]);
+  // Glyphs take room: keep labels a little shorter than the two-line box allows.
   const labels = useMemo(
-    () => edgeLabels(graph.transitions, 40, (id) => graph.nodes.find((n) => n.id === id)?.name ?? id, signalLabel),
+    () => edgeLabels(graph.transitions, 32, (id) => graph.nodes.find((n) => n.id === id)?.name ?? id, signalLabel),
     [graph, signalLabel],
   );
   const wired = useMemo(
@@ -223,7 +234,7 @@ export function StateGraph({
             return (
               <g key={t.id} className={`mx-edge ${live ? "is-live" : ""} ${fromActive ? "is-from-active" : ""} ${picked ? "is-picked" : ""}`}>
                 <path d={d} fill="none" markerEnd={`url(#${live ? "mx-arrow-live" : "mx-arrow"})`}>
-                  <title>{info.title}</title>
+                  <title>{[t.name, glyphText(info.condition, isKey, categoryOf), t.description].filter(Boolean).join("\n")}</title>
                 </path>
                 {label && (
                   <foreignObject x={lx - 75} y={ly - 18} width="150" height="36">
@@ -231,14 +242,14 @@ export function StateGraph({
                     <button
                       type="button"
                       className={`mx-edge-label ${t.name ? "is-named" : ""}`}
-                      title={info.title}
+                      title={[t.name, glyphText(info.condition, isKey, categoryOf), t.description].filter(Boolean).join("\n")}
                       aria-label={`Transition ${label}: ${info.condition}`}
                       onClick={() => {
                         select(t.from);
                         selectEdge?.(t.id);
                       }}
                     >
-                      {label}
+                      <ConditionText text={label} isKey={isKey} categoryOf={categoryOf} />
                     </button>
                     </div>
                   </foreignObject>
@@ -278,7 +289,7 @@ export function StateGraph({
                     style={{ top: -11 - i * 20 }}
                     title={`From any state when ${label}`}
                   >
-                    any · {elideMiddle(label, 24)}
+                    any · <ConditionText text={elideMiddle(label, 24)} isKey={isKey} categoryOf={categoryOf} />
                   </span>
                 );
               })}

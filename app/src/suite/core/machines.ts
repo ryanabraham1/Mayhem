@@ -6,6 +6,7 @@ import type {
   Transition,
 } from "./model.ts";
 import { valueAt, type Recording } from "./analysis.ts";
+import { inputSourceProblem } from "./model.ts";
 export interface MachineManifest {
   format: "mayhem-machine";
   version: 1;
@@ -15,6 +16,7 @@ export interface MachineManifest {
   states: { id: string; name: string; description?: string; source?: string }[];
   /** Optional `name` (edge label) and `description` (hover/inspector) on each transition. */
   transitions: Transition[];
+  /** Each input may carry `category` and `derivedFrom` (see SignalDefinition). */
   inputs: (SignalDefinition & { channel?: string })[];
   stateChannel?: string;
 }
@@ -67,6 +69,10 @@ export function parseMachineManifest(value: unknown): MachineManifest {
     )
       throw new Error("Invalid machine input.");
     inputs.set(s.key, s.type);
+  }
+  for (const s of value.inputs) {
+    const problem = inputSourceProblem(s, new Set(inputs.keys()));
+    if (problem) throw new Error(`Input ${s.key}: ${problem}`);
   }
   const check = (c: unknown, depth = 0): void => {
     if (!record(c) || depth > 20) throw new Error("Invalid machine condition.");

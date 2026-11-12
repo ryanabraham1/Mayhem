@@ -130,12 +130,34 @@ export interface AutoRoutine {
   nodes: AutoNode[];
   transitions: Transition[];
 }
+/** Where an input comes from; shown as a glyph and color on state-graph conditions. */
+export const INPUT_CATEGORY_KEYS = ["operator", "sensor", "internal", "timer", "auto"] as const;
+export type InputCategory = (typeof INPUT_CATEGORY_KEYS)[number];
 export interface SignalDefinition {
   key: string;
   name: string;
   type: "boolean" | "number" | "string";
   initial: SignalValue;
   unit?: string;
+  /**
+   * operator (driver/controller request), sensor (measured), internal (code-derived; the
+   * default), timer (stateTime), auto (request made by autonomous).
+   */
+  category?: InputCategory;
+  /** Inputs an internal flag is computed from, e.g. ["shoot", "intake"]. */
+  derivedFrom?: string[];
+}
+/** Problem with an input's `category`/`derivedFrom`, or undefined. `keys`: all input keys. */
+export function inputSourceProblem(input: { category?: unknown; derivedFrom?: unknown }, keys: Set<string>): string | undefined {
+  if (input.category !== undefined && !(INPUT_CATEGORY_KEYS as readonly unknown[]).includes(input.category))
+    return `category must be one of ${INPUT_CATEGORY_KEYS.join(", ")}.`;
+  if (input.derivedFrom !== undefined) {
+    if (!Array.isArray(input.derivedFrom) || input.derivedFrom.some((k) => typeof k !== "string" || !k))
+      return "derivedFrom must be a list of input keys.";
+    const unknown = (input.derivedFrom as string[]).filter((k) => !keys.has(k) && k !== "stateTime");
+    if (unknown.length) return `derivedFrom names unknown inputs: ${unknown.join(", ")}.`;
+  }
+  return undefined;
 }
 export interface SuiteProject {
   format: "mayhem-suite";
@@ -309,7 +331,12 @@ export function validateProject(input: unknown): Issue[] {
   const signals = new Map<string, string>();
   if (!Array.isArray(input.signals))
     error("signals", "Expected a signal array.");
-  else
+  else {
+    const allKeys = new Set<string>(input.signals.flatMap((s: any) => (record(s) && typeof s.key === "string" ? [s.key] : [])));
+    input.signals.forEach((s: any, i: number) => {
+      const problem = record(s) ? inputSourceProblem(s, allKeys) : undefined;
+      if (problem) error(`signals.${i}`, problem);
+    });
     input.signals.forEach((s: any, i: number) => {
       if (
         !record(s) ||
@@ -336,6 +363,7 @@ export function validateProject(input: unknown): Issue[] {
           "Signal initial value must match its type.",
         );
     });
+  }
   const checkCondition = (c: unknown, path: string, depth = 0): void => {
     if (!record(c) || depth > 20) {
       error(path, "Invalid condition or nesting exceeds 20.");

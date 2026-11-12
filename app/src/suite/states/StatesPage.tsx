@@ -18,6 +18,15 @@ import { copyText, openContextMenu } from "../ContextMenu";
 import { evaluate, type Signals } from "../core/model.ts";
 import { edgeLabels } from "../core/edgeLabels.ts";
 import {
+  INPUT_CATEGORIES,
+  INPUT_CATEGORY_ORDER,
+  categoryLookup,
+  conditionKeys,
+  transitionCause,
+  type TransitionCause,
+} from "../core/inputCategories.ts";
+import { CategoryLegend, ConditionText, glyphText } from "./ConditionText";
+import {
   exampleMachine,
   machineGraph,
   observedMachine,
@@ -165,6 +174,30 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
   }
   const node = graph.nodes.find((n) => n.id === selected) ?? graph.nodes[0];
   const editable = source === "simulate";
+  const categoryOf = useMemo(() => categoryLookup(inputs), [inputs]);
+  const inputKeys = useMemo(() => new Set([...inputs.map((i) => i.key), "stateTime"]), [inputs]);
+  const isKey = (k: string) => inputKeys.has(k);
+  const usedCategories = useMemo(() => {
+    const used = new Set(inputs.map((i) => categoryOf(i.key)));
+    if (graph.transitions.some((t) => conditionKeys(t.condition).includes("stateTime"))) used.add("timer");
+    return INPUT_CATEGORY_ORDER.filter((c) => used.has(c));
+  }, [inputs, categoryOf, graph.transitions]);
+  // Why the active state last changed: the edge taken and the inputs that changed for it.
+  const previous = useRef<{ graph: string; active: string; signals: Signals } | null>(null);
+  const [cause, setCause] = useState<(TransitionCause & { from: string; to: string }) | null>(null);
+  const graphKey = machine ? `machine:${machine.id}` : `auto:${graph.id}`;
+  useEffect(() => {
+    const prior = previous.current;
+    previous.current = { graph: graphKey, active, signals };
+    if (!prior || prior.graph !== graphKey) {
+      setCause(null);
+      return;
+    }
+    if (!active || !prior.active || prior.active === active) return;
+    const found = transitionCause(graph.transitions, prior.active, active, prior.signals, signals);
+    setCause(found ? { ...found, from: prior.active, to: active } : null);
+  }); // runs after every render; compares with the previous render's state and inputs
+  const stateName = (id: string) => graph.nodes.find((n) => n.id === id)?.name ?? id;
   /** Follow true transitions from a state, like the robot would on its next loops. */
   const settle = (from: string, values: Signals) => {
     let state = from;
@@ -343,7 +376,22 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
               </Badge>
             )}
           </div>
+          <div className="mx-graph-meta">
+            <CategoryLegend categories={usedCategories} />
+            {cause && (
+              <p className="mx-cause" role="status" title={glyphText(edgeInfo.get(cause.transition.id)?.condition ?? "", isKey, categoryOf)}>
+                {stateName(cause.from)} → {stateName(cause.to)} because{" "}
+                {cause.keys.map((k, i) => (
+                  <span key={k}>
+                    {i > 0 && ", "}
+                    <ConditionText text={k} isKey={isKey} categoryOf={categoryOf} />
+                  </span>
+                ))}
+              </p>
+            )}
+          </div>
           <StateGraph
+            inputs={inputs}
             graph={graph}
             machine={!!machine}
             signals={signals}
@@ -464,13 +512,27 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
             </h3>
             {inputs.length === 0 && <p className="mx-help">This machine declares no inputs.</p>}
             <div className="mx-inputs">
-              {inputs.map((input) => {
+              {INPUT_CATEGORY_ORDER.flatMap((category) => {
+                const group = inputs.filter((input) => categoryOf(input.key) === category);
+                if (!group.length) return [];
+                return [
+                  <h4 key={`h-${category}`} className={`mx-input-group mx-term is-${category}`} title={INPUT_CATEGORIES[category].description}>
+                    <span className="mx-term-glyph">{INPUT_CATEGORIES[category].glyph}</span>
+                    {INPUT_CATEGORIES[category].label}
+                  </h4>,
+                  ...group.map((input) => {
                 const value = signals[input.key];
                 return (
                   <div className="mx-input-row" key={input.key}>
                     <span>
                       {input.name}
                       <code>{input.key}</code>
+                      {input.derivedFrom?.length ? (
+                        <small className="mx-derived">
+                          from{" "}
+                          <ConditionText text={input.derivedFrom.join(", ")} isKey={isKey} categoryOf={categoryOf} />
+                        </small>
+                      ) : null}
                     </span>
                     {editable && input.type === "boolean" ? (
                       <button
@@ -500,6 +562,8 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                     )}
                   </div>
                 );
+                  }),
+                ];
               })}
             </div>
           </section>
@@ -542,7 +606,9 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                     {ok ? <Check size={14} /> : <Circle size={13} />}
                     <span className="mx-guard-main">
                       {t.name && <strong>{t.name}</strong>}
-                      <code>{info.condition}</code>
+                      <code>
+                        <ConditionText text={info.condition} isKey={isKey} categoryOf={categoryOf} />
+                      </code>
                       {t.description && <small>{t.description}</small>}
                     </span>
                     <button

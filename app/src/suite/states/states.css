@@ -90,3 +90,72 @@ button.mx-edge-label.is-named {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* Input categories: each input key in a condition carries a glyph and a color. */
+:root {
+  --mx-cat-operator: #2463d6;
+  --mx-cat-auto: #b8318f;
+  --mx-cat-sensor: #0e8a63;
+  --mx-cat-internal: #625b80;
+  --mx-cat-timer: #a86400;
+}
+:root[data-theme="dark"] {
+  --mx-cat-operator: #79a8ff;
+  --mx-cat-auto: #f07ad4;
+  --mx-cat-sensor: #3ccf9a;
+  --mx-cat-internal: #b2acc9;
+  --mx-cat-timer: #f2ae45;
+}
+.mx-term {
+  white-space: nowrap;
+  font-weight: 600;
+}
+.mx-term-glyph {
+  margin-right: 0.15em;
+  font-size: 0.95em;
+  font-weight: 400;
+}
+.mx-term.is-operator { color: var(--mx-cat-operator); }
+.mx-term.is-auto { color: var(--mx-cat-auto); }
+.mx-term.is-sensor { color: var(--mx-cat-sensor); }
+.mx-term.is-internal { color: var(--mx-cat-internal); }
+.mx-term.is-timer { color: var(--mx-cat-timer); }
+.mx-graph-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 6px 12px 0;
+  min-height: 0;
+}
+.mx-category-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+.mx-cause {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--mx-ink-2);
+}
+.mx-cause .mx-term {
+  font-family: var(--mx-mono);
+}
+.mx-inputs h4.mx-input-group {
+  margin: 10px 0 2px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mx-inputs h4.mx-input-group:first-child {
+  margin-top: 0;
+}
+.mx-derived {
+  display: block;
+  font-size: 11px;
+  color: var(--mx-muted);
+}
+.mx-derived .mx-term {
+  font-family: var(--mx-mono);
+  font-weight: 500;
+}
