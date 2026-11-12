@@ -22,7 +22,8 @@ import seasonField from "./core/rebuilt-2026.json";
 import type { Field } from "../types";
 import { PATH_DEFAULTS, type AutoRoutine, type SuiteProject, type Pose } from "./core/model.ts";
 import { isIntermediate } from "./core/runtime.ts";
-export type FieldTool = "select" | "pose" | "translation" | "handoff";
+import { SKETCH_DEFAULTS, simplifyStroke, type Point } from "./core/sketch.ts";
+export type FieldTool = "select" | "pose" | "translation" | "handoff" | "draw";
 interface View {
   x: number;
   y: number;
@@ -79,6 +80,7 @@ export function FieldView({
   moveStart,
   rotate,
   place,
+  sketch,
   remove,
   duplicate,
   resetStart,
@@ -99,7 +101,9 @@ export function FieldView({
   moveStart: (pose: Pose) => void;
   rotate: (id: string, heading: number) => void;
   /** Add a goal at a field point; `kind` overrides the active tool (used by the context menu). */
-  place: (x: number, y: number, kind?: Exclude<FieldTool, "select">) => void;
+  place: (x: number, y: number, kind?: Exclude<FieldTool, "select" | "draw">) => void;
+  /** Add goals along a stroke drawn with the draw tool; Shift on release keeps the heading. */
+  sketch?: (stroke: Point[], keepHeading: boolean) => void;
   remove: (id: string) => void;
   duplicate: (id: string) => void;
   /** Clear the routine's own start so it follows the robot default. Omit when there is none. */
@@ -135,6 +139,8 @@ export function FieldView({
   const dragStart = useRef({ x: 0, y: 0 });
   const pan = useRef<{ sx: number; sy: number; view: View } | null>(null);
   const [hover, setHover] = useState<Pose | null>(null);
+  const [stroke, setStroke] = useState<Point[] | null>(null);
+  const strokeDots = useMemo(() => (stroke ? simplifyStroke(stroke) : []), [stroke]);
   // Goals stacked under one click, spread out on a ring so each can be picked.
   const [fan, setFan] = useState<{ x: number; y: number; ids: string[] } | null>(null);
   const fromFan = useRef(false);
@@ -215,7 +221,8 @@ export function FieldView({
     kind: Drag["kind"],
     goal: Pose,
   ) => {
-    if (event.button !== 0) return;
+    // The draw tool strokes over goals; the field handles it.
+    if (event.button !== 0 || tool === "draw") return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -267,6 +274,13 @@ export function FieldView({
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           setFan(null);
+          if (tool === "draw") {
+            const p = fieldPoint(e);
+            if (!p) return;
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setStroke([p]);
+            return;
+          }
           if (tool !== "select") {
             const p = fieldPoint(e);
             if (p) place(p.x, p.y);
@@ -278,7 +292,11 @@ export function FieldView({
         onPointerMove={(e) => {
           const p = fieldPoint(e);
           if (p) setHover({ ...p, heading: 0 });
-          if (drag && p) {
+          if (stroke && p) {
+            const last = stroke[stroke.length - 1];
+            if (Math.hypot(p.x - last.x, p.y - last.y) >= SKETCH_DEFAULTS.sampleMeters)
+              setStroke([...stroke, p]);
+          } else if (drag && p) {
             if (drag.kind === "position") setDrag({ ...drag, ...p });
             else {
               let heading = Math.atan2(p.y - drag.y, p.x - drag.x);
@@ -297,6 +315,11 @@ export function FieldView({
           }
         }}
         onPointerUp={(e) => {
+          if (stroke) {
+            const p = fieldPoint(e);
+            sketch?.(p ? [...stroke, p] : stroke, e.shiftKey);
+            setStroke(null);
+          }
           if (drag) {
             let nextFan: typeof fan = null;
             if (
@@ -332,6 +355,7 @@ export function FieldView({
           pan.current = null;
         }}
         onPointerCancel={() => {
+          setStroke(null);
           setDrag(null);
           pan.current = null;
         }}
@@ -731,6 +755,30 @@ export function FieldView({
           />
         )}
         {overlay}
+        {stroke && (
+          <g className="mx-sketch" pointerEvents="none">
+            <polyline
+              points={stroke.map((p) => `${p.x},${height - p.y}`).join(" ")}
+              fill="none"
+              stroke="var(--mx-halo)"
+              strokeWidth=".12"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <polyline
+              points={stroke.map((p) => `${p.x},${height - p.y}`).join(" ")}
+              fill="none"
+              stroke="var(--mx-path)"
+              strokeWidth=".05"
+              strokeDasharray=".14 .1"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {strokeDots.map((p, i) => (
+              <circle key={i} cx={p.x} cy={height - p.y} r=".09" fill="var(--mx-path)" stroke="var(--mx-halo)" strokeWidth=".03" />
+            ))}
+          </g>
+        )}
         <g
           transform={`translate(${pose.x},${height - pose.y}) rotate(${(-pose.heading * 180) / Math.PI})`}
           style={{ pointerEvents: "none" }}

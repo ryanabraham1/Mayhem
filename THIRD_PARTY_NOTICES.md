@@ -56,7 +56,9 @@ This project incorporates limited portions of code from the following open-sourc
 ## BLine-Web
 
 Mayhem's path preview and automatic constraint generation
-(`app/src/suite/core/pathing/`) are derived from BLine-Web 1.0.0, commit
+(`app/src/suite/core/pathing/`) and the freehand draw tool's stroke
+simplification (`app/src/suite/core/sketch.ts`, from BLine-Web's
+`src/core/pathProfile/curveProfile.ts`) are derived from BLine-Web 1.0.0, commit
 `1e440b419dc33499e447fbca4ddc2fea69497b71`
 (https://github.com/edanliahovetsky/BLine-Web), and modified. BLine-Web is
 under the same BSD 3-Clause license and copyright holders as BLine-Lib; the

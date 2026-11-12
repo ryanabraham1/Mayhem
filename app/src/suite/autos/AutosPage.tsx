@@ -7,6 +7,7 @@ import {
   Navigation,
   PanelRight,
   Pause,
+  PenLine,
   Play,
   Redo2,
   Route,
@@ -51,17 +52,25 @@ const tools = [
     icon: Route,
     title: "Place a point the robot drives through without stopping (G)",
   },
+  {
+    value: "draw",
+    label: "Draw",
+    icon: PenLine,
+    title: "Draw the route freehand; it becomes a few pass-through points and a pose (D)",
+  },
 ] as const;
+type EditorTool = PlaceTool | "draw";
 
-const toolHints: Record<PlaceTool, string> = {
+const toolHints: Record<EditorTool, string> = {
   select: "Click a goal to edit it · double-click the field to add one",
   pose: "Click the field to place a pose · Esc when done",
   translation: "Click to place a goal with any heading · Esc when done",
   handoff: "Click to place a pass-through point · Esc when done",
+  draw: "Drag along the route to add it after the selected step · hold Shift on release to keep the heading",
 };
 
 export function AutosPage({ s }: { s: SuiteState }) {
-  const [tool, setTool] = useState<PlaceTool>("select");
+  const [tool, setTool] = useState<EditorTool>("select");
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [inspectorTab, setInspectorTab] = useState<"step" | "path">("step");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -107,6 +116,7 @@ export function AutosPage({ s }: { s: SuiteState }) {
       else if (key === "w") setTool("pose");
       else if (key === "t") setTool("translation");
       else if (key === "g") setTool("handoff");
+      else if (key === "d") setTool("draw");
       else if ((key === "[" || key === "]") && legs.length) {
         // Cycle All -> leg 1 -> ... -> leg n -> All.
         const i = legs.findIndex((l) => l.id === focusLeg),
@@ -296,7 +306,8 @@ export function AutosPage({ s }: { s: SuiteState }) {
             tool={tool}
             select={inspect}
             inspect={inspect}
-            place={(x, y, kind) => s.addGoal(kind ?? tool, { x, y })}
+            place={(x, y, kind) => s.addGoal(kind ?? (tool === "draw" ? "pose" : tool), { x, y })}
+            sketch={s.addSketch}
             resetStart={
               s.routine.start
                 ? () =>
@@ -306,7 +317,7 @@ export function AutosPage({ s }: { s: SuiteState }) {
                 : undefined
             }
             remove={s.removeNode}
-            duplicate={(id) => s.addGoal(tool, undefined, id)}
+            duplicate={(id) => s.addGoal(tool === "draw" ? "pose" : tool, undefined, id)}
             moveStart={(pose) =>
               s.editRoutine((r) => {
                 r.start = pose;

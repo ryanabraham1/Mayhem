@@ -9,6 +9,7 @@ export const shortcutGroups: { title: string; keys: [string, string][] }[] = [
       ["W", "Place a pose"],
       ["T", "Place a goal with any heading"],
       ["G", "Place a pass-through point"],
+      ["D", "Draw a route freehand"],
     ],
   },
   {

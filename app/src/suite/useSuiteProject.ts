@@ -4,6 +4,7 @@ import {
   parseProject,
   validateProject,
   type AutoNode,
+  type AutoRoutine,
   type Signals,
   type SuiteProject,
 } from "./core/model.ts";
@@ -16,6 +17,7 @@ import {
   type PreviewMode,
 } from "./core/runtime.ts";
 import { interpolatePreviewFrame } from "./core/playback.ts";
+import { sketchGoals } from "./core/sketch.ts";
 import { activateProject, loadProject, saveProject } from "./storage";
 import { desktop, invoke } from "./native";
 
@@ -419,12 +421,8 @@ export function useSuiteProject() {
     reset(project, id);
   };
 
-  const addGoal = (
-    tool: PlaceTool,
-    at?: { x: number; y: number },
-    copyId?: string,
-  ) => {
-    const id = `pose-${crypto.randomUUID().slice(0, 8)}`;
+  /** Where new goals go: after the selected step (or the start), and the goal they follow. */
+  const insertionPoint = (copyId?: string) => {
     const anchorNode = copyId
       ? routine.nodes.find((n) => n.id === copyId)!
       : node;
@@ -440,6 +438,54 @@ export function useSuiteProject() {
       : (anchorNode.goal ??
         routine.nodes.filter((n) => n.goal).at(-1)?.goal ??
         startPose);
+    const target = anchor && routine.nodes.find((n) => n.id === anchor.to);
+    return { anchorNode, atStart, anchor, previousGoal, nextGoal: target?.goal };
+  };
+  /** Insert `nodes` as a chain of "Always" steps at the insertion point. */
+  const insertChain = (
+    r: AutoRoutine,
+    nodes: AutoNode[],
+    { atStart, anchor }: ReturnType<typeof insertionPoint>,
+  ) => {
+    const link = (to: string) =>
+      nodes.forEach((n, i) =>
+        r.transitions.push({
+          id: i === nodes.length - 1 ? `to-${to}-${n.id}` : `to-${nodes[i + 1].id}-${n.id}`,
+          from: n.id,
+          to: i === nodes.length - 1 ? to : nodes[i + 1].id,
+          condition: { kind: "always" },
+        }),
+      );
+    if (atStart || (!anchor && r.nodes.length === 1 && r.nodes[0].kind === "finish")) {
+      const initial = r.initial;
+      r.nodes.unshift(...nodes);
+      r.initial = nodes[0].id;
+      link(initial);
+    } else if (anchor) {
+      const edge = r.transitions.find((t) => t.id === anchor.id)!;
+      const oldTarget = edge.to;
+      edge.to = nodes[0].id;
+      r.nodes.splice(
+        r.nodes.findIndex((n) => n.id === anchor.from) + 1,
+        0,
+        ...nodes,
+      );
+      link(oldTarget);
+    } else
+      throw new Error(
+        "Select a step with an outgoing transition to insert a goal after it.",
+      );
+  };
+  const newPoseId = () => `pose-${crypto.randomUUID().slice(0, 8)}`;
+
+  const addGoal = (
+    tool: PlaceTool,
+    at?: { x: number; y: number },
+    copyId?: string,
+  ) => {
+    const id = newPoseId();
+    const where = insertionPoint(copyId);
+    const { anchorNode, previousGoal } = where;
     const goal = {
       ...DEFAULT_GOAL,
       x: at?.x ?? Math.min(project.field.width, previousGoal.x + 0.5),
@@ -468,46 +514,43 @@ export function useSuiteProject() {
             goal,
             timeout: 8,
           };
-      if (atStart) {
-        const initial = r.initial;
-        r.nodes.unshift(nextNode);
-        r.initial = id;
-        r.transitions.push({
-          id: `arrived-${id}`,
-          from: id,
-          to: initial,
-          condition: { kind: "always" },
-        });
-      } else if (anchor) {
-        const edge = r.transitions.find((t) => t.id === anchor.id)!;
-        const oldTarget = edge.to;
-        edge.to = id;
-        r.nodes.splice(
-          r.nodes.findIndex((n) => n.id === anchor.from) + 1,
-          0,
-          nextNode,
-        );
-        r.transitions.push({
-          id: `to-${oldTarget}-${id}`,
-          from: id,
-          to: oldTarget,
-          condition: { kind: "always" },
-        });
-      } else if (r.nodes.length === 1 && r.nodes[0].kind === "finish") {
-        r.nodes.unshift(nextNode);
-        r.initial = id;
-        r.transitions.push({
-          id: `arrived-${id}`,
-          from: id,
-          to: r.nodes[1].id,
-          condition: { kind: "always" },
-        });
-      } else
-        throw new Error(
-          "Select a step with an outgoing transition to insert a goal after it.",
-        );
+      insertChain(r, [nextNode], where);
     });
     if (next) setSelected(id);
+  };
+
+  /**
+   * Add goals along a stroke drawn on the field (BLine's "Add curve"): pass-through
+   * points with any heading, ending in a pose that faces the drawn direction.
+   */
+  const addSketch = (
+    stroke: { x: number; y: number }[],
+    keepHeading = false,
+  ) => {
+    const where = insertionPoint();
+    const goals = sketchGoals(stroke, where.previousGoal.heading, {
+      previous: where.previousGoal,
+      next: where.nextGoal,
+      keepHeading,
+    });
+    if (!goals.length) return 0;
+    const ids = goals.map(newPoseId);
+    const next = editRoutine((r) => {
+      let count = r.nodes.filter((n) => n.kind === "pose").length;
+      insertChain(
+        r,
+        goals.map(({ pass, ...pose }, i) => ({
+          id: ids[i],
+          name: pass ? "Pass through" : `Pose ${++count}`,
+          kind: "pose",
+          goal: { ...DEFAULT_GOAL, ...pose, ...(pass ? { headingMode: "free" as const } : {}) },
+          timeout: 8,
+        })),
+        where,
+      );
+    });
+    if (next) setSelected(ids.at(-1)!);
+    return next ? goals.length : 0;
   };
 
   const addActionStep = (kind: "action" | "custom") => {
@@ -678,6 +721,7 @@ export function useSuiteProject() {
     applyJson,
     // routine editing
     addGoal,
+    addSketch,
     addActionStep,
     removeNode,
     reorder,
