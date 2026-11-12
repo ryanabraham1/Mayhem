@@ -17,6 +17,13 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 const python = process.platform === "win32" ? "python" : "python3";
 
 describe("vendoring the C++ headers into a robot project", () => {
+  it("leaves the command framework to wpilib.hpp, so a command-free robot can skip it", () => {
+    expect(names).toEqual(expect.arrayContaining(["pose_driver.hpp", "wpilib_log.hpp", "wpilib.hpp"]));
+    const frc2 = names.filter((n) => /#include\s*[<"](frc2\/|mayhem\/wpilib\.hpp)/.test(readFileSync(join(headers, n), "utf8")));
+    expect(frc2).toEqual(["wpilib.hpp"]);
+    expect(readFileSync(join(headers, "wpilib.hpp"), "utf8")).toMatch(/#include "mayhem\/wpilib_log\.hpp"/);
+  });
+
   it("copies every header with a snapshot, checks it, and repairs drift", async () => {
     const robot = join(dir, "robot");
     const dest = join(robot, "src/main/include/mayhem");

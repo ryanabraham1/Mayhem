@@ -1,6 +1,6 @@
 # Mayhem C++ tools (development)
 
-Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the normal WPILib libraries. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.2.0). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
+Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.3.0). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
 
 ## Installing in a WPILib robot project
 
@@ -32,7 +32,9 @@ Use the pieces you need:
 | `state_machine.hpp` | `StateMachine`: runs an exported `mayhem-machine` graph (typed guards, priority, built-in `stateTime`, optional observer) |
 | `alliance.hpp` | `AllianceRoutine`: flipped/mirrored copies of a blue-origin routine (poses, aim points, rotation markers, start) |
 | `state_observer.hpp` | Optional observation interface for any robot state machine |
-| `wpilib.hpp` | `DriveToPose` command and WPILOG observer |
+| `pose_driver.hpp` | `PoseDriver`: drive to a goal with a watchdog from any loop (`Start(now)`, `Update(now)`, `Cancel()`); no framework |
+| `wpilib_log.hpp` | `WpiLogObserver` (WPILOG); needs only `wpi/DataLog.h`, not the command framework |
+| `wpilib.hpp` | `DriveToPose` command (`PoseDriver` as a command; needs wpilibNewCommands); also includes `wpilib_log.hpp` |
 | `networktables_observer.hpp` | NetworkTables observer and observer fanout |
 
 ## CMake installation
@@ -73,6 +75,24 @@ if (!result.valid) {
 ```
 
 The output is **field-relative meters/second and radians/second**. Convert for your drivetrain API when necessary. Set real robot limits and tune feedback on hardware. An outer watchdog, disabled/cancellation logic, localization checks, and obstacle routing belong to the caller. Invalid numeric/controller input returns zero with `valid=false`.
+
+`PoseDriver` (`pose_driver.hpp`) adds the watchdog for robots that run their own loop, without the command framework:
+
+```cpp
+#include <mayhem/pose_driver.hpp>
+
+mayhem::PoseDriver drive([&] { return measuredPose; }, [&] { return measuredVelocity; },
+                         driveFieldRelative, target, limits, /*watchdog seconds*/ 3.0);
+drive.Start(frc::Timer::GetFPGATimestamp().value());              // on entering the state
+switch (drive.Update(frc::Timer::GetFPGATimestamp().value())) {    // every loop
+  case mayhem::PoseCommandStatus::Reached: finishMovement(); break;
+  case mayhem::PoseCommandStatus::Failed: failMovement(); break;   // watchdog or invalid input
+  default: break;
+}
+drive.Cancel();                                                    // on leaving early
+```
+
+It writes one zero velocity when the drive ends (reached, failed, or cancelled), skips loops with `dt == 0`, and fails on the first update if the watchdog is not positive and finite. `DriveToPose` in `wpilib.hpp` is the same driver as an `frc2` command.
 
 `Goal::headingOffset` (radians) is added to the `Motion` and `PointAt` headings (pi: face backward while moving). `Motion` faces the direction of travel toward the active anchor (along the segment within 0.1 m of it); a `Motion` anchor ahead is a rotation target, reached by the previous anchor's handoff, and every handoff carries the heading actually commanded, so the heading never steps. Hold a heading until progress t with a rotation marker at t carrying that heading. `Constraints::anticipateSpeedCaps` (default false, BLine behavior) makes the follower slow down for a slower step ahead (`speed <= sqrt(cap^2 + 2 a d)`, d = distance to its handoff point); `PathFollower::Calculate` takes the per-anchor caps as an optional last argument and `AutoRunner` passes each step's `maxVelocity`. Both new fields are last in their structs, so existing positional initializers still compile.
 
@@ -200,7 +220,7 @@ Every field-frame value is transformed: each node's goal pose (x, y, heading), `
 
 ## Optional state observation
 
-Create one `WpiLogObserver` or `NtStateObserver` per machine. Call `Describe(manifestJson)` once during startup, and `RegisterGuard(transitionId, inputId)` for guards you want to expose before running loops. Use `Enter`, `Guard`, `Transition`, and `GoalProgress` alongside your existing implementation. `CombinedObserver` can forward the same observations to logs and NetworkTables.
+Create one `WpiLogObserver` (`wpilib_log.hpp`) or `NtStateObserver` per machine. Call `Describe(manifestJson)` once during startup, and `RegisterGuard(transitionId, inputId)` for guards you want to expose before running loops. Use `Enter`, `Guard`, `Transition`, and `GoalProgress` alongside your existing implementation. `CombinedObserver` can forward the same observations to logs and NetworkTables.
 
 Log/publish actual input values using your normal WPILib channels, and reference those names in the manifest. Schema and observations do not control the machine. Keep allocations, schema construction, and registration outside the control loop. The observer APIs themselves do not start a NetworkTables server or DataLogManager.
 
@@ -212,4 +232,4 @@ cmake --build lib-cpp/build
 ctest --test-dir lib-cpp/build --output-on-failure
 ```
 
-Tests exercise arrival/settling, moving handoff, invalid data, limits, watchdog behavior, loop-overrun clamping, goal telemetry and observer output, typed conditions and priority in `StateMachine`, no allocation per tick (counted `operator new`), alliance transforms including a closed-loop red run that matches the flipped blue run, the generated example header (`examples/suite/competition.hpp`), and agreement with the browser controller. App tests (`app/tests/export-cpp.test.ts`, `cpp-vendor.test.ts`) cover the exporter, `--check`, vendoring, and the vendordep layout. Host timings are not roboRIO benchmarks. No physical robot validation has been completed for this new library.
+Tests exercise `PoseDriver` (reached, watchdog, invalid input, `dt == 0`, cancel), arrival/settling, moving handoff, invalid data, limits, watchdog behavior, loop-overrun clamping, goal telemetry and observer output, typed conditions and priority in `StateMachine`, no allocation per tick (counted `operator new`), alliance transforms including a closed-loop red run that matches the flipped blue run, the generated example header (`examples/suite/competition.hpp`), and agreement with the browser controller. App tests (`app/tests/export-cpp.test.ts`, `cpp-vendor.test.ts`) cover the exporter, `--check`, vendoring, and the vendordep layout. Host timings are not roboRIO benchmarks. No physical robot validation has been completed for this new library.
