@@ -34,6 +34,7 @@ import { listChannels, logTable, findAnomalies, whatChanged, logEvents } from ".
 import { NT4Observer } from "../app/src/suite/core/nt4.ts";
 import { parseWPILog } from "../app/src/suite/core/wpilog.ts";
 import { vendorCpp } from "./cpp-vendor.mjs";
+import { execFile } from "node:child_process";
 const tools = [
   {
     name: "inspect_live_robot",
@@ -72,6 +73,19 @@ const tools = [
         check: { type: "boolean" },
       },
       required: ["robotDir"],
+    },
+  },
+  {
+    name: "open_in_app",
+    description:
+      "Show a project file to the user in the Mayhem desktop app (macOS): validates it, then opens it in the running app (or launches it), which switches to that project and links and watches the file, exactly like Agents → Open project file. Later edits to the file appear live. Use after writing a project the user should look at.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Project file (*.mayhem.json)." },
+        app: { type: "string", description: "Application name or path (default Mayhem, or MAYHEM_APP)." },
+      },
+      required: ["path"],
     },
   },
   {
@@ -225,6 +239,21 @@ async function loadLog(path, mapping) {
   }
   return hit;
 }
+/** Open a validated project file in the desktop app; it links and watches the file. */
+export async function openInApp(path, app = process.env.MAYHEM_APP || "Mayhem") {
+  if (typeof path !== "string" || !path) throw new Error("A project file path is required.");
+  const file = resolve(path);
+  const problems = validateProject(JSON.parse(await readFile(file, "utf8"))).filter((i) => i.severity === "error");
+  if (problems.length) throw new Error(`Not opened; the project is invalid: ${problems.map((i) => `${i.path}: ${i.message}`).join("; ")}`);
+  if (process.platform !== "darwin")
+    throw new Error("Opening in the desktop app from the command line is macOS-only for now. Open it in Mayhem with Agents → Open project file.");
+  // macOS delivers the file to the running app (or launches it); the app switches to the
+  // project and links the file. `open` returns once Launch Services has handed it over.
+  await new Promise((done, fail) =>
+    execFile("open", ["-a", app, file], (error, _out, stderr) => (error ? fail(new Error(stderr.trim() || error.message)) : done())),
+  );
+  return { opened: file, app, note: "The app switches to this project and watches the file; edits on disk appear within about a second." };
+}
 export async function execute(name, args) {
   if (name === "validate_project")
     return { issues: validateProject(args.project) };
@@ -256,6 +285,7 @@ export async function execute(name, args) {
       }, duration);
     });
   }
+  if (name === "open_in_app") return openInApp(args.path, args.app);
   if (name === "vendor_cpp")
     return vendorCpp(args.robotDir, { dest: args.dest, snapshot: args.snapshot, check: args.check === true });
   const path = pathFor(args.path);
@@ -557,10 +587,11 @@ async function main() {
     analyze: "analyze_log",
     cpp: "export_cpp",
     live: "inspect_live_robot",
+    open: "open_in_app",
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | open <file> | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")

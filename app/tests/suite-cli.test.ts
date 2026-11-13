@@ -114,3 +114,11 @@ it("starts the supported MCP entry with native Node, outside Vitest's resolver",
     ),
   ).toBe(true);
 });
+it("open_in_app validates the file before handing it to the desktop app", async () => {
+  const bad = join(directory, "bad.mayhem.json");
+  await writeFile(bad, JSON.stringify({ ...sampleProject, routines: "nope" }));
+  await expect(execute("open_in_app", { path: bad })).rejects.toThrow(/Not opened; the project is invalid/);
+  // A missing app fails loudly (never opens the user's real app from a test).
+  if (process.platform === "darwin")
+    await expect(execute("open_in_app", { path, app: "No Such Mayhem App 3256" })).rejects.toThrow(/No Such Mayhem App|Unable to find/);
+});

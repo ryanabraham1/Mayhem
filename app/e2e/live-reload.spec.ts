@@ -7,9 +7,10 @@ import { join } from "node:path";
 // test can change it underneath the app the way an agent or generator does.
 async function desktop(page: Page, file: string) {
   // While frozen, reads return the file as it was when frozen (to order events deterministically).
-  const control = { frozen: null as unknown };
+  const control = { frozen: null as unknown, opened: [] as string[] };
   await page.exposeFunction("__mayhemInvoke", (cmd: string, args: Record<string, any>) => {
     if (cmd === "plugin:dialog|open") return file;
+    if (cmd === "take_opened_projects") return control.opened.splice(0);
     if (cmd === "read_suite_project") return control.frozen ?? JSON.parse(readFileSync(args.path, "utf8"));
     if (cmd === "write_suite_project") {
       const disk = JSON.parse(readFileSync(args.path, "utf8"));
@@ -21,14 +22,35 @@ async function desktop(page: Page, file: string) {
     return null;
   });
   await page.addInitScript(() => {
+    // Events: listen() registers a callback; __emit(name) fires it like the Rust side would.
+    const callbacks: Record<number, (event: unknown) => void> = {};
+    const listeners: Record<string, number[]> = {};
+    let next = 1;
+    (window as any).__emit = (event: string) => (listeners[event] ?? []).forEach((id) => callbacks[id]?.({ event, id: 0, payload: null }));
     (window as any).__TAURI_INTERNALS__ = {
-      invoke: (cmd: string, args: unknown) => (window as any).__mayhemInvoke(cmd, args),
-      transformCallback: () => 0,
+      invoke: (cmd: string, args: any) => {
+        if (cmd === "plugin:event|listen") {
+          (listeners[args.event] ??= []).push(args.handler);
+          return Promise.resolve(next++);
+        }
+        if (cmd.startsWith("plugin:event|")) return Promise.resolve(null);
+        return (window as any).__mayhemInvoke(cmd, args);
+      },
+      transformCallback: (callback: (event: unknown) => void) => {
+        const id = next++;
+        callbacks[id] = callback;
+        return id;
+      },
       metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
     };
   });
   return {
     freeze: (on: boolean) => (control.frozen = on ? JSON.parse(readFileSync(file, "utf8")) : null),
+    /** What `open -a Mayhem <path>` (or a mayhem://open link) does: queue it and notify the UI. */
+    open: async (path: string) => {
+      control.opened.push(path);
+      await page.evaluate(() => (window as any).__emit("open-project"));
+    },
   };
 }
 const machine = (states: string[], extra: object = {}) => ({
@@ -140,4 +162,41 @@ test("a disk change while this copy has unsaved edits asks instead of overwritin
   await alert.getByRole("button", { name: "Load file version" }).click();
   await expect(alert).toHaveCount(0);
   await expect(page.locator(".mx-toast")).toContainText("Your edits are kept as the project");
+});
+
+test("opening a file from outside the app switches to it, links it and does not duplicate it", async ({ page }) => {
+  page.on("pageerror", (error) => { throw error; });
+  const dir = mkdtempSync(join(tmpdir(), "mayhem-open-"));
+  const file = join(dir, "robot.mayhem.json");
+  const project = JSON.parse(readFileSync(new URL("../../examples/suite/competition.mayhem.json", import.meta.url), "utf8"));
+  project.id = "robot-from-agent";
+  project.name = "Robot from agent";
+  project.revision = 20;
+  project.extensions.machines = [machine(["IDLE", "SPIN_UP", "FEED"])];
+  write(file, project);
+  const bridge = await desktop(page, file);
+  await page.goto("/");
+  await expect(page.locator(".mx-disk-status")).toHaveCount(0); // not linked yet
+  await bridge.open(file);
+  await expect(page.getByRole("button", { name: "Switch project" })).toContainText("Robot from agent");
+  await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
+  // Live from then on.
+  write(file, { ...project, revision: 21, extensions: { ...project.extensions, machines: [machine(["IDLE", "SPIN_UP", "AIM"])] } });
+  await page.getByRole("button", { name: "State machines", exact: true }).click();
+  await page.getByRole("button", { name: /Shot cycle/ }).first().click();
+  await expect(page.locator(".mx-state", { hasText: "AIM" })).toBeVisible({ timeout: 5000 });
+
+  // Switch away, then open the file again: the library copy is reused and refreshed from disk.
+  await page.getByRole("button", { name: "Switch project" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /Competition robot/ }).first().click();
+  await expect(page.getByRole("button", { name: "Switch project" })).not.toContainText("Robot from agent");
+  write(file, { ...project, revision: 22, name: "Robot from agent v2" });
+  await bridge.open(file);
+  await expect(page.getByRole("button", { name: "Switch project" })).toContainText("Robot from agent v2", { timeout: 5000 });
+  await page.getByRole("button", { name: "Switch project" }).click();
+  await expect(page.getByRole("dialog").getByText(/^Robot from agent/)).toHaveCount(1);
+
+  // After a relaunch the link is remembered.
+  await page.reload();
+  await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
 });

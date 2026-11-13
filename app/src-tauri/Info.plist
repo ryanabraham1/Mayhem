@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- mayhem://open?path=<project file> opens and links a project in the running app. -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>dev.mayhem.app</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>mayhem</string>
+      </array>
+    </dict>
+  </array>
+  <!-- Mayhem can open JSON project files (open -a Mayhem robot.mayhem.json) without becoming
+       the default app for .json. -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Mayhem project</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.json</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>

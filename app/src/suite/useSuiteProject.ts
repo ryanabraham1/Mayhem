@@ -18,7 +18,7 @@ import {
 } from "./core/runtime.ts";
 import { interpolatePreviewFrame } from "./core/playback.ts";
 import { sketchGoals } from "./core/sketch.ts";
-import { activateProject, keepCopy, loadProject, projectLink, saveProject, setProjectLink } from "./storage";
+import { activateProject, keepCopy, listProjects, loadProject, projectLink, saveProject, setProjectLink } from "./storage";
 import { diskDecision, projectDiff, projectKey } from "./core/diskSync.ts";
 import { desktop, invoke } from "./native";
 
@@ -437,6 +437,46 @@ export function useSuiteProject() {
       activateProject(next, project);
       adopt(next, path, "Project file linked. Edits from agents on disk appear here automatically.");
     });
+  /**
+   * Open a project file handed to the app from outside (`open -a Mayhem <file>`, a
+   * mayhem://open link, `mayhem.mjs open`). Its project becomes active and linked: the copy
+   * already in the library is reused, and the watcher then reloads it from the file, or asks
+   * first if that copy has edits the file lacks.
+   */
+  const openProjectPath = (path: string) =>
+    guardIO(async () => {
+      await writeChain.current;
+      const next = parseProject(JSON.stringify(await invoke<unknown>("read_suite_project", { path })));
+      const current = projectRef.current;
+      if (next.id === current.id) {
+        if (projectPath !== path) setProjectPath(path, next.id);
+        notify(`Watching ${path}.`);
+        return;
+      }
+      const saved = listProjects().find((p) => p.id === next.id) ?? next;
+      activateProject(saved, current);
+      adopt(saved, path, `Opened ${saved.name}; watching ${path}.`);
+    });
+  const openPathRef = useRef(openProjectPath);
+  openPathRef.current = openProjectPath;
+  useEffect(() => {
+    if (!desktop) return;
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    const take = async () => {
+      for (const path of await invoke<string[]>("take_opened_projects", {}).catch(() => [] as string[]))
+        await openPathRef.current(path);
+    };
+    void take();
+    void import("@tauri-apps/api/event").then(({ listen }) =>
+      listen("open-project", () => void take()).then((unlisten) => (cancelled ? unlisten() : (stop = unlisten))),
+    );
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, []);
+
   const saveNativeProject = () =>
     guardIO(async () => {
       const { save } = await import("@tauri-apps/plugin-dialog");
