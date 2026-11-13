@@ -13,6 +13,7 @@ import { compactCondition, edgeLabels, elideMiddle } from "../core/edgeLabels.ts
 import "./states.css";
 import { categoryLookup, type InputSource } from "../core/inputCategories.ts";
 import { ConditionText, glyphText } from "./ConditionText";
+import { PlainCondition, type InputInfo } from "./PlainCondition";
 
 const W = 196,
   H = 78,
@@ -193,6 +194,11 @@ export function StateGraph({
     return { ids, groups };
   }, [graph, signalLabel]);
   const categoryOf = useMemo(() => categoryLookup(inputs), [inputs]);
+  const plainInfo: InputInfo = {
+    name: (key) => inputs.find((i) => i.key === key)?.name ?? (key === "stateTime" ? "time in this state" : key),
+    unit: (key) => (key === "stateTime" ? "s" : undefined),
+    category: categoryOf,
+  };
   const isKey = useMemo(() => {
     const keys = new Set([...inputs.map((i) => i.key), "stateTime"]);
     return (k: string) => keys.has(k);
@@ -305,14 +311,13 @@ export function StateGraph({
             <button
               type="button"
               className={`mx-any-row ${groupLive(g) ? "is-live" : ""} ${g.transitions.some((t) => t.id === selectedEdge) ? "is-picked" : ""}`}
-              title={groupTitle(g)}
               onClick={() => pickGroup(g)}
             >
               <span className="mx-any-target">→ {stateName(g.to)}</span>
               {g.transitions[0].name && <strong>{g.transitions[0].name}</strong>}
-              <code>
-                <ConditionText text={compactCondition(g.transitions[0].condition, signalLabel)} isKey={isKey} categoryOf={categoryOf} />
-              </code>
+              <span className="mx-any-condition">
+                <PlainCondition condition={g.transitions[0].condition} info={plainInfo} />
+              </span>
               {g.missing.length > 0 && <small>{`not from ${g.missing.map(stateName).join(", ")}`}</small>}
             </button>
           </li>
@@ -378,7 +383,8 @@ export function StateGraph({
                         selectEdge?.(t.id);
                       }}
                     >
-                      <ConditionText text={label} isKey={isKey} categoryOf={categoryOf} />
+                      {/* A name is prose: don't mark words in it that happen to be input keys. */}
+                      {t.name && !label.includes(" · ") ? label : <ConditionText text={label} isKey={isKey} categoryOf={categoryOf} />}
                     </button>
                   </foreignObject>
                 )}

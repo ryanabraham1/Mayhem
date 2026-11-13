@@ -243,7 +243,7 @@ export function exportCpp(project: SuiteProject): string {
         ),
       ),
       ...manifest(m),
-      `inline constexpr mayhem::MachineView machine{id,${quoted(m.initial)},states.data(),states.size(),transitions.data(),transitions.size(),manifest};`,
+      `inline constexpr mayhem::MachineView machine{id,${quoted(m.initial)},states.data(),states.size(),transitions.data(),transitions.size(),manifest${m.selection === "priority" ? ",true" : ""}};`,
       "}",
     );
     const alias = m.id;

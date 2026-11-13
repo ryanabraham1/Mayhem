@@ -211,5 +211,32 @@ int main() {
     assert(!mayhem::StateMachine({"B", "IDLE", states, 4, badExcept, 1}, in).Valid());
     assert(!mayhem::StateMachine({"B", "IDLE", states, 4, exceptOnPlain, 1}, in).Valid());
   }
+  {
+    // Priority select: the first true row decides; holding a higher row keeps its state (no
+    // re-entry: stateTime keeps counting), and "always" is the otherwise row.
+    static const mayhem::MachineState states[] = {{"IDLE"}, {"SHOOT"}, {"HOME"}};
+    static const mayhem::MachineTransition rows[] = {
+      {"home", "*", "HOME", [](const SignalSource& h) { return mayhem::Compare(h.Signal("home"), CompareOp::Eq, true).value_or(false); }},
+      {"shoot", "*", "SHOOT", [](const SignalSource& h) { return mayhem::Compare(h.Signal("shoot"), CompareOp::Eq, true).value_or(false); }},
+      {"otherwise", "*", "IDLE", [](const SignalSource&) { return true; }},
+    };
+    Inputs in;
+    mayhem::StateMachine m({"Super", "IDLE", states, 3, rows, 3, {}, true}, in);
+    Recorder rec;
+    m.Attach(rec);
+    assert(m.Valid() && !m.Tick(.02) && m.State() == "IDLE");  // otherwise keeps IDLE, no re-entry
+    in.values["home"] = true; in.values["shoot"] = true;
+    assert(m.Tick(.02) && m.State() == "HOME");
+    for (int i = 0; i < 10; ++i) assert(!m.Tick(.02) && m.State() == "HOME");  // shoot never fires
+    assert(m.StateTime() > .19 && rec.log.back().rfind("guard home", 0) == 0);  // stayed, not re-entered
+    in.values["home"] = false;
+    assert(m.Tick(.02) && m.State() == "SHOOT");
+    in.values["shoot"] = false;
+    assert(m.Tick(.02) && m.State() == "IDLE" && m.LastTransition() == "otherwise");
+    // Without priority select the same rows skip their own target, so HOME would fall through.
+    mayhem::StateMachine plain({"Super", "IDLE", states, 3, rows, 3}, in);
+    in.values["home"] = true; in.values["shoot"] = true;
+    assert(plain.Tick(.02) && plain.State() == "HOME" && plain.Tick(.02) && plain.State() == "SHOOT");
+  }
   std::cout << "State machine checks passed\n";
 }

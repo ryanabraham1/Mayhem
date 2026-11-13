@@ -23,6 +23,12 @@ export interface MachineManifest {
   /** Each input may carry `category` and `derivedFrom` (see SignalDefinition). */
   inputs: (SignalDefinition & { channel?: string })[];
   stateChannel?: string;
+  /**
+   * "priority": a supervisor whose rows (usually `from: "*"`) are checked top to bottom every
+   * tick; the first true row picks the state, and if that is the current state the machine stays
+   * (no re-entry, no lower row fires). A last row with `{ "kind": "always" }` is the "otherwise".
+   */
+  selection?: "priority";
 }
 export function parseMachineManifest(value: unknown): MachineManifest {
   const record = (v: unknown): v is Record<string, any> =>
@@ -48,6 +54,8 @@ export function parseMachineManifest(value: unknown): MachineManifest {
     edges = new Set<string>();
   if (value.stateChannel !== undefined && !text(value.stateChannel))
     throw new Error("State channel must be nonempty text.");
+  if (value.selection !== undefined && value.selection !== "priority")
+    throw new Error('Machine selection must be "priority" or absent.');
   for (const s of value.states) {
     if (!record(s) || !text(s.id) || !text(s.name) || states.has(s.id))
       throw new Error("Machine state IDs must be unique.");

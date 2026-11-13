@@ -28,7 +28,7 @@ test("state-machine edges get readable, distinct labels and an inspectable condi
   await first.click();
   const picked = page.locator(".mx-guard-edge.is-picked");
   await expect(picked).toHaveCount(1);
-  await expect(picked.locator("code")).not.toContainText("…");
+  await expect(picked.locator(".mx-guard-condition")).not.toContainText("…");
   await expect(page.locator(".mx-edge.is-picked")).toHaveCount(1);
   await expect(first).toHaveAttribute("title", /\S/);
 });
@@ -61,7 +61,7 @@ test("long state names and source paths stay readable on state cards", async ({ 
   const row = page.locator(".mx-guard-edge").first();
   await expect(row).toContainText("Deploy");
   // No category declared: the input is internal (I).
-  await expect(row.locator("code")).toHaveText("Ideploy");
+  await expect(row.locator(".mx-guard-condition")).toHaveText("IDeploy requested"); // in words, by name
   await expect(row).toContainText("Driver asked to intake.");
   await page.screenshot({ path: info.outputPath("intake-cards.png") });
 });
@@ -104,7 +104,7 @@ test("input categories show as glyphs, group the inputs, and explain transitions
   await page.getByRole("switch", { name: "Hood clear" }).click();
   await page.getByRole("switch", { name: "Deploy requested" }).click();
   await expect(page.locator(".mx-state.is-active")).toContainText("Ready");
-  await expect(page.locator(".mx-cause")).toHaveText("Parked → Ready because Odeploy");
+  await expect(page.locator(".mx-cause")).toHaveText("Parked → Ready because ODeploy requested");
   await page.screenshot({ path: info.outputPath("categories.png") });
 });
 
@@ -155,7 +155,7 @@ test("a priority supervisor (every state to every state) reads as a ladder, with
   const ladder = page.getByLabel("Transitions from any state");
   await expect(ladder.locator("li")).toHaveCount(5);
   await expect(ladder.locator("li").nth(1)).toContainText("→ Shoot + jitter");
-  await expect(ladder.locator("li").nth(1)).toContainText("Oshoot ∧ Ojitter");
+  await expect(ladder.locator("li").nth(1)).toContainText("Oshoot and Ojitter");
   // Chips say where they come from instead of a bare "any".
   const chip = page.locator(".mx-state", { hasText: "Shoot + jitter" }).locator(".mx-any");
   await expect(chip).toHaveText("from any state");

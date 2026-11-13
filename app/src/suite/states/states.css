@@ -302,8 +302,8 @@
   font-weight: 600;
   min-width: 9em;
 }
-.mx-any-row code {
-  font-size: 11.5px;
+.mx-any-row .mx-any-condition {
+  font-size: 12.5px;
   white-space: normal;
 }
 .mx-any-row small {
@@ -311,4 +311,131 @@
 }
 .mx-guard-edge .mx-guard-main small.mx-guard-any {
   color: var(--mx-faint);
+}
+/* Conditions in words: an input's name after its letter badge, in the UI font. */
+.mx-plain {
+  font-family: var(--mx-font);
+}
+.mx-guard-edge .mx-guard-condition {
+  font-family: var(--mx-font);
+}
+/* Decision ladder for priority-select machines: question → yes → state, "no" falls through. */
+.mx-decision {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px 24px;
+  background: var(--mx-stage);
+}
+.mx-decision-intro {
+  margin: 0 0 12px;
+  max-width: 70ch;
+  color: var(--mx-muted);
+  font-size: 13px;
+}
+.mx-decision-now {
+  color: var(--mx-ink);
+}
+.mx-decision-rows {
+  display: grid;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mx-decision-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2em minmax(0, 1fr) auto minmax(150px, 220px);
+  align-items: center;
+  gap: 10px;
+}
+.mx-decision-step {
+  justify-self: end;
+  font-family: var(--mx-mono);
+  font-size: 12px;
+  color: var(--mx-faint);
+}
+.mx-decision-question {
+  padding: 8px 12px;
+  border: 1px solid var(--mx-line-strong);
+  border-radius: var(--mx-r-md);
+  background: var(--mx-surface);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.mx-decision-question small {
+  display: block;
+  margin-top: 2px;
+  color: var(--mx-muted);
+  font-size: 12px;
+}
+.mx-decision-yes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--mx-good);
+  font-size: 12px;
+  font-weight: 600;
+}
+.mx-decision-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--mx-line-strong);
+  border-left: 4px solid var(--mx-accent);
+  border-radius: var(--mx-r-md);
+  background: var(--mx-surface);
+  color: var(--mx-ink);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.mx-decision-state svg {
+  color: var(--mx-faint);
+}
+.mx-decision-state.is-selected {
+  outline: 2px solid var(--mx-accent-line);
+  outline-offset: 1px;
+}
+.mx-decision-state.is-active {
+  background: var(--mx-accent);
+  border-color: var(--mx-accent);
+  color: #fff;
+}
+.mx-decision-state.is-active svg {
+  color: #fff;
+}
+.mx-decision-no {
+  position: absolute;
+  left: calc(2em + 22px);
+  bottom: -17px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--mx-faint);
+  font-size: 11px;
+}
+.mx-decision-row.is-deciding .mx-decision-question {
+  border-color: var(--mx-accent);
+  background: var(--mx-accent-soft);
+  box-shadow: 0 0 0 2px var(--mx-accent-line);
+}
+.mx-decision-row.is-deciding .mx-decision-step {
+  color: var(--mx-accent);
+  font-weight: 700;
+}
+@media (max-width: 900px) {
+  .mx-decision-row {
+    grid-template-columns: 2em minmax(0, 1fr);
+  }
+  .mx-decision-yes {
+    grid-column: 2;
+  }
+  .mx-decision-state {
+    grid-column: 2;
+  }
 }

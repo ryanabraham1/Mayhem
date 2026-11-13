@@ -180,3 +180,23 @@ describe("state graph layout", () => {
     expect(Math.abs(end.y - (off.y + 39))).toBeLessThan(39 + 1);
   });
 });
+
+describe('priority select ("selection": "priority")', () => {
+  it("checks a \"*\" row in its own target too, validates the flag, and words conditions plainly", async () => {
+    const { checkedIn } = await import("../src/suite/core/model.ts");
+    const { plainText } = await import("../src/suite/states/PlainCondition.tsx");
+    const row: Transition = { id: "home", from: "*", to: "HOME", condition: sig("home") };
+    expect([checkedIn(row, "HOME", false), checkedIn(row, "HOME", true), checkedIn(row, "IDLE", false)]).toEqual([false, true, true]);
+    expect(checkedIn({ ...row, except: ["HOME"] }, "HOME", true)).toBe(false);
+    const machine = { ...exampleMachine, selection: "priority" };
+    expect(parseMachineManifest(machine).selection).toBe("priority");
+    expect(() => parseMachineManifest({ ...exampleMachine, selection: "first" })).toThrow(/selection/);
+    const p = parseProject(readFileSync(new URL("../../examples/suite/competition.mayhem.json", import.meta.url), "utf8"));
+    (p.extensions as any).machines = [machine];
+    expect(exportCpp(p)).toMatch(/transitions\.size\(\),manifest,true\};/);
+    const info = { name: (k: string) => ({ home: "Home requested (B)", enabled: "Robot enabled" })[k] ?? k, unit: (k: string) => (k === "stateTime" ? "s" : undefined), category: () => "operator" as const };
+    expect(plainText(all(sig("enabled"), any(sig("home"), not(sig("cancel")))), info)).toBe("Robot enabled and (Home requested (B) or not cancel)");
+    expect(plainText(sig("stateTime", 2.5, "gt"), info)).toBe("stateTime over 2.5 s");
+    expect(plainText(not(all(sig("a"), sig("b"))), info)).toBe("not (a and b)");
+  });
+});

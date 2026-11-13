@@ -20,6 +20,10 @@ struct MachineView {
   const MachineState* states; std::size_t stateCount;
   const MachineTransition* transitions; std::size_t transitionCount;
   ManifestView manifest{};  // the machine's mayhem-machine JSON, for observers
+  // Manifest `selection: "priority"`: rows are checked top to bottom every tick, a "*" row also
+  // in its own target state, and the first true row decides; if that is the current state the
+  // machine stays (no re-entry, no lower row fires).
+  bool prioritySelect = false;
 };
 // Built-in input: real seconds since the active state was entered.
 inline constexpr std::string_view kStateTimeSignal = "stateTime";
@@ -29,7 +33,9 @@ inline constexpr std::string_view kAnyState = "*";
 // Evaluates one machine graph. Each Tick(dt) adds dt to StateTime(), then evaluates the
 // active state's outgoing guards in declaration order (declaration order is priority)
 // and takes at most one transition. A "*" transition is checked, at its position, in every
-// state except its target and its `except` states; observers see the actual source state. Guards fail closed: a missing or mistyped input is
+// state except its target and its `except` states; observers see the actual source state.
+// With MachineView::prioritySelect, a true transition to the current state (including a "*"
+// row in its own target) keeps the state: Tick returns false and lower rows are not checked. Guards fail closed: a missing or mistyped input is
 // false, including under Not. The machine only decides state; robot code reads State()
 // and drives mechanisms. Construction resolves states to indices and allocates;
 // Tick/Reset never allocate. A graph whose initial state or a transition endpoint is
@@ -75,6 +81,7 @@ class StateMachine final : public SignalSource {
       const bool accepted = t.guard && t.guard(*this);
       if (observer_) observer_->Guard(machine_.id, t.id, kGuardInput, accepted, Now());
       if (!accepted) continue;
+      if (machine_.prioritySelect && to_[i] == current_) return false;  // the current state wins
       lastTransition_ = static_cast<int>(i);
       if (observer_) observer_->Transition(machine_.id, t.id, State(), t.to, Now());
       Enter(to_[i]);
@@ -112,9 +119,9 @@ class StateMachine final : public SignalSource {
       from_[i] = t.from == kAnyState ? kAny : Index(t.from); to_[i] = Index(t.to);
       valid_ = from_[i] != -1 && to_[i] >= 0 && (t.exceptCount == 0 || (from_[i] == kAny && t.except));
       if (!valid_ || from_[i] != kAny) continue;
-      // States a "*" transition does not leave: its target and `except`.
+      // States a "*" transition is not checked in: `except`, and its target unless prioritySelect.
       if (skip_.empty()) skip_.assign(machine_.transitionCount * machine_.stateCount, 0);
-      skip_[i * machine_.stateCount + to_[i]] = 1;
+      if (!machine_.prioritySelect) skip_[i * machine_.stateCount + to_[i]] = 1;
       for (std::size_t e = 0; valid_ && e < t.exceptCount; ++e) {
         const int s = Index(t.except[e]);
         valid_ = s >= 0;

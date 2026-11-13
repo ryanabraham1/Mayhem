@@ -121,8 +121,14 @@ export interface Transition {
 /** `from` of a machine transition that leaves every state except its target (and `except`). */
 export const ANY_STATE = "*";
 /** Whether `t` is checked while `state` is active ("*" covers every state but its target and `except`). */
-export const leavesState = (t: Transition, state: string) =>
-  t.from === ANY_STATE ? t.to !== state && !t.except?.includes(state) : t.from === state;
+export const leavesState = (t: Transition, state: string) => checkedIn(t, state, false);
+/**
+ * Whether `t` is checked while `state` is active. With `priority` (a machine with
+ * `selection: "priority"`), a "*" transition is also checked in its own target state: the first
+ * true row decides, and when that is the current state the machine stays (no re-entry).
+ */
+export const checkedIn = (t: Transition, state: string, priority: boolean) =>
+  t.from === ANY_STATE ? (priority || t.to !== state) && !t.except?.includes(state) : t.from === state;
 export interface AutoRoutine {
   constraintGeneration?: {
     signature: string;

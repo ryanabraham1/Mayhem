@@ -15,7 +15,7 @@ import {
   Radio,
 } from "lucide-react";
 import { copyText, openContextMenu } from "../ContextMenu";
-import { ANY_STATE, evaluate, leavesState, type Signals } from "../core/model.ts";
+import { ANY_STATE, checkedIn, evaluate, type Signals } from "../core/model.ts";
 import { edgeLabels } from "../core/edgeLabels.ts";
 import {
   INPUT_CATEGORIES,
@@ -53,6 +53,8 @@ import {
   Segmented,
 } from "../ui";
 import { StateGraph } from "./StateGraph";
+import { PriorityLadder } from "./PriorityLadder";
+import { PlainCondition, type InputInfo } from "./PlainCondition";
 
 type Source = "simulate" | "live" | "replay";
 
@@ -181,6 +183,15 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
   const node = graph.nodes.find((n) => n.id === selected) ?? graph.nodes[0];
   const editable = source === "simulate";
   const categoryOf = useMemo(() => categoryLookup(inputs), [inputs]);
+  // A priority-select supervisor: rows checked top to bottom, the current state can win.
+  const priority = machine?.selection === "priority";
+  const leaves = (t: (typeof graph.transitions)[number], state: string) => checkedIn(t, state, priority);
+  // Conditions in words: input names, units and source icons.
+  const inputInfo: InputInfo = {
+    name: (key) => inputs.find((i) => i.key === key)?.name ?? (key === "stateTime" ? "time in this state" : key),
+    unit: (key) => inputs.find((i) => i.key === key)?.unit ?? (key === "stateTime" ? "s" : undefined),
+    category: categoryOf,
+  };
   // Every machine's inputs ("" is the project's), so derivedFrom can name another machine's input.
   const scopeId = machine?.id ?? "";
   const inputScope: InputScope = new Map<string, InputSource[]>([["", project.signals], ...allMachines.map((m) => [m.id, m.inputs] as [string, InputSource[]])]);
@@ -211,7 +222,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
   const settle = (from: string, values: Signals) => {
     let state = from;
     for (let hop = 0; hop < 12; hop++) {
-      const edge = graph.transitions.find((t) => leavesState(t, state) && evaluate(t.condition, values));
+      const edge = graph.transitions.find((t) => leaves(t, state) && evaluate(t.condition, values));
       if (!edge || edge.to === state) break;
       state = edge.to;
     }
@@ -393,12 +404,26 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                 {cause.keys.map((k, i) => (
                   <span key={k}>
                     {i > 0 && ", "}
-                    <ConditionText text={k} isKey={isKey} categoryOf={categoryOf} />
+                    <PlainCondition condition={{ kind: "signal", key: k, op: "eq", value: true }} info={inputInfo} />
                   </span>
                 ))}
               </p>
             )}
           </div>
+          {priority && machine ? (
+            <PriorityLadder
+              machine={machine}
+              signals={signals}
+              active={active}
+              selected={node.id}
+              select={(id) => {
+                setSelected(id);
+                setSelectedEdge(undefined);
+              }}
+              info={inputInfo}
+              live={source === "live" ? "live" : source === "replay" ? "recorded" : "simulated"}
+            />
+          ) : (
           <StateGraph
             inputs={inputs}
             graph={graph}
@@ -448,6 +473,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
               );
             }}
           />
+          )}
           {source === "replay" && recording && machine && (
             <div className="mx-dock-bar is-standalone">
               <button
@@ -591,7 +617,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
           <section className="mx-insp-section">
             <h3>Leaves this state when</h3>
             {graph.transitions
-              .filter((t) => leavesState(t, node.id))
+              .filter((t) => leaves(t, node.id))
               .map((t, i) => {
                 const ok = evaluate(t.condition, signals);
                 const info = edgeInfo.get(t.id)!;
@@ -614,9 +640,9 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                     {ok ? <Check size={14} /> : <Circle size={13} />}
                     <span className="mx-guard-main">
                       {t.name && <strong>{t.name}</strong>}
-                      <code className="mx-guard-condition">
-                        <ConditionText text={info.condition} isKey={isKey} categoryOf={categoryOf} />
-                      </code>
+                      <span className="mx-guard-condition" title={info.condition}>
+                        {t.condition.kind === "always" ? "Otherwise" : <PlainCondition condition={t.condition} info={inputInfo} />}
+                      </span>
                       {t.description && <small>{t.description}</small>}
                       {t.from === ANY_STATE && (
                         <small className="mx-guard-any">
@@ -634,15 +660,20 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                       }}
                     >
                       → {graph.nodes.find((n) => n.id === t.to)?.name}
+                      {t.to === node.id && " (stays)"}
                     </button>
                   </div>
                 );
               })}
-            {!graph.transitions.some((t) => leavesState(t, node.id)) && (
+            {!graph.transitions.some((t) => leaves(t, node.id)) && (
               <p className="mx-help">Terminal state. Nothing leaves it.</p>
             )}
-            {graph.transitions.filter((t) => leavesState(t, node.id)).length > 1 && (
-              <p className="mx-help">Checked in order; the first true condition wins.</p>
+            {graph.transitions.filter((t) => leaves(t, node.id)).length > 1 && (
+              <p className="mx-help">
+                {priority
+                  ? "Checked in order; the first true one picks the state. A row pointing at this state keeps it here."
+                  : "Checked in order; the first true condition wins."}
+              </p>
             )}
           </section>
           {!machine && (

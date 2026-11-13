@@ -1,6 +1,6 @@
 # Mayhem C++ tools (development)
 
-Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.4.0). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
+Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.5.0). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
 
 ## Installing in a WPILib robot project
 
@@ -190,6 +190,8 @@ switch (intake.StateIndex()) { /* drive mechanisms from the state */ }
 | `template <class O> void Attach(O& observer, Clock clock = nullptr)`, `Detach()` | Describe the embedded manifest and register every guard (input `"condition"`) when the observer supports it; report `Enter` (immediately, and on each entry), `Guard` (every evaluation), and `Transition`. |
 
 A transition whose `from` is `"*"` (`mayhem::kAnyState`) is checked in every state except its target and the states in its optional `except` list (`MachineTransition::except`/`exceptCount`, emitted by the exporter), at its position in declaration order. A priority supervisor (each target reachable from every other state) is then one transition per target, in priority order. Observers receive the actual source state in `Transition(machine, id, from, to)`, never `"*"`.
+
+With `MachineView::prioritySelect` (the exporter sets it for a manifest with `"selection": "priority"`), a `"*"` transition is also checked in its own target state, and the first true transition decides. If it leads to the current state, `Tick` returns false, the state is not re-entered (`StateTime()` keeps counting) and lower transitions are not checked. A last transition with an always-true guard (`{"kind": "always"}`) is the "otherwise" row.
 
 Guards are the same fail-closed typed comparisons as `AutoRunner`: a missing or mistyped input is false, including under `Not`; the first true guard in declaration order wins. The built-in `stateTime` input (`mayhem::kStateTimeSignal`) is the real seconds since entering the state and takes precedence over a robot signal of the same name, so `stateTime > 2.5` deadlines need no robot code; declare it as a number input in the manifest so the editor and viewer accept it. Log it on the input's channel too if you want log replay to evaluate those guards. `Tick` and `Reset` never allocate (tested by counting `operator new`); construction and `Attach` do. The machine only decides state: robot code reads it and drives outputs, and owns disabled handling.
 
