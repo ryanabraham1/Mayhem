@@ -176,8 +176,21 @@ on a crest with its wheels unloaded. `Beached()` is true when the frame carries 
 the frame touches, for longer than `beachedTimeS`. `SupportMargin()` and `TippedOver()` report
 tipping. The bumper rectangle also collides with `Obstacles` whose z range overlaps the robot
 (`SetRobotHeight` updates the top, e.g. when a hood rises), with penalty springs
-(`bumperStiffness`, ~1 cm penetration at 4 m/s), Coulomb friction, and a `ContactEvent` per
-obstacle per Step.
+(`bumperStiffness`), Coulomb friction, and a `ContactEvent` per obstacle per Step. Obstacle
+forces are horizontal only: an overhead structure (a trench arm) stops a robot taller than its
+`zMin` like a wall at the robot's top edge and never pushes it up. A roof grid at the current
+robot height lets an overturned robot rest on its top.
+
+**Robust contacts.** Teleports (odometry resets, `SetPose`) can start a robot inside an obstacle,
+another robot, game pieces or the terrain, so no contact can launch it:
+- obstacle and robot-robot springs are capped at 3x the robot's weight, terrain samples at 1x
+  weight each and wheel springs at 8x weight;
+- an overlap deeper than 3 cm (no real impact gets there) is resolved without forces: the robot
+  is moved out at 0.5 m/s and its velocity into the obstacle removed (robot-robot overlaps
+  separate at <= 0.5 m/s);
+- game pieces inside a robot's bumpers are pushed out at <= 3 m/s; pieces never hold a robot up.
+The cap makes hard impacts nearly inelastic: a robot hitting a wall at full speed stops within
+about 2.5 cm without bouncing.
 
 **Mechanisms.** Implicit 1-DOF integration: the motor's back-EMF damping (`RotorDamping()`) is
 treated implicitly, Coulomb friction sticks exactly, and hard stops are either rigid or implicit
@@ -308,6 +321,7 @@ the closed form (including wheel inertia) within 0.1%; lateral sliding at mu_k g
 straight at 1, 2 and 4 m/s and at 45 degrees (roll, an unloaded wheel); high-centring a 4.1 cm
 belly pan by crawling over the ridge; X-brake holding on a 15-degree ramp (and sliding when mu is
 too low); static slope loads vs closed form; Phoenix request math; robot-robot pushing; 20 ms
-Steps stay stable; drag-free projectile ranges vs closed form, drag and Magnus; bounce and
+Steps stay stable; spawning under an overhead trench arm, into a wall or column, into another
+robot and on top of game pieces resolves without a launch; drag-free projectile ranges vs closed form, drag and Magnus; bounce and
 rolling; 500 balls with a robot plowing through them under a time budget; intake capacity and
 goal entry direction; and bit-for-bit determinism.

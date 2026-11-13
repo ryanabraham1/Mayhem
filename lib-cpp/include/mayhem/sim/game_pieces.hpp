@@ -388,8 +388,11 @@ class GamePieces {
         const double px = pose.x + c * cu - s * cv, py = pose.y + s * cu + c * cv;
         // Robot surface velocity at the contact point.
         const double rvx = vel.vx - vel.omega * (py - pose.y), rvy = vel.vy + vel.omega * (px - pose.x);
-        b.position[0] += nx * depth;
-        b.position[1] += ny * depth;
+        // A ball inside the robot (spawned under it, or a teleport) is pushed out at no more
+        // than 3 m/s rather than jumping out in one step.
+        const double move = depth > p_.radius ? std::min(depth, 3.0 * dt) : depth;
+        b.position[0] += nx * move;
+        b.position[1] += ny * move;
         const double vrel = (b.velocity[0] - rvx) * nx + (b.velocity[1] - rvy) * ny;
         if (vrel < 0) {
           const double dv = -(1 + p_.robotRestitution) * vrel;

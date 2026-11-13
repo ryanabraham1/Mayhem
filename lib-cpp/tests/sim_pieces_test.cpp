@@ -180,6 +180,41 @@ void IntakeAndGoal() {
   SIM_CHECK(wrong < 0, "upward pass does not score");
 }
 
+// Regression: a robot teleported on top of game pieces settles on its wheels and the pieces
+// are pushed out from under it (pieces never hold a robot up).
+void SpawnOverBalls() {
+  GamePieces pieces;
+  for (int i = 0; i < 5; ++i)
+    for (int j = 0; j < 5; ++j) pieces.Spawn(3 - 0.3 + 0.15 * i, 3 - 0.3 + 0.15 * j);
+  Rig rig;
+  rig.sim.SetPose(3, 3, 0.3);
+  pieces.AddRobot(&rig.sim);
+  double maxSpeed = 0, maxTilt = 0, maxZ = 0, maxBallSpeed = 0;
+  swerve::SwerveDriveBrake brake;
+  rig.Run(brake, 2.0, nullptr, nullptr, [&] {
+    pieces.Step(kDt);
+    maxSpeed = std::max(maxSpeed, std::hypot(rig.sim.FieldVelocity().vx, rig.sim.FieldVelocity().vy));
+    maxTilt = std::max(maxTilt, rig.sim.TiltAngle());
+    maxZ = std::max(maxZ, rig.sim.Pose3().z);
+    for (const auto& b : pieces.Balls()) maxBallSpeed = std::max(maxBallSpeed, std::hypot(b.velocity[0], b.velocity[1]));
+  });
+  double load = 0;
+  for (std::size_t i = 0; i < 4; ++i) load += rig.sim.ModuleNormalForce(i);
+  int inside = 0;
+  const auto pose = rig.sim.Pose();
+  for (const auto& b : pieces.Balls()) {
+    const double dx = b.position[0] - pose.x, dy = b.position[1] - pose.y;
+    const double u = std::cos(pose.yaw) * dx + std::sin(pose.yaw) * dy, v = -std::sin(pose.yaw) * dx + std::cos(pose.yaw) * dy;
+    inside += std::abs(u) < 0.42 && std::abs(v) < 0.42;
+  }
+  std::printf("robot spawned on 25 balls: robot max speed %.3f m/s, max tilt %.2f deg, max z %.4f m, wheel load %.0f N, "
+              "balls left inside %d, fastest ball %.2f m/s\n", maxSpeed, maxTilt * 180 / kPi, maxZ, load, inside, maxBallSpeed);
+  SIM_CHECK(inside == 0, "pieces pushed out from under the robot: %d", inside);
+  SIM_CHECK(maxSpeed < 0.3 && maxTilt < 0.03 && maxZ < 0.01, "robot stays put and level");
+  SIM_CHECK(load > 0.95 * 68 * kGravity, "robot rests on its wheels: %.0f N", load);
+  SIM_CHECK(maxBallSpeed < 6, "pieces leave gently: %.2f", maxBallSpeed);
+}
+
 std::vector<double> Trace() {
   GamePieces pieces;
   Rng rng(42);
@@ -216,6 +251,7 @@ int main() {
   GroundAndBounce();
   ManyBalls();
   IntakeAndGoal();
+  SpawnOverBalls();
   Determinism();
   return SimResult("sim_pieces");
 }

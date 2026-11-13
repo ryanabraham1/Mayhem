@@ -479,6 +479,7 @@ class SwerveSim {
     Vec3 torque = extTorque_;
     const double n = static_cast<double>(modules_.size());
     const double perWheelMass = p_.massKg / n;
+    const double weight = p_.massKg * kGravity;
     const double kn = p_.tireNormalStiffness, cn = 2 * p_.tireNormalDampingRatio * std::sqrt(kn * perWheelMass);
     const double kt = p_.tireTangentialStiffness, ct = 2 * 0.5 * std::sqrt(kt * perWheelMass);
     const double R = p_.wheelRadius;
@@ -497,7 +498,9 @@ class SwerveSim {
       const Vec3 rel = Sub(cp, pos_);
       const Vec3 vcp = Add(vel_, Cross(omega_, rel));
       double normal = 0;
-      if (sc.depth > 0) normal = std::max(0.0, kn * sc.depth - cn * Dot(vcp, nrm));
+      // Spring capped at kMaxWheelLoad x weight so a teleport into the terrain cannot explode.
+      if (sc.depth > 0)
+        normal = std::clamp(std::min(kn * sc.depth, kMaxWheelLoad * weight) - cn * Dot(vcp, nrm), 0.0, kMaxWheelLoad * weight);
       // Tread directions in the terrain plane.
       const Vec3 heading = Mul(r, {std::cos(s.steerAngle), std::sin(s.steerAngle), 0});
       Vec3 el = Sub(heading, Scale(nrm, Dot(heading, nrm)));
@@ -586,7 +589,11 @@ class SwerveSim {
         const Vec3 rel = Sub(w, pos_);
         const Vec3 vp = Add(vel_, Cross(omega_, rel));
         const double vn = Dot(vp, nrm);
-        const double fn = kp * d * nrm[2] - cpd * vn;
+        // Spring capped per sample; an overlap deeper than a real impact (a teleport into the
+        // terrain) pushes out at no more than kDepenetrationSpeed.
+        double spring = std::min(kp * d * nrm[2], weight);
+        if (d > kDeepOverlap && vn > kDepenetrationSpeed) spring = 0;
+        const double fn = spring - cpd * vn;
         if (fn <= 0) continue;
         const Vec3 vtan = Sub(vp, Scale(nrm, vn));
         const double speed = Norm(vtan);
@@ -598,8 +605,17 @@ class SwerveSim {
     };
     samples(frameSamples_, p_.frameFriction);
     samples(bumperSamples_, p_.bumperFriction);
+    // Roof (at the current robot height): an overturned robot rests on its top instead of sinking.
+    {
+      const double hx = p_.bumperLengthX / 2, hy = p_.bumperLengthY / 2, z = -p_.cgHeightM + p_.robotHeightM;
+      std::vector<Vec3> roof;
+      for (double sx : {-1.0, 0.0, 1.0})
+        for (double sy : {-1.0, 0.0, 1.0}) roof.push_back({sx * hx - p_.comX, sy * hy - p_.comY, z});
+      samples(roof, p_.frameFriction);
+    }
 
     // Bumpers against obstacles.
+    Vec3 depenetrate{0, 0, 0};
     if (obstacles) {
       const Vec3 origin = Add(pos_, Mul(r, {-p_.comX, -p_.comY, -p_.cgHeightM}));
       const double yaw = std::atan2(r[3], r[0]);
@@ -608,12 +624,27 @@ class SwerveSim {
       const double zLo = origin[2] + p_.bumperBottomM, zHi = origin[2] + p_.robotHeightM;
       const double zc = origin[2] + 0.5 * (p_.bumperBottomM + p_.bumperTopM);
       const double kb = p_.bumperStiffness, cb = 2 * p_.bumperDampingRatio * std::sqrt(kb * p_.massKg);
-      auto respond = [&](const Penetration& pen, int key, const std::string& name) {
-        const Vec3 at{pen.point[0], pen.point[1], zc};
+      // Obstacle forces are horizontal only (never up from an overhead structure's underside).
+      // A contact acts at the middle of the height overlap (the bumpers for a wall, the robot's
+      // top edge for an overhead arm) with the spring capped at 3x weight. An overlap deeper than
+      // a real impact can produce (a teleport into the obstacle) is instead pushed out gently at
+      // the robot out kinematically (no force, no torque) at kDepenetrationSpeed, and its
+      // velocity into the obstacle is removed, so it always resolves without a launch.
+      auto respond = [&](const Penetration& pen, int key, const std::string& name, double overlapLo, double overlapHi) {
+        const Vec3 at{pen.point[0], pen.point[1], 0.5 * (overlapLo + overlapHi)};
+        if (pen.depth > kDeepOverlap) {
+          const double push = std::min(pen.depth - 0.5 * kDeepOverlap, kDepenetrationSpeed * h);
+          depenetrate[0] += push * pen.normal[0];
+          depenetrate[1] += push * pen.normal[1];
+          const double vIn = vel_[0] * pen.normal[0] + vel_[1] * pen.normal[1];
+          if (vIn < 0) { vel_[0] -= vIn * pen.normal[0]; vel_[1] -= vIn * pen.normal[1]; }
+          AddEvent(key, name, 0, at);
+          return;
+        }
         const Vec3 rel = Sub(at, pos_);
         const Vec3 vp = Add(vel_, Cross(omega_, rel));
         const double vn = vp[0] * pen.normal[0] + vp[1] * pen.normal[1];
-        const double fn = kb * pen.depth - cb * vn;
+        const double fn = std::min(std::min(kb * pen.depth, 3 * weight) - cb * vn, 3 * weight);
         if (fn <= 0) return;
         const Vec2 t{-pen.normal[1], pen.normal[0]};
         const double vtan = vp[0] * t[0] + vp[1] * t[1];
@@ -625,13 +656,17 @@ class SwerveSim {
       };
       for (std::size_t w = 0; w < obstacles->Walls().size(); ++w) {
         const auto pen = obstacles->BodyVsWall(body, w);
-        if (pen.hit) respond(pen, -1 - static_cast<int>(w), obstacles->Walls()[w].name);
+        if (pen.hit) respond(pen, -1 - static_cast<int>(w), obstacles->Walls()[w].name, zLo, zc + (zc - zLo));
       }
       for (std::size_t i = 0; i < obstacles->Prisms().size(); ++i) {
         const auto pen = obstacles->BodyVsPrism(body, zLo, zHi, i, hints_[i]);
         if (pen.hit) {
           hints_[i] = pen.normal;
-          respond(pen, static_cast<int>(i), obstacles->Prisms()[i].name);
+          const auto& prism = obstacles->Prisms()[i];
+          // Reaching down to the bumpers: contact at bumper height; overhead: the overlap's middle.
+          const double topOfBumper = origin[2] + p_.bumperTopM;
+          if (prism.zMin <= topOfBumper) respond(pen, static_cast<int>(i), prism.name, zLo, zc + (zc - zLo));
+          else respond(pen, static_cast<int>(i), prism.name, std::max(zLo, prism.zMin), std::min(zHi, prism.zMax));
         } else {
           hints_[i] = {0, 0};
         }
@@ -639,6 +674,10 @@ class SwerveSim {
     }
 
     // Integrate the chassis.
+    {
+      const double len = std::hypot(depenetrate[0], depenetrate[1]), cap = kDepenetrationSpeed * h;
+      if (len > cap) depenetrate = Scale(depenetrate, cap / len);
+    }
     vel_ = Add(vel_, Scale(force, h / p_.massKg));
     const Vec3 inv{1 / p_.rollMoiKgM2, 1 / p_.pitchMoiKgM2, 1 / p_.moiKgM2};
     const Vec3 I{p_.rollMoiKgM2, p_.pitchMoiKgM2, p_.moiKgM2};
@@ -647,11 +686,14 @@ class SwerveSim {
     const Vec3 tb = Sub(MulT(r, torque), Cross(wb, Lb));
     const Vec3 wbNew{wb[0] + h * tb[0] * inv[0], wb[1] + h * tb[1] * inv[1], wb[2] + h * tb[2] * inv[2]};
     omega_ = Mul(r, wbNew);
-    pos_ = Add(pos_, Scale(vel_, h));
+    pos_ = Add(Add(pos_, Scale(vel_, h)), depenetrate);
     q_ = Integrate(q_, omega_, h);
   }
 
   static constexpr double kInf = std::numeric_limits<double>::infinity();
+  static constexpr double kMaxWheelLoad = 8;          // x weight, per wheel spring
+  static constexpr double kDeepOverlap = 0.03;        // m: deeper than any real impact
+  static constexpr double kDepenetrationSpeed = 0.5;  // m/s: max push-out speed from a deep overlap
 };
 
 /**
@@ -679,7 +721,12 @@ inline bool CollideRobots(SwerveSim& a, SwerveSim& b, double stiffness = 1e6, do
   const Vec2 rel{va[0] - vb[0], va[1] - vb[1]};
   const double vn = rel[0] * pen.normal[0] + rel[1] * pen.normal[1];
   const double reduced = qa.massKg * qb.massKg / (qa.massKg + qb.massKg);
-  const double fn = stiffness * pen.depth - 2 * dampingRatio * std::sqrt(stiffness * reduced) * vn;
+  // Same robustness as obstacles: spring capped at 3x the lighter robot's weight; an overlap
+  // deeper than a real impact (robots teleported into each other) separates at <= 0.5 m/s.
+  const double cap = 3 * std::min(qa.massKg, qb.massKg) * kGravity;
+  double spring = std::min(stiffness * pen.depth, cap);
+  if (pen.depth > 0.03) spring = vn < 0.5 ? cap * std::min(1.0, (0.5 - vn) / 0.5) : 0;
+  const double fn = std::min(spring - 2 * dampingRatio * std::sqrt(stiffness * reduced) * vn, cap);
   if (fn <= 0) return true;
   const Vec2 t{-pen.normal[1], pen.normal[0]};
   const double vt = rel[0] * t[0] + rel[1] * t[1];

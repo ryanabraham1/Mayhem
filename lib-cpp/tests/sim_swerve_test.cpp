@@ -372,7 +372,32 @@ void RobotContacts() {
   }
   std::printf("robot pushing a coasting robot: pushed %.2f m, max bumper overlap %.1f mm\n", b.sim.Pose().x - 3.0, maxOverlap * 1000);
   SIM_CHECK(b.sim.Pose().x > 3.5, "pushed: %.3f", b.sim.Pose().x);
-  SIM_CHECK(maxOverlap < 0.03, "no deep overlap: %.4f", maxOverlap);
+  // Contact forces are capped at 3x weight, so a 3 m/s hit compresses the bumpers a few cm.
+  SIM_CHECK(maxOverlap < 0.05, "no deep overlap: %.4f", maxOverlap);
+  // Two robots teleported 30 cm into each other separate gently.
+  {
+    Rig r1, r2;
+    r1.sim.SetPose(2, 2, 0);
+    r2.sim.SetPose(2.54, 2.1, 0.2);
+    double peak = 0;
+    swerve::SwerveDriveBrake brake;
+    for (int l = 0; l < 100; ++l) {
+      r1.requests.Apply(brake, r1.sim, swerve::SwerveRequestEmulator::ParamsFrom(r1.sim, r1.time));
+      r2.requests.Apply(brake, r2.sim, swerve::SwerveRequestEmulator::ParamsFrom(r2.sim, r2.time));
+      for (int k = 0; k < 20; ++k) {
+        CollideRobots(r1.sim, r2.sim);
+        r1.sim.Step(0.001, 12.5);
+        r2.sim.Step(0.001, 12.5);
+        r1.time += 0.001;
+        r2.time += 0.001;
+        peak = std::max({peak, std::hypot(r1.sim.FieldVelocity().vx, r1.sim.FieldVelocity().vy),
+                         std::hypot(r2.sim.FieldVelocity().vx, r2.sim.FieldVelocity().vy)});
+      }
+    }
+    std::printf("robots spawned 30 cm into each other: peak speed %.2f m/s, tilts %.2f / %.2f deg\n", peak,
+                r1.sim.TiltAngle() / kDeg, r2.sim.TiltAngle() / kDeg);
+    SIM_CHECK(peak < 1.0 && Finite(r1.sim) && Finite(r2.sim) && r1.sim.TiltAngle() < 3 * kDeg, "gentle separation");
+  }
   // 20 ms Steps stay numerically stable (the physics sub-step length is fixed; the devices then
   // update at 50 Hz, so closed loops are not Phoenix-like: call Step at 1 ms for that).
   Rig c;
@@ -388,6 +413,76 @@ void RobotContacts() {
   const double speed = std::hypot(c.sim.FieldVelocity().vx, c.sim.FieldVelocity().vy);
   std::printf("20 ms Steps: speed %.2f m/s, max tilt %.2f deg\n", speed, maxTilt / kDeg);
   SIM_CHECK(Finite(c.sim) && speed < 5.5 && maxTilt < 5 * kDeg, "20 ms steps stable: %.3f m/s", speed);
+}
+
+struct SpawnRun { double maxZ = 0, maxSpeed = 0, maxTilt = 0, finalLoad = 0; bool everBeached = false, finite = true; };
+
+SpawnRun RunFrom(Rig& rig, const swerve::SwerveRequest& request, double seconds, const Obstacles& obstacles) {
+  SpawnRun r;
+  rig.Run(request, seconds, nullptr, &obstacles, [&] {
+    const auto p = rig.sim.Pose3();
+    const auto v = rig.sim.FieldVelocity();
+    r.maxZ = std::max(r.maxZ, p.z);
+    r.maxSpeed = std::max(r.maxSpeed, std::hypot(v.vx, v.vy));
+    r.maxTilt = std::max(r.maxTilt, rig.sim.TiltAngle());
+    r.everBeached = r.everBeached || rig.sim.Beached();
+    r.finite = r.finite && Finite(rig.sim);
+  });
+  for (std::size_t i = 0; i < 4; ++i) r.finalLoad += rig.sim.ModuleNormalForce(i);
+  return r;
+}
+
+// Regression (v0.9.24): a robot teleported under an overhead trench arm (taller than its zMin)
+// was launched metres into the air and ended overturned, floating on its bumper edges.
+void SpawnInsideObstacles() {
+  const double weight = 68 * kGravity;
+  {
+    SwerveParams p = ReferenceParams();
+    p.robotHeightM = 0.61;
+    Rig rig(p);
+    Obstacles obstacles;
+    obstacles.SetPerimeter(0, 0, 16.54, 8.07);
+    obstacles.AddBox("trench_arm", 4.62, 7.43, 0, 1.19, 1.28, 0.5652, 1.02);
+    rig.sim.SetPose(4.43, 7.42, -1.57);
+    // Keeps commanding a path into the arm for 3 s: it is pushed out, then rams the arm with its
+    // top edge (a wheelie, as a real robot would), but never launches.
+    const auto r = RunFrom(rig, Drive(1.0, -0.5), 3.0, obstacles);
+    const auto settle = RunFrom(rig, Drive(0, 0), 1.0, obstacles);
+    std::printf("spawned under a trench arm, driving into it: max z %.3f m, max speed %.2f m/s, max tilt %.1f deg; "
+                "stopped: wheel load %.0f N, tilt %.2f deg\n",
+                r.maxZ, r.maxSpeed, r.maxTilt / kDeg, settle.finalLoad, rig.sim.TiltAngle() / kDeg);
+    SIM_CHECK(r.finite && r.maxZ < 0.15 && r.maxSpeed < 2.0 && r.maxTilt < 30 * kDeg, "no launch");
+    // (While ramming, the 16-degree wheelie puts the rear bumper on the carpet, so Beached() may
+    // briefly and correctly report it; once stopped it must not.)
+    SIM_CHECK(!rig.sim.Beached(), "not beached once stopped");
+    SIM_CHECK(settle.finalLoad > 0.95 * weight && rig.sim.TiltAngle() < 2 * kDeg, "settles on its wheels: %.0f N", settle.finalLoad);
+    // A robot shorter than the arm is unaffected.
+    Rig shortRig;
+    shortRig.sim.SetRobotHeight(0.5);
+    shortRig.sim.SetPose(4.43, 7.42, -1.57);
+    const auto s2 = RunFrom(shortRig, Drive(0, 0), 0.5, obstacles);
+    SIM_CHECK(std::abs(shortRig.sim.Pose().x - 4.43) < 0.01 && s2.maxSpeed < 0.05, "short robot under the arm stays put");
+  }
+  {
+    // Overlapping the perimeter wall by 22 cm and a full-height column by 30 cm: pushed out gently.
+    Obstacles obstacles;
+    obstacles.SetPerimeter(0, 0, 8, 8);
+    obstacles.AddBox("column", 4, 4, 0, 0.6, 0.6, 0, 2);
+    for (int which = 0; which < 2; ++which) {
+      Rig rig;
+      if (which == 0) rig.sim.SetPose(0.2, 2, 0);
+      else rig.sim.SetPose(4 - 0.3 - 0.42 + 0.3, 4, 0);
+      swerve::SwerveDriveBrake brake;
+      const auto r = RunFrom(rig, brake, 2.0, obstacles);
+      const double x = rig.sim.Pose().x;
+      const double clearOf = which == 0 ? x - 0.42 : (4 - 0.3) - (x + 0.42);
+      std::printf("spawned %s: max speed %.2f m/s, max tilt %.2f deg, final clearance %.3f m\n",
+                  which == 0 ? "22 cm into the wall" : "30 cm into a column", r.maxSpeed, r.maxTilt / kDeg, clearOf);
+      SIM_CHECK(r.finite && r.maxSpeed < 0.6 && r.maxTilt < 3 * kDeg && r.maxZ < 0.02, "gentle push-out");
+      SIM_CHECK(clearOf > -0.03, "resolved: %.3f", clearOf);
+      SIM_CHECK(r.finalLoad > 0.95 * weight, "on its wheels");
+    }
+  }
 }
 
 void Determinism() {
@@ -420,6 +515,7 @@ int main() {
   RampHoldAndSlopeLoads();
   Requests();
   RobotContacts();
+  SpawnInsideObstacles();
   Determinism();
   Speed();
   return SimResult("sim_swerve");
