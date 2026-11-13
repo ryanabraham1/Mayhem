@@ -79,15 +79,17 @@ export function Replay({ result, onTime, revision }: { result: ScenarioResult; o
   const chunks = useRef<Blob[]>([]);
   const recordVideo = () => {
     if (!canvas.current || typeof MediaRecorder === "undefined") return;
-    const type = ["video/webm;codecs=vp9", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+    // Chromium records WebM; Safari's engine (the macOS app) records MP4.
+    const type = ["video/webm;codecs=vp9", "video/webm", "video/mp4"].find((t) => MediaRecorder.isTypeSupported(t));
     const rec = new MediaRecorder(canvas.current.captureStream(30), type ? { mimeType: type } : undefined);
     chunks.current = [];
     rec.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);
     rec.onstop = async () => {
       setRecording(false);
-      const bytes = new Uint8Array(await new Blob(chunks.current, { type: "video/webm" }).arrayBuffer());
+      const ext = (rec.mimeType || type || "").includes("mp4") ? "mp4" : "webm";
+      const bytes = new Uint8Array(await new Blob(chunks.current, { type: rec.mimeType || `video/${ext}` }).arrayBuffer());
       const { save } = await import("@tauri-apps/plugin-dialog");
-      const path = await save({ defaultPath: `${result.scenario.name.replace(/[^\w.-]+/g, "-")}.webm`, filters: [{ name: "Video", extensions: ["webm"] }] });
+      const path = await save({ defaultPath: `${result.scenario.name.replace(/[^\w.-]+/g, "-")}.${ext}`, filters: [{ name: "Video", extensions: [ext] }] });
       if (path) await invoke("save_replay_video", { path, bytes: Array.from(bytes) });
     };
     recorder.current = rec;

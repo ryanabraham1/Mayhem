@@ -69,8 +69,9 @@ pub async fn ascope_model(path: String) -> Result<tauri::ipc::Response, String> 
 #[tauri::command]
 pub async fn save_replay_video(path: String, bytes: Vec<u8>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        if !path.to_lowercase().ends_with(".webm") || bytes.len() > 512 * 1024 * 1024 {
-            return Err("Save the video as a .webm file.".into());
+        let lower = path.to_lowercase();
+        if !(lower.ends_with(".webm") || lower.ends_with(".mp4")) || bytes.len() > 512 * 1024 * 1024 {
+            return Err("Save the video as a .webm or .mp4 file.".into());
         }
         fs::write(&path, bytes).map_err(|e| e.to_string())
     })
