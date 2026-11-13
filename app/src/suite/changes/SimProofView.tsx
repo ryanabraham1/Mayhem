@@ -4,29 +4,14 @@ import { FieldArt } from "../../components/FieldArt";
 import type { Field as FieldModel } from "../../types";
 import field from "../core/rebuilt-2026.json";
 import type { ReviewReport } from "../core/review/report.ts";
-import { describeTrack, type Outcome, type Track } from "../core/review/scenarios.ts";
+import type { Outcome, Track } from "../core/review/scenarios.ts";
+import { parseMachineSpecs } from "../core/review/machines.ts";
+import { MACHINES_FILE } from "../core/review/report.ts";
+import { ButtonMap } from "./ButtonMap";
 import type { ScenarioResult, SimProof } from "../core/review/simproof.ts";
 import { desktop } from "../native";
 import { Badge, Button, EmptyState, Segmented } from "../ui";
 import type { Review } from "./useReview";
-
-/** What happened after the button went down (the probe presses at 1 s): one line per machine. */
-function AfterPress({ o }: { o?: Outcome }) {
-  if (!o) return <>—</>;
-  const lines = o.tracks
-    .map((t) => ({ name: t.name, changes: t.changes.filter((c) => c.time >= 0.95) }))
-    .filter((t) => t.changes.length);
-  if (!lines.length) return <span className="mx-muted">Nothing changes</span>;
-  return (
-    <ul className="mx-press-lines">
-      {lines.map((t) => (
-        <li key={t.name}>
-          <strong>{t.name}:</strong> {describeTrack({ name: t.name, channel: "", changes: t.changes }, 6)}
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 const COLORS = ["#6a3df0", "#0e9670", "#b86e00", "#d33452", "#2f80ed", "#8e44ad", "#16a085", "#c0392b"];
 const color = (value: string) => COLORS[[...value].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % COLORS.length];
@@ -145,6 +130,7 @@ export function SimProofView({ report, review }: { report: ReviewReport; review:
   const selected = results.find((r) => r.scenario.id === picked) ?? results.find((r) => r.failed || r.differences.length) ?? results[0];
   const staticAutos = new Map(report.routines.map((r) => [r.id, r.kind]));
   const running = review.sim.progress !== undefined;
+  const machines = useMemo(() => parseMachineSpecs(review.snapshots?.after.files[MACHINES_FILE]).machines, [review.snapshots]);
 
   return (
     <div className="mx-simproof">
@@ -214,33 +200,7 @@ export function SimProofView({ report, review }: { report: ReviewReport; review:
             })}
           />
           {group === "button" ? (
-            <section className="mx-panel is-flush">
-              <table className="mx-review-table">
-                <thead>
-                  <tr>
-                    <th>Driver input</th>
-                    {review.before && <th>Before</th>}
-                    <th>{review.before ? "After" : "What the robot does"}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((r) => (
-                    <tr key={r.scenario.id} className={r.differences.length ? "is-changed" : ""}>
-                      <th scope="row">
-                        {r.scenario.name}
-                        {r.differences.length > 0 && <Badge tone="bad">changed</Badge>}
-                      </th>
-                      {review.before && (
-                        <td>
-                          <AfterPress o={r.before} />
-                        </td>
-                      )}
-                      <td>{r.error ? <span className="mx-help is-bad">{r.error.split("\n")[0]}</span> : <AfterPress o={r.after} />}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
+            <ButtonMap results={results} machines={machines} />
           ) : results.length === 0 ? (
             <EmptyState icon={FlaskConical} title={group === "custom" ? "No team scenarios yet" : "No autos"}>
               {group === "custom" ? 'Add scenarios to tools/mayhem/scenarios.json, e.g. { "scenarios": [{ "name": "Hold A shoots", "steps": ["teleop", "wait 0.5", "hold A 2"], "expect": ["Shooter mode is SHOOTING by 1.5 s"] }] }' : "No routines in the project file."}
