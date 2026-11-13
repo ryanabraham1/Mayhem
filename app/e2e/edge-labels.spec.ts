@@ -230,8 +230,8 @@ test("inspector exits wrap as text in a narrow window, with the target below the
       const main = el.querySelector(".mx-guard-main")!.getBoundingClientRect();
       const target = el.querySelector(".mx-guard-target")!.getBoundingClientRect();
       const condition = el.querySelector(".mx-guard-condition")!;
-      // A term (badge + key) or a number never splits across lines.
-      const split = [...condition.querySelectorAll(".mx-term")].filter((t) => {
+      // A badge never parts from its first word, and a number never splits across lines.
+      const split = [...condition.querySelectorAll(".mx-plain-head, .mx-term:not(.mx-plain)")].filter((t) => {
         const tops = [...t.getClientRects()].map((x) => x.top).sort((a, b) => a - b);
         return tops.some((v, i) => i > 0 && v - tops[i - 1] > 6);
       }).length;

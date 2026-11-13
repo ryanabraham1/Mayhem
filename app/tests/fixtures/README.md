@@ -17,4 +17,6 @@ values and solve status against those external results.
 `robot.mayhem.json`: `oldShotCycle` (commit ba22adc, unnamed transitions whose labels
 overlapped in the old graph layout) and `current` (Superstructure, a fully connected priority
 supervisor; IntakeSequence; ShotCycle). `e2e/state-graph-layout.spec.ts` checks that their
-edge labels never overlap each other or a state and stay inside the graph.
+edge labels never overlap each other or a state and stay inside the graph. `latest` is the
+same file after Superstructure moved to `"selection": "priority"` and inputs got long names; the
+same spec checks that no condition chip runs past its card in a narrow inspector.

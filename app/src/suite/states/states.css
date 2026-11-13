@@ -315,6 +315,12 @@
 /* Conditions in words: an input's name after its letter badge, in the UI font. */
 .mx-plain {
   font-family: var(--mx-font);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.mx-plain-head {
+  white-space: nowrap;
 }
 .mx-guard-edge .mx-guard-condition {
   font-family: var(--mx-font);
@@ -428,14 +434,24 @@
   color: var(--mx-accent);
   font-weight: 700;
 }
-@media (max-width: 900px) {
+/* A narrow stage stacks each row: question, then "yes →" and the state under it. */
+.mx-decision {
+  container-type: inline-size;
+}
+@container (max-width: 560px) {
   .mx-decision-row {
-    grid-template-columns: 2em minmax(0, 1fr);
+    grid-template-columns: 2em auto minmax(0, 1fr);
+    row-gap: 6px;
+  }
+  .mx-decision-question {
+    grid-column: 2 / 4;
   }
   .mx-decision-yes {
     grid-column: 2;
   }
   .mx-decision-state {
-    grid-column: 2;
+    grid-column: 3;
+    justify-self: start;
+    max-width: 100%;
   }
 }

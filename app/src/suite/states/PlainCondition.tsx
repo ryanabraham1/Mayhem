@@ -46,12 +46,18 @@ export function PlainCondition({ condition, info }: { condition: Condition; info
     if (!p.key) return <Fragment key={i}>{p.text}</Fragment>;
     const category = info.category(p.key);
     const meta = INPUT_CATEGORIES[category];
+    const space = p.text.indexOf(" ");
+    const [first, rest] = space < 0 ? [p.text, ""] : [p.text.slice(0, space), p.text.slice(space)];
     return (
       <span key={i} className={`mx-term mx-plain is-${category}`} title={`${meta.label}: ${meta.description} (${p.key})`}>
-        <span className={`mx-term-badge is-${category}`} aria-label={meta.label} role="img">
-          {meta.letter}
+        {/* The badge stays with the first word; the rest of a long name wraps inside its card. */}
+        <span className="mx-plain-head">
+          <span className={`mx-term-badge is-${category}`} aria-label={meta.label} role="img">
+            {meta.letter}
+          </span>
+          {first}
         </span>
-        {p.text}
+        {rest}
       </span>
     );
   });

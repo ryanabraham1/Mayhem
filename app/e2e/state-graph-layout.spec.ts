@@ -77,3 +77,46 @@ test("robot state machines lay out with no overlapping or hidden edge labels", a
     await page.screenshot({ path: info.outputPath(`${machine.id}.png`), fullPage: true });
   }
 });
+
+test("condition chips wrap inside their cards in a narrow inspector, for every state of the robot's machines", async ({ page }, info) => {
+  page.on("pageerror", (error) => { throw error; });
+  // The user's real project when it is on this machine, else the checked-in copy of it.
+  const real = "/Users/ryanabraham/Downloads/FRC_Offseason_2026-mayhem-suite/robot.mayhem.json";
+  const machines = await readFile(real, "utf8")
+    .then((text) => JSON.parse(text).extensions.machines)
+    .catch(async () => JSON.parse(await readFile(new URL("../tests/fixtures/robot-machines.json", import.meta.url), "utf8")).latest);
+  await page.goto("/");
+  await page.getByRole("button", { name: "State machines", exact: true }).click();
+  await page.setViewportSize({ width: 960, height: 900 });
+  const overflow = () =>
+    page.evaluate(() => {
+      const cards = ".mx-guard-edge, .mx-any-row, .mx-decision-question, .mx-edge-label, .mx-input-row";
+      const out: string[] = [];
+      for (const chip of document.querySelectorAll(".mx-term, .mx-plain, .mx-plain-head")) {
+        const card = chip.closest(cards);
+        if (!card) continue;
+        const c = card.getBoundingClientRect();
+        // getClientRects: a wrapped chip has one box per line.
+        for (const r of chip.getClientRects())
+          if (r.width && (r.right > c.right + 1 || r.left < c.left - 1)) out.push(`${chip.textContent} past ${card.className}`);
+      }
+      const inspector = document.querySelector(".mx-inspector")!;
+      if (inspector.scrollWidth > inspector.clientWidth + 1) out.push("inspector scrolls sideways");
+      return out;
+    });
+  for (const machine of machines) {
+    await page.locator("label", { hasText: "Import machine" }).locator("input[type=file]").setInputFiles({
+      name: "machine.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(machine)),
+    });
+    await expect(page.locator(".mx-inspector h2")).toBeVisible();
+    for (const state of machine.states) {
+      // Select through the inspector-independent way: a state card or ladder target.
+      const target = page.locator(`.mx-state:has(strong:text-is("${state.name}")), .mx-decision-state:text-is("${state.name}")`).first();
+      if (!(await target.count())) continue;
+      await target.click();
+      await expect(page.locator(".mx-inspector h2")).toHaveText(state.name);
+      expect(await overflow(), `${machine.id} / ${state.id}`).toEqual([]);
+    }
+    await page.screenshot({ path: info.outputPath(`${machine.id}-narrow.png`) });
+  }
+});
