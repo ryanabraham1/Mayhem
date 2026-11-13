@@ -55,15 +55,18 @@ export function Replay({ result, onTime, revision }: { result: ScenarioResult; o
     if (!playing) return;
     let last = performance.now();
     const tick = (now: number) => {
+      // Elapsed time is measured here, not inside the state updater: React may run the updater
+      // later, after `last` has moved on, and the replay would crawl.
+      const elapsed = (now - last) / 1000;
+      last = now;
       setTime((t) => {
-        const next = t + (now - last) / 1000;
+        const next = t + elapsed;
         if (next >= duration) {
           setPlaying(false);
           return duration;
         }
         return next;
       });
-      last = now;
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);

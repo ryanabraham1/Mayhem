@@ -99,6 +99,29 @@ const sampleAt = <T extends { t: number }>(list: T[], t: number): T | undefined 
 
 const IN = 0.0254;
 
+/**
+ * CAD and field exports come in as polished metal (the 2026 field: metalness 1, roughness 0.2),
+ * which reads as glare and black patches. Make them matte, and on the field deepen the mid greys
+ * (the carpet) so robots stand out. The field's staged game pieces are hidden: they would not move
+ * as the simulated robot picks pieces up.
+ */
+function matte(root: THREE.Object3D, field: boolean) {
+  const seen = new Set<THREE.Material>();
+  const hsl = { h: 0, s: 0, l: 0 };
+  root.traverse((o) => {
+    if (field && /Fuel/i.test(o.name)) o.visible = false;
+    if (!(o instanceof THREE.Mesh)) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (seen.has(m) || !(m instanceof THREE.MeshStandardMaterial)) continue;
+      seen.add(m);
+      m.metalness = Math.min(m.metalness, 0.1);
+      m.roughness = Math.max(m.roughness, 0.75);
+      m.color.getHSL(hsl);
+      if (field && hsl.s < 0.08 && hsl.l > 0.2 && hsl.l < 0.6 && !m.transparent) m.color.setHSL(0.62, 0.06, hsl.l * 0.55);
+    }
+  });
+}
+
 interface Rig {
   root: THREE.Group;
   components: THREE.Group[];
@@ -123,6 +146,7 @@ async function buildRobot(asset: Asset): Promise<Rig> {
     root.add(group);
     parts.push(group);
   }
+  matte(root, false);
   // Keep each mesh's own material; overlay mode swaps the before robot to a see-through ghost.
   root.traverse((o) => {
     if (o instanceof THREE.Mesh) o.userData.solid = o.material;
@@ -203,20 +227,23 @@ export function Replay3D({
     renderer.setScissorTest(true);
     el.appendChild(renderer.domElement);
     onCanvas?.(renderer.domElement);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    // A clean, matte look (like simfrc): soft even light, no glare, colours kept true.
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 1.0;
     const scene = new THREE.Scene();
     // CAD and field materials are physically based: without something to reflect they render black.
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    const dark = document.documentElement.dataset.theme === "dark";
-    scene.background = new THREE.Color(dark ? 0x15121f : 0xeeecf5);
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x8888a0, 1.2));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.8);
-    sun.position.set(4, -6, 10);
+    scene.environmentIntensity = 0.35;
+    // A dark arena around a lit field.
+    scene.background = new THREE.Color(0x15161b);
+    scene.fog = new THREE.Fog(0x15161b, 28, 60);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x3c3f4a, 1.9));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.35);
+    sun.position.set(3, -5, 12);
     scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.6);
-    fill.position.set(-6, 5, 6);
+    const fill = new THREE.DirectionalLight(0xdfe6ff, 0.45);
+    fill.position.set(-6, 5, 8);
     scene.add(fill);
     THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
     const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 200);
@@ -241,6 +268,7 @@ export function Replay3D({
           fieldModel.applyQuaternion(new THREE.Quaternion().setFromAxisAngle(axis, (r.degrees * Math.PI) / 180));
         }
         if (Array.isArray(fieldConfig.position)) fieldModel.position.set(...(fieldConfig.position as [number, number, number]));
+        matte(fieldModel, true);
         scene.add(fieldModel);
         const [before, after] = await Promise.all([logs.before ? loadTrack3D(logs.before) : undefined, logs.after ? loadTrack3D(logs.after) : undefined]);
         if (cancelled) return;
