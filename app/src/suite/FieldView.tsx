@@ -16,6 +16,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { copyText, openContextMenu, type MenuItem } from "./ContextMenu";
+import { useTrackpadZoom } from "./trackpad";
 import { routeSegments, routeWarnings } from "./core/routes.ts";
 import { FieldArt } from "../components/FieldArt";
 import seasonField from "./core/rebuilt-2026.json";
@@ -230,6 +231,22 @@ export function FieldView({
     select(id);
     setDrag({ kind, id, ...goal });
   };
+  // Pinch or Cmd/Ctrl + wheel zooms around the cursor; a two-finger scroll pans the field.
+  useTrackpadZoom(svg, {
+    zoomAt: (factor, clientX, clientY) => {
+      const p = svgPoint({ clientX, clientY });
+      if (!p) return;
+      setView((v) => {
+        const w = Math.max(2, Math.min(width * 3, v.w / factor));
+        const ratio = w / v.w;
+        return { x: p.x - (p.x - v.x) * ratio, y: p.y - (p.y - v.y) * ratio, w, h: v.h * ratio };
+      });
+    },
+    pan: (dx, dy) => {
+      const k = view.w / (svg.current?.clientWidth || 1);
+      setView((v) => ({ ...v, x: v.x + dx * k, y: v.y + dy * k }));
+    },
+  });
   const zoom = (factor: number) =>
     setView((v) => ({
       x: v.x + (v.w * (1 - factor)) / 2,
@@ -401,21 +418,6 @@ export function FieldView({
             const p = fieldPoint(e);
             if (p) place(p.x, p.y);
           }
-        }}
-        onWheel={(e) => {
-          const p = svgPoint(e);
-          if (!p) return;
-          const factor = Math.exp(
-            Math.max(-0.2, Math.min(0.2, e.deltaY * 0.001)),
-          );
-          const w = Math.max(2, Math.min(width * 3, view.w * factor));
-          const ratio = w / view.w;
-          setView({
-            x: p.x - (p.x - view.x) * ratio,
-            y: p.y - (p.y - view.y) * ratio,
-            w,
-            h: view.h * ratio,
-          });
         }}
       >
         <g

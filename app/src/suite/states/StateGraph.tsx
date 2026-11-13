@@ -14,6 +14,7 @@ import "./states.css";
 import { categoryLookup, type InputSource } from "../core/inputCategories.ts";
 import { ConditionText, glyphText } from "./ConditionText";
 import { chainOrder, collapsePaths, type PathRun } from "./autoPaths";
+import { useTrackpadZoom } from "../trackpad";
 import { PlainCondition, type InputInfo } from "./PlainCondition";
 
 /** State card size; machine cards are compact (the source path is in the inspector). */
@@ -374,7 +375,40 @@ export function StateGraph({
   // Shrink large machines to fit, but never below a readable size; scroll beyond that.
   const fit = box.w ? Math.max(0.45, Math.min(1, (box.w - 16) / width, (box.h - 16) / height)) : 1;
   const scale = zoom === "fit" ? fit : zoom;
-  const step = (factor: number) => setZoom(Math.min(1.5, Math.max(0.4, Math.round(scale * factor * 100) / 100)));
+  const clampZoom = (z: number) => Math.min(2.5, Math.max(0.3, z));
+
+  // Pinch / Cmd+wheel zooms around the cursor: remember the graph point under it, then scroll so
+  // it stays put after the new scale renders. A plain two-finger scroll pans (native scrolling).
+  const graphEl = useRef<HTMLDivElement>(null);
+  const anchor = useRef<{ gx: number; gy: number; cx: number; cy: number } | null>(null);
+  // Several wheel events can arrive before a render: zoom from the latest target, and measure
+  // the anchor against the scale that is actually on screen.
+  const rendered = useRef(scale);
+  const target = useRef(scale);
+  const zoomAround = (factor: number, cx: number, cy: number) => {
+    const rect = graphEl.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = clampZoom(target.current * factor);
+    if (next === target.current) return;
+    anchor.current = { gx: (cx - rect.left) / rendered.current, gy: (cy - rect.top) / rendered.current, cx, cy };
+    target.current = next;
+    setZoom(next);
+  };
+  useTrackpadZoom(scroller, { zoomAt: zoomAround });
+  // The − / + buttons zoom around the middle of the view.
+  const step = (factor: number) => {
+    const r = scroller.current?.getBoundingClientRect();
+    if (r) zoomAround(factor, r.left + r.width / 2, r.top + r.height / 2);
+  };
+  useLayoutEffect(() => {
+    rendered.current = scale;
+    target.current = scale;
+    const a = anchor.current, el = scroller.current, rect = graphEl.current?.getBoundingClientRect();
+    anchor.current = null;
+    if (!a || !el || !rect) return;
+    el.scrollLeft += rect.left + a.gx * scale - a.cx;
+    el.scrollTop += rect.top + a.gy * scale - a.cy;
+  }, [scale]);
   const ladder = globals.groups.length > 0 && (
     <section
       className={`mx-any-ladder ${wires.length ? "" : "is-primary"} ${listOpen ? "" : "is-collapsed"}`}
@@ -439,8 +473,17 @@ export function StateGraph({
       </button>
     </div>
     <div className="mx-graph-scroll" ref={scroller}>
-      <div className="mx-graph-sizer" style={{ width: width * scale, height: height * scale }}>
-      <div className={`mx-graph ${hovered ? "has-focus" : ""}`} style={{ width, height, transform: `scale(${scale})` }}>
+      <div
+        className="mx-graph-sizer"
+        style={{
+          width: width * scale,
+          height: height * scale,
+          // Zoomed in or out by hand: room around the graph, so zooming can keep the point under
+          // the cursor still and the graph can be panned past its edges.
+          ...(zoom === "fit" ? {} : { padding: `${Math.round(box.h / 2)}px ${Math.round(box.w / 2)}px`, margin: 0, boxSizing: "content-box" as const }),
+        }}
+      >
+      <div ref={graphEl} className={`mx-graph ${hovered ? "has-focus" : ""}`} style={{ width, height, transform: `scale(${scale})` }}>
         <div className="mx-edge-measure" ref={measurer} aria-hidden="true">
           {wires.map((w) => {
             const label = labels.get(w.t.id)?.label;
