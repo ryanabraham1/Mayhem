@@ -11,7 +11,7 @@ const MODULES = ["Front left", "Front right", "Back left", "Back right"] as cons
 const moduleOf = (d: Device) => MODULES.find((m) => d.subsystem === "Drivetrain" && d.name.startsWith(m));
 
 /** Top-down robot: swerve modules at the corners, every other subsystem as a tile in the middle. */
-function RobotDiagram({
+export function RobotDiagram({
   devices,
   changes,
   selected,

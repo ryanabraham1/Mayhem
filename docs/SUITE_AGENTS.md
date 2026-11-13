@@ -309,6 +309,10 @@ The Changes page shows, for the revisions being reviewed, the feedback and appro
 
 The robot repo's build writes `src/main/deploy/mayhem-build.json` (`sha`, `branch`, `dirty`, `builtAt`, `builtBy`, `computer`; git-ignored; `MAYHEM_BUILD_SHA`/`MAYHEM_BUILD_BRANCH` override git for clean exports), GradleRIO deploys it, and the robot logs it once at boot as `/RealOutputs/Mayhem/Build`. Every log therefore names its commit: use it as the `before` of a behavior_diff when investigating a match. Never deploy with uncommitted changes; the app flags such deploys because nobody can rebuild them. Rollback (people only, in the app) builds a clean export of the known-good commit and runs GradleRIO `deploy`.
 
+## Robot explainer
+
+`tools/mayhem/explainer.json` (`{ "parts": { "<subsystem>": "<plain words>" } }`) holds the team's descriptions shown on Overview → How the robot works. People edit it in the app; when you add or reshape a subsystem, update its part description, and give new state machine states a `description` (shown with the part).
+
 ## Digging into logs
 
 `analyze_log` returns a compact summary (add `channels`, `from`/`to` for per-channel stats, or `detail: "full"` for everything). To investigate, use the exploration tools; all take a WPILOG path (parsed once and cached) and return small ranked results:

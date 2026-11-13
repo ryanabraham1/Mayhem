@@ -1,0 +1,76 @@
+/* Overview → How the robot works. */
+.mx-explainer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 18px;
+}
+.mx-explainer-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.mx-explainer .mx-hw-robot {
+  margin: 18px 0 0;
+}
+.mx-part {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.mx-part h3 {
+  margin: 0;
+  font-size: 20px;
+}
+.mx-part h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-family: var(--mx-mono);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mx-accent-ink);
+}
+.mx-part-about {
+  margin: 0;
+  line-height: 1.5;
+}
+.mx-part-about .mx-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.mx-part-edit textarea {
+  width: 100%;
+  border: 1px solid var(--mx-line-strong);
+  border-radius: var(--mx-r-sm);
+  padding: 8px;
+  font: inherit;
+  background: var(--mx-surface);
+  color: var(--mx-ink);
+}
+.mx-part-machine {
+  padding: 10px 12px;
+  border-radius: var(--mx-r-md);
+  background: var(--mx-surface-2);
+}
+.mx-part-machine strong {
+  margin-right: 8px;
+}
+.mx-part-machine ul,
+.mx-part-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+@media (max-width: 900px) {
+  .mx-explainer-grid {
+    grid-template-columns: 1fr;
+  }
+}

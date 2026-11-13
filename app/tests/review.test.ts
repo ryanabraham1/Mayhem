@@ -9,6 +9,7 @@ import { applyEdit, editInfo } from "../src/suite/core/review/edit";
 import { duplicateIds, readDevices } from "../src/suite/core/review/hardware";
 import { buildReport, settingsOf, type Snapshot } from "../src/suite/core/review/report";
 import { readSettings } from "../src/suite/core/review/settings";
+import { parseExplainer, robotParts } from "../src/suite/core/review/explainer";
 import { sampleProject } from "../src/suite/core/sample";
 import { machineFromSpec } from "../src/suite/core/authoring";
 import { checkExpectations, compareOutcomes, compileSteps, parseExpectation, scenarioSet, type Outcome } from "../src/suite/core/review/scenarios";
@@ -348,5 +349,17 @@ describe("feedback and tasks", () => {
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
+  });
+});
+
+describe("robot explainer", () => {
+  it("builds parts from devices, machines and the team's words", () => {
+    const settings = readSettings(Object.entries(files()).map(([path, text]) => ({ path, text })));
+    const machines = [machineFromSpec(JSON.parse(MACHINES("shootHeld")).machines[0])];
+    const explainer = parseExplainer(JSON.stringify({ parts: { Shooter: "Launches pieces." } }));
+    const parts = robotParts(readDevices(settings), settings, machines, explainer);
+    expect(parts.map((p) => p.name)).toEqual(["Shooter", "Linear slide"]);
+    expect(parts[0]).toMatchObject({ about: "Launches pieces.", controls: [{ input: "A held (shoot)", machine: "Shooter" }], paths: ["src/main/include/subsystems/shooter", "src/main/cpp/subsystems/shooter"] });
+    expect(parseExplainer("not json")).toEqual({ parts: {} });
   });
 });

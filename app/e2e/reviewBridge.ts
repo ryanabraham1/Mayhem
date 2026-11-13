@@ -112,6 +112,13 @@ export async function desktop(page: Page, repo: string) {
       writeFileSync(path, args.text);
       return null;
     }
+    if (cmd === "review_history") {
+      if (!args.paths.length) return [];
+      return git("log", `-${args.limit ?? 8}`, "--format=%H%x1f%s%x1f%an %cr%x1e", "--", ...args.paths).split("\x1e").filter((e) => e.trim()).map((e) => {
+        const [sha, subject, body] = e.trim().split("\x1f");
+        return { sha, subject, body: body ?? "" };
+      });
+    }
     if (cmd === "review_commits") {
       const range = `${args.before === "WORKTREE" ? "HEAD" : args.before}..${args.after === "WORKTREE" ? "HEAD" : args.after}`;
       return git("log", "--format=%H%x1f%s%x1f%b%x1e", range).split("\x1e").filter((e) => e.trim()).map((e) => {
@@ -125,7 +132,11 @@ export async function desktop(page: Page, repo: string) {
     if (cmd === "read_log_file") return readFileSync(args.path).toString("base64");
     if (cmd === "review_write_file") {
       const path = join(repo, args.path);
-      if (readFileSync(path, "utf8") !== args.expected) throw new Error("changed on disk");
+      let current = "";
+      try {
+        current = readFileSync(path, "utf8");
+      } catch {}
+      if (current !== args.expected) throw new Error("changed on disk");
       writeFileSync(path, args.text);
       return null;
     }

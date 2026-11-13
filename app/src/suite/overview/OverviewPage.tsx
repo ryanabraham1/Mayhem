@@ -21,6 +21,7 @@ import { useLogLibrary } from "../logLibrary";
 import { useRobot } from "../robot";
 import type { SuiteState } from "../useSuiteProject";
 import { Badge, Button, Panel, timeAgo } from "../ui";
+import { Explainer } from "./Explainer";
 
 export type Destination = "autos" | "states" | "logs" | "robot" | "tasks" | "changes";
 
@@ -221,6 +222,7 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
           ) : null}
         </Panel>
       </div>
+      <Explainer />
     </div>
   );
 }

@@ -32,6 +32,7 @@ fn review_file(path: &str) -> bool {
         || path == "tools/mayhem/machines.json"
         || path == "tools/mayhem/scenarios.json"
         || path == "src/main/include/commands/MayhemProject.h"
+        || path == "tools/mayhem/explainer.json"
         || (!path.contains('/') && path.ends_with(".mayhem.json"))
 }
 
@@ -194,7 +195,8 @@ pub async fn review_write_file(repo: String, path: String, expected: String, tex
             return Err(format!("Only robot settings files can be edited here: {path}"));
         }
         let target = inside(&root, &path)?;
-        let current = fs::read_to_string(&target).map_err(|e| e.to_string())?;
+        // A missing file reads as empty, so the first save of a new file expects "".
+        let current = fs::read_to_string(&target).unwrap_or_default();
         if current != expected {
             return Err("The file changed on disk since it was read. Reload and try again.".into());
         }
@@ -224,6 +226,33 @@ pub async fn review_commits(repo: String, before: String, after: String) -> Resu
         let before = if before == WORKTREE { "HEAD".to_string() } else { before };
         let range = format!("{before}..{after}");
         let log = git(&repo, &["log", "-200", "--format=%H%x1f%s%x1f%b%x1e", &range])?;
+        Ok(log
+            .split('\x1e')
+            .filter_map(|entry| {
+                let f: Vec<&str> = entry.trim_start_matches('\n').splitn(3, '\x1f').collect();
+                (f.len() == 3 && !f[0].is_empty()).then(|| Commit { sha: f[0].into(), subject: f[1].into(), body: f[2].trim().into() })
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The latest commits that touched any of `paths` (repo-relative files or folders).
+#[tauri::command]
+pub async fn review_history(repo: String, paths: Vec<String>, limit: Option<u32>) -> Result<Vec<Commit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(git(&repo, &["rev-parse", "--show-toplevel"])?.trim());
+        for p in &paths {
+            inside(&root, p)?;
+        }
+        if paths.is_empty() {
+            return Ok(Vec::new());
+        }
+        let count = format!("-{}", limit.unwrap_or(8).min(50));
+        let mut args = vec!["log", count.as_str(), "--format=%H%x1f%s%x1f%an %cr%x1e", "--"];
+        args.extend(paths.iter().map(String::as_str));
+        let log = git(root.to_str().ok_or("path")?, &args)?;
         Ok(log
             .split('\x1e')
             .filter_map(|entry| {

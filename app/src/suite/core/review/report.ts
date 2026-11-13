@@ -22,10 +22,12 @@ export const MACHINES_FILE = "tools/mayhem/machines.json";
 export const SCENARIOS_FILE = "tools/mayhem/scenarios.json";
 /** The robot code generated from the project file (tools/mayhem/export.sh). */
 export const GENERATED_FILE = "src/main/include/commands/MayhemProject.h";
+/** Team-written descriptions of each part of the robot (Overview → How the robot works). */
+export const EXPLAINER_FILE = "tools/mayhem/explainer.json";
 
 /** Files a review needs from a revision. */
 export const isReviewFile = (path: string) =>
-  isSettingsSource(path) || path === MACHINES_FILE || path === SCENARIOS_FILE || path === GENERATED_FILE || /^[^/]+\.mayhem\.json$/.test(path);
+  isSettingsSource(path) || path === MACHINES_FILE || path === SCENARIOS_FILE || path === GENERATED_FILE || path === EXPLAINER_FILE || /^[^/]+\.mayhem\.json$/.test(path);
 
 export function projectFile(files: Record<string, string>): string | undefined {
   if ("robot.mayhem.json" in files) return "robot.mayhem.json";

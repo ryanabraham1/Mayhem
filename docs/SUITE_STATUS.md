@@ -19,6 +19,12 @@ The suite is a working development foundation, not a finished replacement for ev
 
 [USER_GUIDE.md](USER_GUIDE.md) is the suite workflow guide: projects and file links, pose editing, preview modes, state inspection, log analysis, robot collection and agent handoff. Existing solver instructions are preserved in [CLASSIC_PLANNER.md](CLASSIC_PLANNER.md). The README, build instructions and VitePress site now route readers to the appropriate suite or classic workflow; classic screenshots are labeled. Documentation changes do not change the validation or release status recorded below.
 
+## Robot explainer (2026-11-13, v0.9.36)
+
+- Overview → **How the robot works**: the robot map from the code; click a part for what it does (the team's words, editable), its state machines and states with descriptions, its driver controls, its devices (CAN ID, brake/coast, limits), its live state when the robot is connected, and the latest commits that touched its code.
+- Part descriptions are saved in the robot repo's `tools/mayhem/explainer.json`.
+- Parts are matched to machines by name (a part's first word); parts without a matching machine show devices and changes only until the team describes them.
+
 ## On the robot now (2026-11-13, v0.9.35)
 
 - Robot → **On the robot now** reads `deploy/mayhem-build.json` from the roboRIO over SFTP (commit, branch, uncommitted files, build time, who/where), keeps a deploy history, lets anyone mark the running version as known good, lists the commits since then (with the feedback they were for), links to Changes for them, and rolls back: a clean export of the known-good commit built and deployed with GradleRIO after a confirmation. The latest log's health (red flags, battery, flickering states) is shown under it.
