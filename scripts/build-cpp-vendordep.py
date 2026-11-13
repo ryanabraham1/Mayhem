@@ -61,10 +61,11 @@ def main():
     directory.mkdir(parents=True, exist_ok=True)
     stem = directory / f"{ARTIFACT}-{v}"
 
-    headers = sorted(HEADERS.glob("*.hpp"))
+    # Every header including subdirectories (sim/), sorted like `mayhem.mjs vendor` sorts them.
+    headers = sorted(HEADERS.rglob("*.hpp"), key=lambda p: p.relative_to(HEADERS).as_posix())
     notice = (ROOT / "THIRD_PARTY_NOTICES.md").read_bytes()
     write_zip(f"{stem}-headers.zip",
-              [(f"mayhem/{p.name}", p.read_bytes()) for p in headers]
+              [(f"mayhem/{p.relative_to(HEADERS).as_posix()}", p.read_bytes()) for p in headers]
               + [("mayhem/THIRD_PARTY_NOTICES.md", notice)])
     placeholder = (f"MayhemCpp {v} is header-only. GradleRIO requires a static library archive for "
                    "robot platforms; this one is intentionally empty.\n").encode()
@@ -83,7 +84,7 @@ def main():
   <version>{v}</version>
   <packaging>pom</packaging>
   <name>MayhemCpp</name>
-  <description>Header-only Mayhem C++ library (pose follower, auto runner, state machine, observers).</description>
+  <description>Header-only Mayhem C++ library (pose follower, auto runner, state machine, observers, physics sim).</description>
 </project>
 """)
     for path in [*artifacts, str(pom)]:

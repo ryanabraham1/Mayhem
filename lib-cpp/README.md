@@ -1,6 +1,6 @@
 # Mayhem C++ tools (development)
 
-Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.5.0). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
+Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.6.0). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
 
 ## Installing in a WPILib robot project
 
@@ -36,6 +36,7 @@ Use the pieces you need:
 | `wpilib_log.hpp` | `WpiLogObserver` (WPILOG); needs only `wpi/DataLog.h`, not the command framework |
 | `wpilib.hpp` | `DriveToPose` command (`PoseDriver` as a command; needs wpilibNewCommands); also includes `wpilib_log.hpp` |
 | `networktables_observer.hpp` | NetworkTables observer and observer fanout |
+| `sim/*.hpp` | Robot physics simulation (C++17, no dependencies): TalonFX emulator, motors, battery, mechanisms, 6-DOF swerve on terrain, field obstacles, game pieces; optional `sim/wpilib_sim.hpp` and `sim/phoenix6.hpp` adapters. See [docs/SIMULATION.md](../docs/SIMULATION.md) |
 
 ## CMake installation
 

@@ -20,7 +20,7 @@ def main():
     core_files = [p for p in sorted(core.rglob("*")) if p.is_file()
                   and (p.suffix in {".ts", ".json", ".md"} or p.name == "LICENSE")]
     tools = [ROOT / "scripts/mayhem.mjs", ROOT / "scripts/suite-imports.mjs",
-             ROOT / "scripts/cpp-vendor.mjs", *sorted((ROOT / "lib-cpp/include/mayhem").glob("*.hpp")),
+             ROOT / "scripts/cpp-vendor.mjs", *sorted((ROOT / "lib-cpp/include/mayhem").rglob("*.hpp")),
              *core_files,
              ROOT / "THIRD_PARTY_NOTICES.md",
              ROOT / "docs/SUITE_AGENTS.md", ROOT / "docs/ROBOT_LOGGING.md",

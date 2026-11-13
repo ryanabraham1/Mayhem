@@ -14,12 +14,22 @@ export const SNAPSHOT_NAME = "mayhem-vendor.json";
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const readMaybe = (path) => readFile(path).catch((e) => (e.code === "ENOENT" ? null : Promise.reject(e)));
 
-/** The headers this Mayhem copy ships, sorted by name, with their version. */
+/** Header paths under dir ("pose_driver.hpp", "sim/motor.hpp", ...), "/"-separated. */
+async function listHeaders(dir, prefix = "") {
+  const out = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) out.push(...(await listHeaders(join(dir, entry.name), `${prefix}${entry.name}/`)));
+    else if (entry.name.endsWith(".hpp")) out.push(prefix + entry.name);
+  }
+  return out;
+}
+
+/** The headers this Mayhem copy ships (including subdirectories such as sim/), sorted, with their version. */
 export async function cppHeaders() {
   const dir = join(ROOT, HEADER_SOURCE);
   let names;
   try {
-    names = (await readdir(dir)).filter((n) => n.endsWith(".hpp")).sort();
+    names = (await listHeaders(dir)).sort();
   } catch (e) {
     if (e.code === "ENOENT")
       throw new Error(`${HEADER_SOURCE} is missing. Run from a Mayhem source checkout or the Mayhem-suite-tools archive.`);
@@ -74,7 +84,7 @@ export async function vendorCpp(robotDir, { dest = DEFAULT_DEST, snapshot, check
     }
   const current = new Set(files.map((f) => f.name));
   const obsolete = Object.keys(previous.sha256 ?? {}).filter(
-    (name) => !current.has(name) && /^[A-Za-z0-9_.-]+\.hpp$/.test(name),
+    (name) => !current.has(name) && /^(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.hpp$/.test(name),
   );
   const shown = (p) => relative(robot, p).split(sep).join("/");
   if (check) {
@@ -96,6 +106,7 @@ export async function vendorCpp(robotDir, { dest = DEFAULT_DEST, snapshot, check
     const path = join(target, f.name);
     const existing = await readMaybe(path);
     if (existing && sha256(existing) === f.sha256) continue;
+    await mkdir(dirname(path), { recursive: true });
     const temporary = `${path}.${process.pid}.tmp`;
     await writeFile(temporary, f.bytes);
     await rename(temporary, path);

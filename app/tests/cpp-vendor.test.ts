@@ -10,7 +10,12 @@ import { vendorCpp } from "../../scripts/cpp-vendor.mjs";
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const script = resolve(root, "scripts/mayhem.mjs");
 const headers = resolve(root, "lib-cpp/include/mayhem");
-const names = readdirSync(headers).filter((n) => n.endsWith(".hpp")).sort();
+const list = (dir: string, prefix = ""): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? list(join(dir, e.name), `${prefix}${e.name}/`) : e.name.endsWith(".hpp") ? [prefix + e.name] : [],
+  );
+// Every shipped header, including subdirectories such as sim/.
+const names = list(headers).sort();
 const version = /#define MAYHEM_CPP_VERSION "([^"]+)"/.exec(readFileSync(join(headers, "version.hpp"), "utf8"))![1];
 const dir = mkdtempSync(resolve(tmpdir(), "mayhem-vendor-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -21,6 +26,9 @@ describe("vendoring the C++ headers into a robot project", () => {
     expect(names).toEqual(expect.arrayContaining(["pose_driver.hpp", "wpilib_log.hpp", "wpilib.hpp"]));
     const frc2 = names.filter((n) => /#include\s*[<"](frc2\/|mayhem\/wpilib\.hpp)/.test(readFileSync(join(headers, n), "utf8")));
     expect(frc2).toEqual(["wpilib.hpp"]);
+    // The physics sim core is dependency-free; only its two adapter headers include WPILib/Phoenix.
+    const external = names.filter((n) => n.startsWith("sim/") && /#include\s*<(frc|ctre|units)\//.test(readFileSync(join(headers, n), "utf8")));
+    expect(external).toEqual(["sim/phoenix6.hpp", "sim/wpilib_sim.hpp"]);
     expect(readFileSync(join(headers, "wpilib.hpp"), "utf8")).toMatch(/#include "mayhem\/wpilib_log\.hpp"/);
   });
 
@@ -39,6 +47,8 @@ describe("vendoring the C++ headers into a robot project", () => {
     // An unchanged re-run writes nothing.
     expect((await vendorCpp(robot)).written).toEqual([]);
 
+    expect(names).toContain("sim/swerve.hpp");
+    expect(readFileSync(join(dest, "sim/swerve.hpp"))).toEqual(readFileSync(join(headers, "sim/swerve.hpp")));
     writeFileSync(join(dest, "auto_runner.hpp"), "// edited\n");
     const drift = await vendorCpp(robot, { check: true });
     expect(drift.upToDate).toBe(false);
@@ -53,6 +63,12 @@ describe("vendoring the C++ headers into a robot project", () => {
     expect((await vendorCpp(robot, { check: true })).problems).toEqual(["src/main/include/mayhem/old_header.hpp is no longer part of Mayhem"]);
     expect((await vendorCpp(robot)).removed).toEqual(["src/main/include/mayhem/old_header.hpp"]);
     expect(existsSync(join(dest, "robot_owned.hpp"))).toBe(true);
+    // ...including ones in subdirectories.
+    const again = JSON.parse(readFileSync(join(dest, "mayhem-vendor.json"), "utf8"));
+    again.sha256["sim/old_sim.hpp"] = "0";
+    writeFileSync(join(dest, "mayhem-vendor.json"), JSON.stringify(again));
+    writeFileSync(join(dest, "sim/old_sim.hpp"), "// gone\n");
+    expect((await vendorCpp(robot)).removed).toEqual(["src/main/include/mayhem/sim/old_sim.hpp"]);
 
     await expect(vendorCpp(robot, { dest: "../elsewhere" })).rejects.toThrow(/inside the robot project/);
   });
