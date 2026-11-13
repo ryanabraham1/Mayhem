@@ -191,7 +191,11 @@ export function ChangesPage({ notify }: { notify: (message: string) => void }) {
         </p>
       )}
       {review.error && <p className="mx-help is-bad">{review.error}</p>}
-      {!report ? (
+      {!report && review.repo && !review.error && desktop ? (
+        <p className="mx-help" role="status">
+          Reading the robot code…
+        </p>
+      ) : !report ? (
         <EmptyState icon={GitCompare} title={desktop ? "Choose the robot code folder" : "Open a review file"}
           action={desktop ? <Button variant="primary" icon={FolderGit2} onClick={() => void chooseRepo()}>Choose robot code folder</Button> : undefined}>
           {desktop

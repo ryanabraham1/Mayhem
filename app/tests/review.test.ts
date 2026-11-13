@@ -263,11 +263,12 @@ describe("sim proof scenarios", () => {
     expect(checks).toEqual([expect.objectContaining({ pass: false, detail: "Flips between SHOOTING and OFF 20 times (2.0–2.4 s)" })]);
   });
   it("compares before and after runs: states, timing, auto result and path", () => {
+    expect(compareOutcomes(outcome([[0, "OFF"], [1, "SHOOTING"]]), outcome([[0, "OFF"], [1, "REV"]])).differences).toEqual(["Shooter: now also REV; no longer SHOOTING"]);
     const path = (dy: number) => ({ poses: [0, 1, 2].map((t) => ({ time: t, x: t, y: t === 2 ? dy : 0, heading: 0 })) });
     expect(compareOutcomes(outcome([[0, "OFF"], [1, "SHOOTING"]], path(0)), outcome([[0, "OFF"], [1.05, "SHOOTING"]], path(0.1))).same).toBe(true);
     const diff = compareOutcomes(outcome([[0, "OFF"], [1, "SHOOTING"]], { ...path(0), autoStatus: "Completed" }), outcome([[0, "OFF"], [2, "SHOOTING"]], { ...path(0.6), autoStatus: "Failed" }));
     expect(diff.differences).toEqual([
-      "Shooter: OFF (0.0 s) → SHOOTING (1.0 s) ⇒ OFF (0.0 s) → SHOOTING (2.0 s)",
+      "Shooter: same steps, up to 1.0 s later",
       "Auto result: Completed ⇒ Failed",
       "Path: up to 0.60 m from the old path (at 2.0 s)",
     ]);

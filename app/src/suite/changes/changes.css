@@ -202,7 +202,7 @@
 .mx-review-table tr.is-removed > * {
   background: var(--mx-bad-soft);
 }
-.mx-review-table .mx-source {
+.mx-review-table .mx-src-ref {
   width: 1%;
   white-space: nowrap;
   color: var(--mx-muted);
@@ -588,7 +588,7 @@
   flex-direction: column;
   gap: 14px;
 }
-.mx-sim-head {
+.mx-panel.mx-sim-head {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
@@ -697,7 +697,7 @@
 }
 
 /* Button map: each button as lanes of colored states over time. */
-.mx-button-map {
+.mx-press-map {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -876,4 +876,191 @@
 }
 .mx-why-item p {
   margin: 4px 0;
+}
+
+/* Search boxes in review toolbars: one box, the input inherits it. */
+.mx-app .mx-search input:not([type="checkbox"]):not([type="range"]):not([type="radio"]),
+.mx-app .mx-search input:not([type="checkbox"]):not([type="range"]):not([type="radio"]):focus {
+  height: 32px;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+}
+/* Flush panels (tables) keep their heading off the edge. */
+.mx-changes .mx-panel.is-flush > .mx-panel-head,
+.mx-tasks .mx-panel.is-flush > .mx-panel-head {
+  padding: 14px 16px 6px;
+}
+.mx-changes .mx-panel.is-flush {
+  overflow: hidden;
+}
+
+/* Values: a dense grid of cards, wide entries (lists, tables) span two columns. */
+.mx-value-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1px;
+  background: var(--mx-line);
+  border-top: 1px solid var(--mx-line);
+}
+.mx-value {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 14px 12px;
+  background: var(--mx-surface);
+}
+.mx-value.is-wide {
+  grid-column: span 2;
+}
+.mx-value header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 22px;
+}
+.mx-value header strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.mx-value .mx-cell-edit {
+  margin-left: 0;
+  flex: none;
+}
+.mx-value-main {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.mx-value-main b {
+  font-weight: 600;
+}
+.mx-value-main .mx-before-after {
+  font-size: 16px;
+}
+.mx-value-main .mx-before-after small {
+  display: block;
+  font-size: 12px;
+}
+.mx-value footer {
+  margin-top: auto;
+  font-size: 11px;
+  color: var(--mx-muted);
+  font-family: var(--mx-mono);
+  overflow-wrap: anywhere;
+}
+.mx-value-doc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 3px;
+  font-family: var(--mx-font);
+  font-size: 12px;
+}
+.mx-value.is-changed {
+  box-shadow: inset 4px 0 0 var(--mx-warn);
+}
+.mx-value.is-added {
+  box-shadow: inset 4px 0 0 var(--mx-good);
+}
+.mx-value.is-removed {
+  box-shadow: inset 4px 0 0 var(--mx-bad);
+}
+.mx-list-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.mx-list-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.mx-list-value small {
+  font-size: 11px;
+  color: var(--mx-muted);
+}
+.mx-value .mx-lut {
+  font-size: 12px;
+  border-collapse: collapse;
+}
+.mx-value .mx-lut th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--mx-muted);
+  padding-right: 10px;
+  white-space: nowrap;
+}
+.mx-value .mx-lut td {
+  padding: 1px 8px;
+  text-align: right;
+}
+.mx-settings-group .mx-panel-head small {
+  margin-left: auto;
+}
+@media (max-width: 640px) {
+  .mx-value.is-wide {
+    grid-column: span 1;
+  }
+}
+
+.mx-review-summary > .mx-help,
+.mx-review-body > .mx-help {
+  margin: 0 0 12px;
+}
+.mx-sim-head .mx-btn {
+  flex: none;
+}
+
+/* Hardware: map and device table side by side on wide screens. */
+.mx-hw-layout {
+  display: grid;
+  grid-template-columns: minmax(420px, 560px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.mx-hw-layout .mx-hw-robot {
+  margin: 14px 0 0;
+  width: 100%;
+}
+@media (max-width: 1180px) {
+  .mx-hw-layout {
+    grid-template-columns: 1fr;
+  }
+  .mx-hw-layout .mx-hw-robot {
+    width: min(640px, 100%);
+    margin: 14px auto 0;
+  }
+}
+.mx-hw-layout {
+  grid-template-columns: minmax(380px, 480px) minmax(0, 1fr);
+}
+.mx-hw-table .mx-review-table thead th {
+  white-space: normal;
+  line-height: 1.3;
+  min-width: 70px;
+}
+.mx-hw-table .mx-review-table th,
+.mx-hw-table .mx-review-table td {
+  padding: 8px 10px;
+}
+
+/* The press window, shaded inside each lane's bar (behind the states). */
+.mx-lane-bar .mx-lane-press {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 3px;
+  z-index: 1;
+  background: rgba(106, 61, 240, 0.18);
+  border-left: 2px solid var(--mx-accent);
+  pointer-events: none;
+}
+.mx-lane-bar span {
+  z-index: 0;
 }

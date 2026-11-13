@@ -109,56 +109,71 @@ export function SettingsView({ report, review, editSetting }: { report: ReviewRe
             </h2>
             <small className="mx-help">{rows.length}</small>
           </header>
-          <table className="mx-review-table">
-            <tbody>
-              {mode === "changes"
-                ? (rows as SettingChange[]).map((c) => (
-                    <tr key={c.key} className={`is-${c.kind}`}>
-                      <th scope="row">
-                        {c.label}
-                        <small>{c.subsystem}</small>
-                      </th>
-                      <td>
+          <div className="mx-value-grid">
+            {mode === "changes"
+              ? (rows as SettingChange[]).map((c) => {
+                  const s = (c.after ?? c.before)!;
+                  return (
+                    <article key={c.key} className={`mx-value is-${c.kind} ${c.rows?.length ? "is-wide" : ""}`} title={s.doc}>
+                      <header>
+                        <strong>{c.label}</strong>
+                      </header>
+                      <div className="mx-value-main">
                         <ChangeValue c={c} />
-                      </td>
-                      <td className="mx-source">{(c.after ?? c.before)!.file.split("/").pop()}:{(c.after ?? c.before)!.line}</td>
-                    </tr>
-                  ))
-                : (rows as Setting[]).map((s) => (
-                    <tr key={s.key}>
-                      <th scope="row">
-                        {s.label}
-                        <small>{s.subsystem}</small>
-                      </th>
-                      <td>
-                        {s.list ? (
-                          <span className="mx-list-values">
-                            {s.list.map((v, i) => (
-                              <span key={i}>
-                                {s.elementNotes?.[i] ? <small>{s.elementNotes[i]} </small> : null}
-                                {v}
-                                {editButton(s, i)}
-                              </span>
-                            ))}
-                          </span>
-                        ) : s.table ? (
-                          <span>
-                            {s.table.map(([x, y]) => `${x} → ${y}`).join(" · ")}
-                            {s.tableUnits ? <small> ({s.tableUnits[0]} → {s.tableUnits[1]})</small> : null}
-                          </span>
-                        ) : (
-                          <>
-                            {s.display}
-                            {editButton(s)}
-                          </>
-                        )}
-                        {s.doc && <small className="mx-doc">{s.doc}</small>}
-                      </td>
-                      <td className="mx-source">{s.file.split("/").pop()}:{s.line}</td>
-                    </tr>
-                  ))}
-            </tbody>
-          </table>
+                      </div>
+                      <footer>
+                        {c.subsystem} · {s.file.split("/").pop()}:{s.line}
+                      </footer>
+                    </article>
+                  );
+                })
+              : (rows as Setting[]).map((s) => (
+                  <article key={s.key} className={`mx-value ${s.table || (s.list && s.list.length > 3) ? "is-wide" : ""}`} title={s.doc}>
+                    <header>
+                      <strong>{s.label}</strong>
+                      {!s.list && editButton(s)}
+                    </header>
+                    <div className="mx-value-main">
+                      {s.list ? (
+                        <span className="mx-list-values">
+                          {s.list.map((v, i) => (
+                            <span key={i} className="mx-list-value">
+                              {s.elementNotes?.[i] ? <small>{s.elementNotes[i]}</small> : null}
+                              <b>{v}</b>
+                              {editButton(s, i)}
+                            </span>
+                          ))}
+                        </span>
+                      ) : s.table ? (
+                        <table className="mx-lut">
+                          <thead>
+                            <tr>
+                              <th>{s.tableUnits?.[0] ? `In (${s.tableUnits[0]})` : "In"}</th>
+                              {s.table.map(([x]) => (
+                                <td key={x}>{x}</td>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <th>{s.tableUnits?.[1] ? `Out (${s.tableUnits[1]})` : "Out"}</th>
+                              {s.table.map(([x, y]) => (
+                                <td key={x}>{y}</td>
+                              ))}
+                            </tr>
+                          </tbody>
+                        </table>
+                      ) : (
+                        <b>{s.display}</b>
+                      )}
+                    </div>
+                    <footer>
+                      {s.subsystem} · {s.file.split("/").pop()}:{s.line}
+                      {s.doc ? <span className="mx-value-doc">{s.doc}</span> : null}
+                    </footer>
+                  </article>
+                ))}
+          </div>
         </section>
       ))}
     </div>

@@ -231,6 +231,8 @@ function Shell({
           {navigation.map(({ id, name, icon: Icon }) => (
             <button
               key={id}
+              aria-label={name}
+              title={name}
               aria-current={page === id ? "page" : undefined}
               className={page === id ? "is-active" : ""}
               onClick={() => setPage(id)}

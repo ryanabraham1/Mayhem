@@ -136,7 +136,7 @@ export function Replay({ result, onTime, revision }: { result: ScenarioResult; o
 
 function Status({ r }: { r: ScenarioResult }) {
   if (r.failed) return <Badge tone="bad">{r.error ? "crashed" : "fails"}</Badge>;
-  if (r.differences.length) return <Badge tone="warn">behaves differently</Badge>;
+  if (r.differences.length) return <Badge tone="warn">different</Badge>;
   return <Badge tone="good">same</Badge>;
 }
 

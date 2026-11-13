@@ -41,7 +41,15 @@ export function RobotDiagram({
         <strong>{group.replace("Drivetrain · ", "")}</strong>
         <span className="mx-hw-ids">
           {list.map((d) => (
-            <i key={d.key} className={changes.has(d.key) ? "is-changed" : ""} title={`${d.name} (${d.kind})`}>
+            <i
+              key={d.key}
+              className={(() => {
+                // Red only when the ID itself changed (or the device is new/gone); the tile shows other changes.
+                const c = changes.get(d.key);
+                return c && (c.kind !== "changed" || c.fields.some((f) => f.field === "CAN ID")) ? "is-changed" : "";
+              })()}
+              title={`${d.name} (${d.kind})`}
+            >
               {d.kind === "Talon FX" ? "" : d.kind === "CANcoder" ? "enc " : d.kind === "Pigeon 2" ? "gyro " : ""}
               {d.fields["CAN ID"] ?? "?"}
             </i>
@@ -106,6 +114,7 @@ export function HardwareView({
           </span>
         </div>
       )}
+      <div className="mx-hw-layout">
       <RobotDiagram devices={devices} changes={changes} selected={selected} select={setSelected} />
       <section className="mx-panel is-flush mx-hw-table" aria-label={`${selected} devices`}>
         <header className="mx-panel-head">
@@ -166,11 +175,9 @@ export function HardwareView({
             </tbody>
           </table>
         </div>
-        <p className="mx-help mx-hw-note">
-          Read from the robot code's constants and motor configurations. A simulated check of what each motor actually receives comes
-          with sim proof.
-        </p>
+        <p className="mx-help mx-hw-note">Read from the robot code's constants and motor configurations.</p>
       </section>
+      </div>
     </div>
   );
 }

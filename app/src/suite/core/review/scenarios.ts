@@ -335,6 +335,27 @@ export function describeTrack(t: Track, limit = 10): string {
   return parts.length > limit ? [...parts.slice(0, limit - 2), `… ${parts.length - limit + 1} more`, parts[parts.length - 1]].join(" → ") : parts.join(" → ");
 }
 
+/** Same steps at different times: "same steps, up to 1.2 s later". */
+function shiftText(shifts: number[]) {
+  const worst = shifts.reduce((w, d) => (Math.abs(d) > Math.abs(w) ? d : w), 0);
+  return `same steps, up to ${Math.abs(worst).toFixed(1)} s ${worst > 0 ? "later" : "earlier"}`;
+}
+
+/** Different steps, in a few words: what is new, what is gone, flickering. */
+function stepsText(before: Track, after: Track) {
+  const was = new Set(before.changes.map((c) => c.value)),
+    now = new Set(after.changes.map((c) => c.value));
+  const parts: string[] = [];
+  const flap = flapping(after);
+  if (flap && !flapping(before)) parts.push(`now flickers between ${flap.values.join(" and ")} (${flap.from.toFixed(1)} s)`);
+  const added = [...now].filter((v) => !was.has(v)),
+    gone = [...was].filter((v) => !now.has(v));
+  if (added.length) parts.push(`now also ${added.slice(0, 4).join(", ")}${added.length > 4 ? "…" : ""}`);
+  if (gone.length) parts.push(`no longer ${gone.slice(0, 4).join(", ")}${gone.length > 4 ? "…" : ""}`);
+  if (!parts.length) parts.push(`different steps (${before.changes.length} before, ${after.changes.length} now)`);
+  return parts.join("; ");
+}
+
 /** Two runs of the same scenario behave the same when every track goes through the same values at about the same times. */
 export function compareOutcomes(before: Outcome, after: Outcome, tolerance = 0.15): { same: boolean; differences: string[] } {
   const differences: string[] = [];
@@ -342,14 +363,15 @@ export function compareOutcomes(before: Outcome, after: Outcome, tolerance = 0.1
   for (const name of names) {
     const a = before.tracks.find((t) => t.name === name),
       b = after.tracks.find((t) => t.name === name);
-    const text = (t?: Track) => (t ? describeTrack(t) : "not logged");
+    const text = (t?: Track) => (t ? describeTrack(t, 6) : "not logged");
     if (!a || !b) {
       differences.push(`${name}: ${text(a)} ⇒ ${text(b)}`);
       continue;
     }
     const sameValues = a.changes.length === b.changes.length && a.changes.every((c, i) => c.value === b.changes[i].value);
-    const sameTimes = sameValues && a.changes.every((c, i) => Math.abs(c.time - b.changes[i].time) <= tolerance);
-    if (!sameTimes) differences.push(`${name}: ${text(a)} ⇒ ${text(b)}`);
+    const shifts = sameValues ? a.changes.map((c, i) => b.changes[i].time - c.time) : [];
+    if (sameValues && shifts.every((d) => Math.abs(d) <= tolerance)) continue;
+    differences.push(`${name}: ${sameValues ? shiftText(shifts) : stepsText(a, b)}`);
   }
   if ((before.autoStatus ?? "") !== (after.autoStatus ?? "")) differences.push(`Auto result: ${before.autoStatus ?? "—"} ⇒ ${after.autoStatus ?? "—"}`);
   // Where the robot drove: the largest gap between the two paths at the same moment.

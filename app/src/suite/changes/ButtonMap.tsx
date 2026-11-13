@@ -40,13 +40,14 @@ const IDLE = /^(OFF|STOWED|PARKED|IDLE|NORMAL|NONE|DISABLED)$/i;
 const PALETTE = ["#6a3df0", "#0e9670", "#d97706", "#d33452", "#2f80ed", "#9b51e0", "#0f9db5", "#c2410c"];
 const colorOf = (value: string) => (IDLE.test(value) ? "" : PALETTE[[...value].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % PALETTE.length]);
 
-function Lane({ track, end, label, faded, nameOf }: { track?: Track; end: number; label: string; faded?: boolean; nameOf: (v: string) => string }) {
+function Lane({ track, end, label, faded, nameOf, press }: { track?: Track; end: number; label: string; faded?: boolean; nameOf: (v: string) => string; press: number }) {
   const span = end - FROM;
   const pct = (t: number) => `${((Math.min(end, Math.max(FROM, t)) - FROM) / span) * 100}%`;
   return (
     <div className={`mx-lane ${faded ? "is-before" : ""}`}>
       <small>{label}</small>
       <div className="mx-lane-bar">
+        <i className="mx-lane-press" style={{ left: pct(PRESS), width: `calc(${pct(PRESS + press)} - ${pct(PRESS)})` }} aria-hidden="true" />
         {(track?.changes ?? []).map((c, i, all) => {
           const stop = all[i + 1]?.time ?? end;
           if (stop <= FROM) return null;
@@ -71,7 +72,6 @@ function Lane({ track, end, label, faded, nameOf }: { track?: Track; end: number
 function Press({ result, kind, names, nameOf }: { result?: ScenarioResult; kind: "tap" | "hold"; names: string[]; nameOf: (v: string) => string }) {
   if (!result) return null;
   const end = Math.max(result.before?.duration ?? 0, result.after?.duration ?? 0, 3.5);
-  const span = end - FROM;
   const changed = result.differences.length > 0;
   const track = (o: Outcome | undefined, name: string) => o?.tracks.find((t) => t.name === name);
   return (
@@ -81,16 +81,11 @@ function Press({ result, kind, names, nameOf }: { result?: ScenarioResult; kind:
         {changed ? <Badge tone="bad">changed</Badge> : result.before ? <Badge tone="good">same</Badge> : null}
       </div>
       <div className="mx-press-lanes">
-        <i
-          className="mx-press-window"
-          style={{ left: `calc(var(--mx-lane-label) + (100% - var(--mx-lane-label)) * ${(PRESS - FROM) / span})`, width: `calc((100% - var(--mx-lane-label)) * ${(kind === "tap" ? 0.06 : 2) / span})` }}
-          aria-hidden="true"
-        />
         {names.map((name) => (
           <div key={name} className="mx-lane-group">
             <span className="mx-lane-name">{name}</span>
-            {changed && result.before && <Lane track={track(result.before, name)} end={end} label="Before" faded nameOf={nameOf} />}
-            <Lane track={track(result.after, name)} end={end} label={changed && result.before ? "After" : ""} nameOf={nameOf} />
+            {changed && result.before && <Lane track={track(result.before, name)} end={end} label="Before" faded nameOf={nameOf} press={kind === "tap" ? 0.06 : 2} />}
+            <Lane track={track(result.after, name)} end={end} label={changed && result.before ? "After" : ""} nameOf={nameOf} press={kind === "tap" ? 0.06 : 2} />
           </div>
         ))}
       </div>
@@ -121,7 +116,7 @@ export function ButtonMap({ results, machines }: { results: ScenarioResult[]; ma
   const active = rows.filter((r) => r.names.length || r.changed || r.failed).sort((a, b) => Number(b.changed) - Number(a.changed));
   const idle = rows.filter((r) => !active.includes(r));
   return (
-    <div className="mx-button-map">
+    <div className="mx-press-map">
       {active.map((r) => (
         <section key={r.button} className={`mx-button-card ${r.changed ? "is-changed" : ""}`}>
           <header>

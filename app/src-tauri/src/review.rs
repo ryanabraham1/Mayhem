@@ -94,6 +94,19 @@ pub async fn review_repo(repo: String) -> Result<RepoInfo, String> {
             };
             revisions.push(Revision { rev: f[0].into(), sha: f[1].into(), label: f[2].into(), kind: kind.into(), date: f[3].into() });
         }
+        // The default branches always, however old (the list above keeps the 40 most recent refs).
+        for name in ["origin/main", "main", "origin/master", "master"] {
+            if revisions.iter().any(|r| r.rev == name) {
+                continue;
+            }
+            if let Ok(line) = git(&root, &["log", "-1", "--format=%H\t%s\t%cI", name]) {
+                let f: Vec<&str> = line.trim().splitn(3, '\t').collect();
+                if f.len() == 3 {
+                    let kind = if name.starts_with("origin/") { "remote" } else { "branch" };
+                    revisions.push(Revision { rev: name.into(), sha: f[0].into(), label: f[1].into(), kind: kind.into(), date: f[2].into() });
+                }
+            }
+        }
         let log = git(&root, &["log", "-30", "--format=%H\t%s\t%cI\t%an"])?;
         for line in log.lines() {
             let f: Vec<&str> = line.splitn(4, '\t').collect();
