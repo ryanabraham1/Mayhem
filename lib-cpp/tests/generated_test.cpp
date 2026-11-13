@@ -3,6 +3,7 @@
 #include "../../examples/suite/competition.hpp"
 #include "mayhem/alliance.hpp"
 #include <cassert>
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <type_traits>
@@ -54,5 +55,23 @@ int main() {
   // Field size feeds AllianceRoutine.
   mayhem::AllianceRoutine red(gen::routines[0], gen::fieldLength, gen::fieldWidth, mayhem::FieldTransform::Flip);
   assert(std::abs(red.StartPose().x - (gen::fieldLength - gen::routine_0::startPose.x)) < 1e-12);
+  // Path preview: the editor's path-only playback from the start pose, transformed per alliance.
+  const auto& info = gen::routines[0];
+  assert(info.preview && info.previewCount > 20 && info.preview[0].x == info.startPose.x && info.preview[0].y == info.startPose.y);
+  assert(std::abs(info.preview[info.previewCount - 1].x - 3.2) < 1e-9 && std::abs(info.preview[info.previewCount - 1].y - 5.6) < 1e-9);
+  bool curved = false;  // not straight lines between steps: the return leg bends into the lane
+  for (std::size_t i = 0; i < info.previewCount; ++i) curved |= info.preview[i].y > 2.45 && info.preview[i].y < 3.5 && info.preview[i].x < 3.3;
+  assert(curved);
+  assert(red.Preview().size() == info.previewCount);
+  const auto flipped = mayhem::PreviewPath(info, mayhem::FieldTransform::Flip, gen::fieldLength, gen::fieldWidth);
+  for (std::size_t i = 0; i < info.previewCount; ++i) {
+    assert(std::abs(red.Preview()[i].x - (gen::fieldLength - info.preview[i].x)) < 1e-12 && flipped[i].x == red.Preview()[i].x);
+    assert(std::abs(mayhem::Wrap(red.Preview()[i].heading - info.preview[i].heading - 3.14159265358979323846)) < 1e-12);
+  }
+  red.Apply(mayhem::FieldTransform::None);
+  assert(red.Preview()[5].x == info.preview[5].x);
+  assert(mayhem::PreviewPath(info, mayhem::FieldTransform::None, gen::fieldLength, gen::fieldWidth).size() == info.previewCount);
+  // Routine guard signals, for AutoRunner::BindSignal / Unbound.
+  assert(info.routine.signalCount == 3 && info.routine.signals[0] == "pieceDetected");
   std::cout << "Generated header checks passed\n";
 }

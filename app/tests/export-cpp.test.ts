@@ -10,6 +10,7 @@ import {
   canonicalJson,
   cppIdentifiers,
   exportCpp,
+  previewPath,
   qualifiedTransitionId,
 } from "../src/suite/core/export-cpp.ts";
 import { exampleMachine, parseMachineManifest, settleMachine, type MachineManifest } from "../src/suite/core/machines.ts";
@@ -348,5 +349,64 @@ int main() { mayhem_generated::ShooterMode::Machine m; ${line} return 0; }`;
     // Without the event flag the press is seen again and toggles straight back off.
     const level = { ...intake, inputs: intake.inputs.map((i) => ({ ...i, event: undefined })) };
     expect(settleMachine(level, "STOWED", pressed, 3)).toEqual({ state: "INTAKING", path: ["STOWED", "INTAKING", "STOWED", "INTAKING"], settled: false });
+  });
+
+  it("exports onTimeout, guard signal keys and the path preview, and runs with AutoRunner bindings", () => {
+    const p = load();
+    const r = p.routines[0];
+    r.nodes.find((n) => n.id === "shoot")!.onTimeout = "succeed";
+    r.nodes.find((n) => n.id === "shoot")!.timeout = 1.5;
+    const cpp = exportCpp(p);
+    expect(cpp).toMatch(/\{"shoot",mayhem::NodeKind::Action,.*,mayhem::TimeoutOutcome::Succeed\}/);
+    expect(cpp).not.toMatch(/\{"collect",mayhem::NodeKind::Action,.*TimeoutOutcome/);
+    expect(cpp).toContain('inline constexpr std::array<std::string_view,3> signalKeys = {{\n  "pieceDetected",\n  "shooterReady",\n  "shotComplete",\n}};');
+    expect(cpp).toContain("transitions.data(),transitions.size(),signalKeys.data(),signalKeys.size()};");
+    expect(cpp).toContain("inline constexpr mayhem::RoutineInfo info{name,routine,startPose,preview.data(),preview.size()};");
+    // The preview follows the editor's path-only playback: from the start to the last pose step,
+    // along curves rather than straight lines between steps.
+    const preview = previewPath(p, r);
+    expect(preview[0]).toEqual(r.start ?? p.robot.start);
+    expect(preview.at(-1)).toEqual({ x: 3.2, y: 5.6, heading: 1.1 });
+    const goals = r.nodes.filter((n) => n.kind === "pose").map((n) => n.goal!);
+    const offLine = preview.filter((q) => goals.every((g, i) => {
+      const a = i ? goals[i - 1] : preview[0], dx = g.x - a.x, dy = g.y - a.y, len = Math.hypot(dx, dy) || 1;
+      return Math.abs((q.x - a.x) * dy - (q.y - a.y) * dx) / len > 0.05;
+    }));
+    expect(offLine.length).toBeGreaterThan(3);
+    for (let i = 1; i < preview.length; i++) expect(Math.hypot(preview[i].x - preview[i - 1].x, preview[i].y - preview[i - 1].y)).toBeLessThan(0.2);
+    expect(exportCpp(p)).toBe(cpp);  // deterministic
+    const run = compile("bound", `#include "HEADER"
+#include "mayhem/alliance.hpp"
+#include <cstdio>
+#include <string>
+namespace gen = mayhem_generated;
+static double now = 0;
+int main() {
+  mayhem::AllianceRoutine routine(gen::routine_0::info, gen::fieldLength, gen::fieldWidth, mayhem::FieldTransform::Flip);
+  mayhem::AutoRunner runner(routine.View());
+  std::string report = runner.UnboundReport();
+  int fireTicks = 0;
+  bool piece = false;
+  runner.Bind("intake.acquire", mayhem::Instant([&] { piece = true; }))
+        .Bind("shooter.fire", {nullptr, [&] { ++fireTicks; return mayhem::ActionStatus::Running; }, nullptr})
+        .BindSignal("pieceDetected", [&] { return mayhem::SignalValue{piece}; })
+        .BindSignal("shooterReady", [] { return mayhem::SignalValue{true}; })
+        .BindSignal("shotComplete", [] { return mayhem::SignalValue{true}; });
+  runner.SetClock([] { return now; });
+  mayhem::Pose pose = routine.StartPose(); mayhem::Velocity v;
+  runner.Start();
+  while (runner.Status() == mayhem::RunStatus::Running && now < 30) {
+    now += .02; v = runner.Tick(pose, v);
+    pose.x += v.vx * .02; pose.y += v.vy * .02; pose.heading = mayhem::Wrap(pose.heading + v.omega * .02);
+  }
+  const auto& end = routine.Preview().back();
+  std::printf("%s|%d %d %zu %.2f %.2f\\n", report.c_str(), runner.Status() == mayhem::RunStatus::Completed, fireTicks > 60,
+              runner.Unbound().size(), end.x - pose.x, end.y - pose.y);
+}`, cpp);
+    expect(run.stderr).toBe("");
+    const out = execFileSync(resolve(dir, "bound"), { encoding: "utf8" });
+    expect(out.split("|")[0]).toBe("action intake.acquire (node collect)\naction shooter.fire (node shoot)\nsignal pieceDetected\nsignal shooterReady\nsignal shotComplete\n");
+    // Completes through the 1.5 s shot window; the red preview ends where the robot ends.
+    expect(out.split("|")[1].trim()).toMatch(/^1 1 0 -?0\.0\d -?0\.0\d$/);
   });
 });

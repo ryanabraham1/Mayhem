@@ -1,10 +1,12 @@
 import {
   resolveNodeConstraints,
+  type AutoRoutine,
   type Condition,
+  type Pose,
   type SuiteProject,
 } from "./model.ts";
-import { parseMachineManifest, type MachineManifest } from "./machines.ts";
-import { autoNext, isIntermediate } from "./runtime.ts";
+import { conditionSignals, parseMachineManifest, type MachineManifest } from "./machines.ts";
+import { autoNext, isIntermediate, simulate, wrap } from "./runtime.ts";
 
 /** Machine name robot code reports autonomous routines under (mayhem::kAutonomousMachine). */
 export const AUTONOMOUS_MACHINE = "Autonomous";
@@ -77,6 +79,40 @@ export function canonicalJson(value: unknown): string {
           )
         : v;
   return JSON.stringify(sort(value));
+}
+
+/**
+ * The routine's path as the editor's path-only playback drives it (BLine preview geometry and
+ * blending, not straight lines between steps), from its start pose: a point every `spacing` m or
+ * ~8.6° of heading change, plus the last. Rounded to mm and 1e-4 rad so the header is stable.
+ */
+export function previewPath(project: SuiteProject, routine: AutoRoutine, spacing = 0.1): Pose[] {
+  const start = routine.start ?? project.robot.start;
+  let poses: Pose[];
+  try {
+    const signals = Object.fromEntries(project.signals.map((s) => [s.key, s.initial]));
+    poses = [start, ...simulate(project, routine, signals, { mode: "path", maxSeconds: 60 }).frames.map((f) => f.pose)];
+  } catch {
+    poses = [start, ...routine.nodes.flatMap((n) => (n.kind === "pose" && n.goal ? [n.goal] : []))];
+  }
+  const round = (p: Pose): Pose => ({
+    x: Math.round(p.x * 1000) / 1000,
+    y: Math.round(p.y * 1000) / 1000,
+    heading: Math.round(wrap(p.heading) * 10000) / 10000 || 0,
+  });
+  const out: Pose[] = [];
+  for (const [i, p] of poses.entries()) {
+    const last = out[out.length - 1];
+    const final = i === poses.length - 1;
+    if (
+      !last ||
+      Math.hypot(p.x - last.x, p.y - last.y) >= spacing ||
+      Math.abs(wrap(p.heading - last.heading)) >= 0.15 ||
+      (final && (Math.hypot(p.x - last.x, p.y - last.y) > 1e-3 || Math.abs(wrap(p.heading - last.heading)) > 1e-3))
+    )
+      out.push(round(p));
+  }
+  return out;
 }
 
 const CPP_KEYWORDS = new Set(
@@ -250,6 +286,8 @@ export function exportCpp(project: SuiteProject): string {
   ];
   project.routines.forEach((r, ri) => {
     output.push(`namespace routine_${ri} {`);
+    const signalKeys = [...new Set(r.transitions.flatMap((t) => conditionSignals(t.condition)))];
+    const preview = previewPath(project, r);
     output.push(`inline constexpr std::string_view name = ${quoted(r.name)};`);
     output.push(`inline constexpr mayhem::Pose startPose${pose(r.start ?? project.robot.start)};`);
     r.transitions.forEach((t, i) =>
@@ -283,7 +321,7 @@ export function exportCpp(project: SuiteProject): string {
         : "{}";
       const next = autoNext(r, n);
       const nextIndex = next ? r.nodes.indexOf(next) : -1;
-      return `{${quoted(n.id)},mayhem::NodeKind::${n.kind === "pose" ? "Pose" : n.kind === "finish" ? "Finish" : n.kind === "custom" ? "Custom" : "Action"},${goal},${n.timeout},${quoted(n.action ?? "")},{${c.maxVelocity},${c.maxAcceleration},${c.maxAngularVelocity},${c.maxAngularAcceleration},${c.translationKp},${c.rotationKp},${c.handoffRadius},${c.crossTrackKp},${c.minVelocity},${c.anticipateSpeedCaps}},${n.during?.length ? `during_${i}.data(),during_${i}.size()` : "nullptr,0"},${nextIndex},${isIntermediate(r, n)}}`;
+      return `{${quoted(n.id)},mayhem::NodeKind::${n.kind === "pose" ? "Pose" : n.kind === "finish" ? "Finish" : n.kind === "custom" ? "Custom" : "Action"},${goal},${n.timeout},${quoted(n.action ?? "")},{${c.maxVelocity},${c.maxAcceleration},${c.maxAngularVelocity},${c.maxAngularAcceleration},${c.translationKp},${c.rotationKp},${c.handoffRadius},${c.crossTrackKp},${c.minVelocity},${c.anticipateSpeedCaps}},${n.during?.length ? `during_${i}.data(),during_${i}.size()` : "nullptr,0"},${nextIndex},${isIntermediate(r, n)}${n.onTimeout === "succeed" ? ",mayhem::TimeoutOutcome::Succeed" : ""}}`;
     });
     output.push(
       ...declare("mayhem::AutoNode", "nodes", nodes),
@@ -292,8 +330,20 @@ export function exportCpp(project: SuiteProject): string {
         "transitions",
         r.transitions.map((t, i) => `{${quoted(t.id)},${quoted(t.from)},${quoted(t.to)},guard_${i}}`),
       ),
-      `inline constexpr mayhem::RoutineView routine{${quoted(r.id)},${quoted(r.initial)},nodes.data(),nodes.size(),transitions.data(),transitions.size()};`,
-      `inline constexpr mayhem::RoutineInfo info{name,routine,startPose};`,
+      "// Signal keys the guards read (AutoRunner::BindSignal / Unbound).",
+      ...declare("std::string_view", "signalKeys", signalKeys.map(quoted)),
+      `inline constexpr mayhem::RoutineView routine{${quoted(r.id)},${quoted(r.initial)},nodes.data(),nodes.size(),transitions.data(),transitions.size(),${signalKeys.length ? "signalKeys.data(),signalKeys.size()" : "nullptr,0"}};`,
+      "// Path preview: the editor's path-only playback, about every 0.1 m, blue origin (mayhem::PreviewPath).",
+      ...(preview.length
+        ? [
+            `inline constexpr std::array<mayhem::Pose,${preview.length}> preview = {{`,
+            ...Array.from({ length: Math.ceil(preview.length / 6) }, (_, k) =>
+              "  " + preview.slice(k * 6, k * 6 + 6).map((p) => `${pose(p)},`).join(""),
+            ),
+            "}};",
+          ]
+        : ["inline constexpr std::array<mayhem::Pose,0> preview = {};"]),
+      `inline constexpr mayhem::RoutineInfo info{name,routine,startPose,${preview.length ? "preview.data(),preview.size()" : "nullptr,0"}};`,
       "}",
     );
   });

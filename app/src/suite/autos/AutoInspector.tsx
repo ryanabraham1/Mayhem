@@ -336,6 +336,7 @@ export function AutoInspector({
                   s.editNode((n) => {
                     n.kind = e.target.value as AutoNode["kind"];
                     if (n.kind === "pose") n.goal ??= { ...DEFAULT_GOAL };
+                    if (n.kind !== "action" && n.kind !== "custom") delete n.onTimeout;
                     else n.action ||= "robot.action";
                   })
                 }
@@ -523,7 +524,7 @@ export function AutoInspector({
         (node.kind !== "pose" || tab === "advanced") && (
           <Section title="Safety">
             <NumberField
-              label="Failure watchdog"
+              label={node.onTimeout === "succeed" ? "Time window" : "Failure watchdog"}
               value={node.timeout}
               min={0.02}
               unit="s"
@@ -534,9 +535,22 @@ export function AutoInspector({
                 })
               }
             />
+            {(node.kind === "action" || node.kind === "custom") && (
+              <Toggle
+                label="Done when time runs out"
+                checked={node.onTimeout === "succeed"}
+                onChange={(done) =>
+                  s.editNode((n) => {
+                    if (done) n.onTimeout = "succeed";
+                    else delete n.onTimeout;
+                  })
+                }
+              />
+            )}
             <p className="mx-help">
-              If this step runs longer, the routine fails. It never counts as
-              success.
+              {node.onTimeout === "succeed"
+                ? "When the time runs out the step counts as done and the routine continues (a fixed window, such as aiming and shooting for 3.5 s). Robot code can still finish it sooner or fail it."
+                : "If this step runs longer, the routine fails. It never counts as success."}
             </p>
           </Section>
         )}

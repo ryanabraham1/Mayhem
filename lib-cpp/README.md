@@ -1,6 +1,6 @@
 # Mayhem C++ tools (development)
 
-Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.7.0). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
+Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.8.0). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
 
 ## Installing in a WPILib robot project
 
@@ -107,7 +107,9 @@ Generate a header with `node scripts/mayhem.mjs cpp project.mayhem.json --out sr
 | --- | --- |
 | `fieldLength`, `fieldWidth` | Project field size (m), for `AllianceRoutine` |
 | `startPose` | Robot default start pose |
-| `routine_<i>::name`, `::routine`, `::startPose`, `::info` | Chooser label, `RoutineView`, start pose (routine override or robot default), `RoutineInfo{name, routine, startPose}` |
+| `routine_<i>::name`, `::routine`, `::startPose`, `::info` | Chooser label, `RoutineView`, start pose (routine override or robot default), `RoutineInfo{name, routine, startPose, preview, previewCount}` |
+| `routine_<i>::signalKeys` | The guard inputs the routine reads (also `RoutineView::signals`), for `AutoRunner::BindSignal` and `Unbound()` |
+| `routine_<i>::preview` | The routine's path as the editor's path-only playback drives it (BLine preview geometry and blending), a `Pose` about every 0.1 m from the start pose, blue origin; `mayhem::PreviewPath` / `AllianceRoutine::Preview()` transform it |
 | `routines` | `std::array<RoutineInfo, N>` of every routine in project order; `mayhem::FindRoutine(routines, nameOrId)` |
 | `autonomous::manifest` | `ManifestView` of one `Autonomous` mayhem-machine manifest covering every routine (see below) |
 | `machine_<i>::machine`, `::manifest`, `::id`, `::inputs`; alias `<MachineId>::` | Each `extensions.machines` graph as a `MachineView` with its embedded manifest and declared inputs (see Mechanism state machines) |
@@ -117,6 +119,36 @@ Generate a header with `node scripts/mayhem.mjs cpp project.mayhem.json --out sr
 Manifests are embedded as canonical JSON (sorted keys) split into ~2 KB literals, because MSVC rejects string literals over 64 KB; `manifest.Text()` returns the joined `std::string` (allocates; call at startup). The exporter validates every machine with the same rules as the editor and fails on an invalid or duplicate one.
 
 **Autonomous manifest convention.** Its states are the union of all routines' nodes (a node ID used by several routines is one state, so give nodes distinct IDs when they mean different things). Its transitions are every routine's transitions with ID `"<routine id>/<transition id>"`, which makes them unique across routines. `AutoRunner::Attach` reports observations with the same IDs under machine `Autonomous` and channel `/Mayhem/States/Autonomous/state`, so the live viewer and log replay show any routine against the one manifest.
+
+### Binding actions (0.8.0)
+
+Bind robot code to action, custom-step and path-event IDs on the runner instead of writing `RobotHooks` if-chains:
+
+```cpp
+mayhem::AutoRunner runner(routine.View());                 // no hooks
+runner.Bind("superstructure.intake", mayhem::Instant([&] { intake.Start(); }))
+      .Bind("drivetrain.alignAndShoot", {[&] { aim.Begin(); },                 // begin
+                                         [&] { return aim.Tick(); },           // tick -> ActionStatus
+                                         [&](bool cancelled) { aim.End(); }})  // end
+      .BindSignal("superstructure.ready", [&] { return mayhem::SignalValue{shooter.Ready()}; });
+if (const auto report = runner.UnboundReport(); !report.empty())
+  throw std::runtime_error("Unbound autonomous IDs:\n" + report);   // boot, not mid-match
+```
+
+| Member | Meaning |
+| --- | --- |
+| `explicit AutoRunner(RoutineView, RunnerOptions = {})` | A runner without `RobotHooks`: actions and signals come only from bindings, and an unbound action fails its step. |
+| `AutoRunner& Bind(std::string_view id, Action)` | `Action{begin, tick, end}`: `begin()` on entering the step, `tick()` each loop until Succeeded/Failed (empty: Succeeded at once), `end(cancelled)` once on exit. A path event marker with that key calls `begin()`. Rebinding replaces. Allocates; call at startup. |
+| `Action Instant(std::function<void()>)` | Runs the function on `begin` and succeeds (fire-and-forget requests). |
+| `AutoRunner& BindSignal(std::string_view key, std::function<SignalValue()>)` | A guard input. |
+| `std::vector<UnboundId> Unbound()`, `std::string UnboundReport()` | Every action, `during` action, path event and guard signal (`RoutineView::signals`) without a binding, each once with the first node using it; the report is one `<kind> <id> (node <node>)` per line, empty when complete. |
+| `void SetClock(Clock)`, `Velocity Tick(Pose, Velocity)` | dt from the clock since `Start()` or the previous clocked tick. Without a clock this overload fails the routine. `Attach(observer, manifest, clock)` also sets the clock. |
+
+`AutoRunner(routine, hooks)` keeps working: IDs you bind take precedence and everything else goes to the hooks, so a robot can move one ID at a time. Guards receive your hooks object, as before, unless a signal is bound; then they receive an internal `RobotHooks` that reads bound signals first and your hooks' `Signal` second, so hand-written guards must not downcast it. The runner is not copyable.
+
+**Timeout outcome.** `AutoNode::onTimeout` (project `onTimeout: "succeed"`, emitted as `mayhem::TimeoutOutcome::Succeed`) makes an action or custom step end as done when its `timeout` expires, for fixed windows such as "aim and shoot for 3.5 s". The action is not ticked again; its `end(false)` runs on the transition. The action may still succeed earlier or fail. The default, `TimeoutOutcome::Fail`, fails the routine, and a pose step always fails on timeout.
+
+### RobotHooks
 
 Derive `RobotHooks` in your robot project. Return real typed `SignalValue`s; implement `BeginAction`, `TickAction`, and `EndAction` with your existing mechanism/scheduler code. `TickAction` explicitly returns Running, Succeeded, or Failed. `EndAction` also receives cancellation. Do not return success merely because time elapsed. String signal views must refer to storage that remains valid during guard evaluation.
 
@@ -259,7 +291,7 @@ runner.Start(measuredVelocity);
 | `Mirror` | `y' = W - y`, `h' = -h` (`MirrorPose`) | left/right variant of the same auto |
 | `MirrorLength` | `x' = L - x`, `h' = pi - h` | red on a mirror-symmetric field (2023, 2024) |
 
-Every field-frame value is transformed: each node's goal pose (x, y, heading), `aimX`/`aimY` (PointAt), every rotation marker's heading, and the routine start pose (`StartPose()`; `Resolve(pose)` transforms any other blue pose, e.g. for a field preview). Event markers, progress `t`, tolerances, limits, actions, transitions, and guards are unchanged, and the view shares the blue transitions. `Apply()` always re-derives from the blue source, so calling it every enable is safe; apply before `Start()`, not mid-run. It returns false and applies `None` if the field size is not finite and positive. The object is movable (views stay valid) but not copyable. Never transform measured odometry; it is already blue-origin. The free functions `TransformPose`, `TransformGoal`, `TransformMarker`, and `TransformHeading` are available for custom code.
+Every field-frame value is transformed: each node's goal pose (x, y, heading), `aimX`/`aimY` (PointAt), every rotation marker's heading, the routine start pose (`StartPose()`; `Resolve(pose)` transforms any other blue pose), and the exported path preview (`Preview()`, when constructed from a `RoutineInfo`). `mayhem::PreviewPath(info, transform, fieldLength, fieldWidth)` returns the same transformed preview without an `AllianceRoutine`, e.g. to draw the chooser's selection on a `Field2d` while disabled. Event markers, progress `t`, tolerances, limits, actions, transitions, and guards are unchanged, and the view shares the blue transitions. `Apply()` always re-derives from the blue source, so calling it every enable is safe; apply before `Start()`, not mid-run. It returns false and applies `None` if the field size is not finite and positive. The object is movable (views stay valid) but not copyable. Never transform measured odometry; it is already blue-origin. The free functions `TransformPose`, `TransformGoal`, `TransformMarker`, and `TransformHeading` are available for custom code.
 
 ## Optional state observation
 
@@ -277,4 +309,4 @@ cmake --build lib-cpp/build
 ctest --test-dir lib-cpp/build --output-on-failure
 ```
 
-Tests exercise `PoseDriver` (reached, watchdog, invalid input, `dt == 0`, cancel), arrival/settling, moving handoff, invalid data, limits, watchdog behavior, loop-overrun clamping, goal telemetry and observer output, typed conditions and priority in `StateMachine`, `Settle` with one-shot events and clocked ticks, input logging, `TypedMachine`, no allocation per tick (counted `operator new`), alliance transforms including a closed-loop red run that matches the flipped blue run, the generated example header (`examples/suite/competition.hpp`), and agreement with the browser controller. App tests (`app/tests/export-cpp.test.ts`, `cpp-vendor.test.ts`) cover the exporter, `--check`, vendoring, and the vendordep layout. Host timings are not roboRIO benchmarks. No physical robot validation has been completed for this new library.
+Tests exercise `PoseDriver` (reached, watchdog, invalid input, `dt == 0`, cancel), arrival/settling, moving handoff, invalid data, limits, watchdog behavior, loop-overrun clamping, goal telemetry and observer output, typed conditions and priority in `StateMachine`, `Settle` with one-shot events and clocked ticks, input logging, `TypedMachine`, action bindings and `Unbound()`, clocked runner ticks, `onTimeout`, path previews, no allocation per tick (counted `operator new`), alliance transforms including a closed-loop red run that matches the flipped blue run, the generated example header (`examples/suite/competition.hpp`), and agreement with the browser controller. App tests (`app/tests/export-cpp.test.ts`, `cpp-vendor.test.ts`) cover the exporter, `--check`, vendoring, and the vendordep layout. Host timings are not roboRIO benchmarks. No physical robot validation has been completed for this new library.

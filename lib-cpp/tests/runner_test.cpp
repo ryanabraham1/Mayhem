@@ -153,5 +153,96 @@ int main() {
     drive(0,false,1,entry); assert(entry>2);
     drive(0,true,1,entry); assert(entry<=1.05);
   }
+  // Action binding without RobotHooks: Bind/Instant/BindSignal, and the startup check.
+  {
+    mayhem::AutoRunner bound(mayhem_generated::routine_0::routine);
+    assert(bound.UnboundReport()=="action intake.acquire (node collect)\naction shooter.fire (node shoot)\n"
+                                  "signal pieceDetected\nsignal shooterReady\nsignal shotComplete\n");
+    int acquires=0,fires=0,fireTicks=0,ends=0; bool cancelledEnd=true, piece=false;
+    bound.Bind("intake.acquire",mayhem::Instant([&]{acquires++;}))
+         .Bind("shooter.fire",{[&]{fires++;},[&]{return ++fireTicks>=3?mayhem::ActionStatus::Succeeded:mayhem::ActionStatus::Running;},
+                               [&](bool cancelled){ends++;cancelledEnd=cancelled;}})
+         .BindSignal("pieceDetected",[&]{return mayhem::SignalValue{piece};})
+         .BindSignal("shooterReady",[]{return mayhem::SignalValue{true};});
+    const auto missing=bound.Unbound();
+    assert(missing.size()==1&&missing[0].kind=="signal"&&missing[0].id=="shotComplete"&&missing[0].node.empty());
+    bound.BindSignal("shotComplete",[&]{return mayhem::SignalValue{fireTicks>=3};});
+    assert(bound.Unbound().empty()&&bound.UnboundReport().empty());
+    static double now=0;
+    bound.SetClock([]{return now;});
+    assert(bound.Start());
+    mayhem::Pose pose=mayhem_generated::startPose;mayhem::Velocity velocity;
+    for(int i=0;i<1500&&bound.Status()==mayhem::RunStatus::Running;i++) {
+      now+=.02;
+      if(bound.ActiveState()=="collect"&&i%20==0) piece=true;
+      velocity=bound.Tick(pose,velocity);  // dt from the clock
+      pose.x+=velocity.vx*.02;pose.y+=velocity.vy*.02;pose.heading=mayhem::Wrap(pose.heading+velocity.omega*.02);
+    }
+    assert(bound.Status()==mayhem::RunStatus::Completed&&acquires==1&&fires==1&&fireTicks==3&&ends==1&&!cancelledEnd);
+    // Without a clock the clocked tick fails instead of stalling.
+    mayhem::AutoRunner unclocked(mayhem_generated::routine_0::routine);
+    assert(unclocked.Start());unclocked.Tick(pose,{});assert(unclocked.Status()==mayhem::RunStatus::Failed);
+    // An unbound action fails its step (and Unbound() said so at startup).
+    mayhem::AutoRunner partial(mayhem_generated::routine_0::routine);
+    partial.BindSignal("pieceDetected",[]{return mayhem::SignalValue{true};});
+    assert(partial.Start());
+    pose=mayhem_generated::startPose;velocity={};
+    for(int i=0;i<1500&&partial.Status()==mayhem::RunStatus::Running;i++) {
+      velocity=partial.Tick(pose,velocity,.02);
+      pose.x+=velocity.vx*.02;pose.y+=velocity.vy*.02;pose.heading=mayhem::Wrap(pose.heading+velocity.omega*.02);
+    }
+    assert(partial.Status()==mayhem::RunStatus::Failed&&partial.ActiveState()=="collect");
+    // Bindings take precedence over RobotHooks; everything else still reaches the hooks.
+    Hooks fallback; fallback.hasPiece=false;
+    mayhem::AutoRunner mixed(mayhem_generated::routine_0::routine,fallback);
+    mixed.Bind("intake.acquire",mayhem::Instant([&]{acquires++;})).BindSignal("pieceDetected",[]{return mayhem::SignalValue{true};});
+    assert(mixed.Start());
+    pose=mayhem_generated::startPose;velocity={};
+    for(int i=0;i<1500&&mixed.Status()==mayhem::RunStatus::Running;i++) {
+      velocity=mixed.Tick(pose,velocity,.02);
+      pose.x+=velocity.vx*.02;pose.y+=velocity.vy*.02;pose.heading=mayhem::Wrap(pose.heading+velocity.omega*.02);
+    }
+    assert(mixed.Status()==mayhem::RunStatus::Completed&&acquires==2&&fallback.starts==1&&fallback.ends==1);  // shooter.fire via hooks
+  }
+  // onTimeout Succeed: a fixed action window ends the step as done; Fail (default) fails.
+  {
+    int ticks=0,ends=0;
+    const mayhem::AutoNode window[]={
+      {"aim",mayhem::NodeKind::Custom,{},.5,"aim",{},nullptr,0,-1,false,mayhem::TimeoutOutcome::Succeed},
+      {"done",mayhem::NodeKind::Finish,{},1,"",{}}};
+    const mayhem::AutoTransition next[]={{"t","aim","done",[](const mayhem::RobotHooks&){return true;}}};
+    mayhem::AutoRunner timed({"w","aim",window,2,next,1});
+    timed.Bind("aim",{{},[&]{ticks++;return mayhem::ActionStatus::Running;},[&](bool){ends++;}});
+    assert(timed.Start());
+    for(int i=0;i<100&&timed.Status()==mayhem::RunStatus::Running;i++) timed.Tick({},{},.02);
+    assert(timed.Status()==mayhem::RunStatus::Completed&&ticks==24&&ends==1);  // 25th tick reaches 0.5 s
+    mayhem::AutoNode strict[]={window[0],window[1]}; strict[0].onTimeout=mayhem::TimeoutOutcome::Fail;
+    mayhem::AutoRunner failing({"w","aim",strict,2,next,1});
+    failing.Bind("aim",{{},[]{return mayhem::ActionStatus::Running;},{}});
+    assert(failing.Start());
+    for(int i=0;i<100&&failing.Status()==mayhem::RunStatus::Running;i++) failing.Tick({},{},.02);
+    assert(failing.Status()==mayhem::RunStatus::Failed);
+    // A pose step never succeeds by timing out.
+    mayhem::AutoNode pose[]={{"go",mayhem::NodeKind::Pose,{{9,0,0}},.5,"",{}},window[1]}; pose[0].onTimeout=mayhem::TimeoutOutcome::Succeed;
+    const mayhem::AutoTransition arrive[]={{"t","go","done",[](const mayhem::RobotHooks&){return true;}}};
+    mayhem::AutoRunner drive({"p","go",pose,2,arrive,1});
+    assert(drive.Start());
+    for(int i=0;i<100&&drive.Status()==mayhem::RunStatus::Running;i++) drive.Tick({},{},.02);
+    assert(drive.Status()==mayhem::RunStatus::Failed);
+  }
+  // Path events reach bound actions (begin only).
+  {
+    const mayhem::PathMarker events[]={{mayhem::MarkerKind::Event,.5,0,"intake.on",true}};
+    mayhem::Goal g{{2,0,0}}; g.markers=events; g.markerCount=1;
+    const mayhem::AutoNode nodes[]={{"go",mayhem::NodeKind::Pose,g,5,"",{}},{"done",mayhem::NodeKind::Finish,{},1,"",{}}};
+    const mayhem::AutoTransition arrive[]={{"t","go","done",[](const mayhem::RobotHooks&){return true;}}};
+    mayhem::AutoRunner r({"e","go",nodes,2,arrive,1});
+    assert(r.UnboundReport()=="event intake.on (node go)\n");
+    int on=0; r.Bind("intake.on",mayhem::Instant([&]{on++;}));
+    assert(r.Start());
+    mayhem::Pose at;mayhem::Velocity v;
+    for(int i=0;i<1000&&r.Status()==mayhem::RunStatus::Running;i++){v=r.Tick(at,v,.02);at.x+=v.vx*.02;at.y+=v.vy*.02;}
+    assert(r.Status()==mayhem::RunStatus::Completed&&on==1);
+  }
   std::cout<<"Auto runner checks passed\n";
 }

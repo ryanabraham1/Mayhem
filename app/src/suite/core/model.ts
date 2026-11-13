@@ -91,8 +91,13 @@ export interface AutoNode {
   goal?: Goal;
   action?: string;
   description?: string;
-  /** Watchdog only: expiry fails execution, never implies success. */
+  /** Watchdog: expiry fails the routine unless `onTimeout` is "succeed". */
   timeout: number;
+  /**
+   * Action and custom steps only: "succeed" ends the step as done when `timeout` expires (a
+   * fixed window, e.g. aim-and-shoot for 3.5 s) instead of failing the routine. Default "fail".
+   */
+  onTimeout?: "fail" | "succeed";
   source?: string;
   constraints?: Partial<Constraints>;
   during?: string[];
@@ -530,6 +535,12 @@ export function validateProject(input: unknown): Issue[] {
           error(p, "Invalid node name or kind.");
         if (!finite(n.timeout) || n.timeout <= 0)
           error(p + ".timeout", "Expected a positive watchdog timeout.");
+        if (n.onTimeout !== undefined) {
+          if (n.onTimeout !== "fail" && n.onTimeout !== "succeed")
+            error(p + ".onTimeout", 'Expected "fail" or "succeed".');
+          else if (n.onTimeout === "succeed" && n.kind !== "action" && n.kind !== "custom")
+            error(p + ".onTimeout", "Only action and custom steps can succeed on timeout; a pose step that runs out of time has not arrived.");
+        }
         if (
           n.during !== undefined &&
           (!Array.isArray(n.during) ||

@@ -142,6 +142,36 @@ describe("measured-state autonomy", () => {
     frame = step(p, routine, initialFrame(p, routine), {}, .02, false, { actions: { "arm.hold": "failed" } });
     expect(frame.status).toBe("failed");
   });
+  it("ends an action step as done when its window runs out with onTimeout succeed", () => {
+    const p = clone(), routine = p.routines[0];
+    routine.initial = "collect";
+    const collect = routine.nodes.find(n => n.id === "collect")!;
+    collect.timeout = 0.5;
+    // The robot never reports success: the default watchdog fails the routine...
+    let failed = initialFrame(p, routine);
+    for (let i = 0; i < 40 && failed.status === "running"; i++) failed = step(p, routine, failed, successSignals, .02, false, { actions: {} });
+    expect([failed.status, failed.node]).toEqual(["failed", "collect"]);
+    // ...and onTimeout "succeed" counts the 0.5 s window as done and continues.
+    collect.onTimeout = "succeed";
+    let frame = initialFrame(p, routine);
+    for (let i = 0; i < 40 && frame.node === "collect"; i++) frame = step(p, routine, frame, successSignals, .02, false, { actions: {} });
+    expect([frame.status, frame.node]).toEqual(["running", "return-lane"]);
+    expect(frame.time).toBeCloseTo(0.5, 5);
+    expect(frame.events.some(e => e.message === "Collect: 0.5 s window ended; continuing" || e.message.endsWith("0.5 s window ended; continuing"))).toBe(true);
+    // An explicit failure still fails inside the window.
+    frame = step(p, routine, initialFrame(p, routine), successSignals, .02, false, { actions: { "intake.acquire": "failed" } });
+    expect(frame.status).toBe("failed");
+  });
+  it("validates onTimeout: fail or succeed, and succeed only on action and custom steps", () => {
+    const p = clone() as any;
+    p.routines[0].nodes.find((n: any) => n.id === "collect").onTimeout = "succeed";
+    expect(validateProject(p).filter(i => i.severity === "error")).toEqual([]);
+    p.routines[0].nodes.find((n: any) => n.id === "collect").onTimeout = "later";
+    expect(validateProject(p).map(i => i.path)).toContain("routines.0.nodes.1.onTimeout");
+    p.routines[0].nodes.find((n: any) => n.id === "collect").onTimeout = "fail";
+    p.routines[0].nodes[0].onTimeout = "succeed";
+    expect(validateProject(p).find(i => i.path === "routines.0.nodes.0.onTimeout")?.message).toMatch(/has not arrived/);
+  });
   it("bounds fast transition cycles before trace history can exhaust memory", () => {
     const p = clone(), routine = p.routines[0];
     routine.initial = "collect";

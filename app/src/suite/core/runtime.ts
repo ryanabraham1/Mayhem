@@ -521,7 +521,14 @@ export function step(
     );
     return next;
   }
-  if (time - frame.enteredAt >= node.timeout) {
+  // onTimeout "succeed" (action/custom steps): the window ended, so the step is done.
+  const windowEnded =
+    time - frame.enteredAt >= node.timeout &&
+    node.onTimeout === "succeed" &&
+    (node.kind === "action" || node.kind === "custom");
+  if (windowEnded && node.action && frame.actions[node.action] !== "succeeded")
+    event("event", `${node.name}: ${node.timeout} s window ended; continuing`);
+  if (time - frame.enteredAt >= node.timeout && !windowEnded) {
     next.status = "failed";
     next.velocity = { vx: 0, vy: 0, omega: 0 };
     event(
@@ -556,7 +563,7 @@ export function step(
     ];
     for (const id of callbacks) {
       const status =
-        next.actions[id] === "succeeded"
+        next.actions[id] === "succeeded" || (windowEnded && id === node.action && !node.during?.includes(id))
           ? "succeeded"
           : (options.actions?.[id] ?? "running");
       next.actions[id] = status;

@@ -10,7 +10,7 @@ Movement: the path follower is ported from BLine-Lib (BSD 3-Clause; see THIRD_PA
 - **Speed caps ahead.** By default (BLine) a step's `maxVelocity` applies only after its handoff, so the robot reaches a slow step fast and brakes there. `constraints.anticipateSpeedCaps: true` (robot, routine, or step) instead limits speed to `sqrt(cap² + 2·maxAcceleration·d)`, where d is the distance to that step's handoff point, so it arrives at the cap. The editor previews such paths with the native follower. Generated constraints still assume the BLine behavior and may be conservative when this is on.
 - Coordinates are blue-origin meters, radians, seconds, and field-relative velocities. Explicitly convert any vendor API that expects robot-relative speeds. Apply alliance transformations once, consistently, including point-at targets.
 - Final goals require translation and heading tolerance, measured low speed, and a settling interval. Intermediate goals can use a moving handoff radius. Translation goals may leave heading unconstrained.
-- Advance actions on observed conditions: possession, mechanism readiness, action completion, or pose arrival. Timeouts are watchdog failures, never evidence that a movement or mechanism succeeded.
+- Advance actions on observed conditions: possession, mechanism readiness, action completion, or pose arrival. Timeouts are watchdog failures, never evidence that a movement or mechanism succeeded. The one exception is a deliberate fixed window on an action or custom step (aim and shoot for 3.5 s): set `onTimeout: "succeed"` on that step and its `timeout` becomes the window (editor: Advanced, **Done when time runs out**). Pose steps cannot use it.
 - Use arbitrary action IDs and concurrent `during` actions for robot-owned work. Signal lookup is typed; missing or mismatched inputs fail closed, including under NOT. Transition order is priority order when several guards are true.
 - Handle disabled mode, cancellation, actuator limits, lost sensors, and localization quality in robot code. A client disconnect does not stop robot code. Mayhem's live viewer only subscribes to NetworkTables and cannot issue robot commands.
 
@@ -103,7 +103,7 @@ desktop app, but still attach these files.
 
 Use the official exporter; do not maintain a second one in the robot repo. `cpp <project> --out <header>` writes a C++17 header (and leaves an up-to-date file untouched); `cpp <project> --check <header>` exits 1 with a regenerate command when the header is stale, so put it in CI or a Gradle task. Output depends only on project content (not `revision` or key order) and a successful run writes nothing to stderr. The header (`namespace mayhem_generated`) contains:
 
-- every routine: `routine_<i>::routine`, `::name` (chooser label), `::startPose`, and the `routines` array of `mayhem::RoutineInfo{name, routine, startPose}` (`mayhem::FindRoutine(routines, nameOrId)`);
+- every routine: `routine_<i>::routine`, `::name` (chooser label), `::startPose`, `::signalKeys` (the inputs its guards read), `::preview` (its path as the editor's path-only playback drives it, a pose about every 0.1 m from the start pose, blue origin), and the `routines` array of `mayhem::RoutineInfo{name, routine, startPose, preview}` (`mayhem::FindRoutine(routines, nameOrId)`);
 - `autonomous::manifest`: one `Autonomous` mayhem-machine manifest for the live viewer and log replay. States are the union of routine nodes; transition IDs are `"<routine id>/<transition id>"` (`mayhem::QualifiedTransitionId`), unique across routines. `AutoRunner::Attach` reports with exactly these IDs;
 - every `extensions.machines` graph as a `mayhem::MachineView` (`machine_<i>::machine`, alias `<MachineId>::machine` when the ID is a C++ identifier, and the `machines` array), each with its manifest embedded (`manifest.Text()` for `Describe`);
 - `fieldLength` / `fieldWidth` for alliance transforms.
@@ -111,7 +111,8 @@ Use the official exporter; do not maintain a second one in the robot repo. `cpp 
 In robot code (details and signatures in `lib-cpp/README.md`):
 
 - Mechanism graphs: use the typed machine `mayhem_generated::<Machine>::Machine` (below): set its `In()` fields, `Settle()` once per loop, and test `Is(State::X)` / `Current()`. The string API (`mayhem::StateMachine(machine, signalCallback)`, `Tick(dt)`, `State()`) still works. Guards are typed and fail closed; declaration order is priority; `stateTime` is built in. Do not emulate a machine with an AutoRunner routine of fake custom nodes.
-- Autos: `mayhem::AllianceRoutine(routines[i], fieldLength, fieldWidth)` then `Apply(FieldTransform::Flip)` for red (covers goal poses, PointAt aim points, rotation markers and the start pose). Do not flip nodes by hand.
+- Autos: `mayhem::AllianceRoutine(routines[i], fieldLength, fieldWidth)` then `Apply(FieldTransform::Flip)` for red (covers goal poses, PointAt aim points, rotation markers, the start pose and `Preview()`). Do not flip nodes by hand. To draw the selected auto while disabled, use `mayhem::PreviewPath(routines[i], transform, fieldLength, fieldWidth)` (or `AllianceRoutine::Preview()`): it is the path the follower is previewed to drive, not straight lines between steps.
+- Robot actions: bind each action, custom step and path-event ID on the runner instead of string if-chains in `RobotHooks` (below), and fail at startup when `Unbound()` is not empty.
 - Driving to a live-pose goal: `mayhem::PoseDriver` (`pose_driver.hpp`, framework-free): `Start(now)` once, then `Update(now)` each loop returns `Running`/`Reached`/`Failed`; `Cancel()` stops it. It wraps `PoseController` with a watchdog and writes one zero velocity when it ends. Command-based robots can use `mayhem::DriveToPose` (`wpilib.hpp`, needs wpilibNewCommands), which is the same driver as a command. Log observation without the command framework: `mayhem::WpiLogObserver` from `wpilib_log.hpp` (needs only `wpi/DataLog.h`). A robot without wpilibNewCommands must not include `wpilib.hpp`; every other header compiles without frc2.
 - Install the headers with the MayhemCpp vendordep (`https://ryanabraham1.github.io/Mayhem/MayhemCpp.json`) or `node scripts/mayhem.mjs vendor <robot dir>` (copies every header in `lib-cpp/include/mayhem` and writes a SHA-256 snapshot; `--check` for CI). Headers are only compiled when included, so vendoring `wpilib.hpp` into a command-free robot is harmless. Do not hand-copy headers or keep your own hash file.
 - `AutoRunner` clamps a loop overrun (`dt > RunnerOptions::maxDt`, default 0.1 s) instead of failing the routine; watchdogs use real time. Read goal errors from `LastResult()` / `ActiveGoal()` instead of recomputing them, or `Attach(observer, autonomous::manifest, clock)` to emit Enter/Guard/Transition/GoalProgress.
@@ -140,6 +141,31 @@ switch (shooter.Current()) { case Shooter::OFF: ...; }
 - **Clocked ticks.** After `SetClock(clock)`, or `Attach(observer, clock)` with a clock, `Tick()` and `Settle()` without a dt use the time since the previous clocked call (or since `SetClock`/`Reset`). Without a clock that dt is 0: guards run, `stateTime` does not advance.
 - **Automatic input logging.** `Attach(observer, clock, mayhem::InputLogging::On)` registers every declared input with the observer and reports its value on the first step of every `Tick`/`Settle` (off by default). `WpiLogObserver` writes a typed WPILOG entry at the input's manifest `channel` (or `Mayhem/States/<machine>/inputs/<key>`), and `NtStateObserver` publishes `/Mayhem/States/<machine>/inputs/<key>`, which the live viewer and log replay read. A custom observer implements `RegisterInput(machine, input)` and `Input(machine, key, value, timestamp)` (new `StateObserver` virtuals with no-op defaults; `CombinedObserver` forwards them). Declare `stateTime` as an input to log it too.
 - `Untyped()` returns the underlying `StateMachine` (`Signal(key)`, `View()`); `Machine::Name(State::X)` is the manifest ID for logs.
+
+### Binding autonomous actions (C++ library 0.8.0)
+
+```cpp
+mayhem::AllianceRoutine routine(*mayhem::FindRoutine(gen::routines, "Depot Trench Sweep"), gen::fieldLength, gen::fieldWidth);
+mayhem::AutoRunner runner(routine.View());       // no RobotHooks needed
+runner.Bind("superstructure.intake", mayhem::Instant([&] { superstructure.StartIntaking(); }))
+      .Bind("superstructure.stow", mayhem::Instant([&] { superstructure.StowIntake(); }))
+      .Bind("drivetrain.alignAndShoot", {[&] { /* begin */ },
+                                         [&] { /* tick: aim, request the shot */ return mayhem::ActionStatus::Running; },
+                                         [&](bool cancelled) { /* end: stop shooting */ }})
+      .BindSignal("superstructure.ready", [&] { return mayhem::SignalValue{superstructure.IsReadyToShoot()}; });
+if (const auto report = runner.UnboundReport(); !report.empty()) throw std::runtime_error("Unbound auto IDs:\n" + report);
+runner.SetClock([] { return frc::Timer::GetFPGATimestamp().value(); });   // or Attach(observer, manifest, clock)
+
+// autonomousInit: routine.Apply(red ? Flip : None); reset odometry to routine.StartPose(); runner.Start(velocity);
+// each loop:      drive(runner.Tick(pose, velocity));   // dt from the clock
+```
+
+- `Bind(id, {begin, tick, end})`: `begin` on entering the step, `tick` every loop until it returns Succeeded or Failed (an empty `tick` succeeds at once), `end(cancelled)` once on exit. `Instant(fn)` runs `fn` and succeeds. A path event marker with that ID runs `begin` when it fires.
+- `BindSignal(key, fn)` supplies a guard input.
+- `Unbound()` / `UnboundReport()` list every action, `during` action, path event and guard signal of the routine with no binding (each once, with the first node using it). Check it at boot so a missing binding fails then, not mid-match. An unbound action fails its step.
+- `RobotHooks` still works: `AutoRunner(routine, hooks)` sends everything that is not bound to the hooks, so you can migrate one ID at a time (bindings win). Guards receive your hooks object unless you bind signals.
+- `Tick(pose, measured)` without a dt uses the clock; without a clock it fails the routine rather than stall. `Tick(pose, measured, dt)` is unchanged.
+- A step with `onTimeout: "succeed"` (`AutoNode::onTimeout = TimeoutOutcome::Succeed`) ends as done when its `timeout` expires, so a fixed window such as the 3.5 s align-and-shoot is data in the project instead of a timer in `TickAction`. The action can still succeed sooner or fail. Simulation, validation and the editor treat it the same way.
 
 ## Digging into logs
 
