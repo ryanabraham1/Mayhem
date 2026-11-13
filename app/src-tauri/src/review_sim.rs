@@ -92,6 +92,36 @@ pub(crate) fn java_home() -> Option<PathBuf> {
     years.into_iter().rev().map(|y| y.join("jdk")).find(|j| j.exists())
 }
 
+/// Sim builds are ~200 MB each (mostly copied WPILib libraries): keep the few in use, not every
+/// commit ever reviewed. Marks `dir` as just used, then deletes all but the `KEEP` most recently
+/// used commit builds and anything (working copies too) unused for `MAX_AGE`.
+const KEEP: usize = 4;
+const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(10 * 24 * 3600);
+pub(crate) fn prune(dir: &Path) {
+    let _ = fs::write(dir.join("used"), "");
+    let Some(root) = dir.parent() else { return };
+    let Ok(entries) = fs::read_dir(root) else { return };
+    let used = |p: &Path| fs::metadata(p.join("used")).and_then(|m| m.modified()).ok();
+    let mut builds: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && p != dir)
+        .map(|p| (used(&p).unwrap_or(std::time::UNIX_EPOCH), p))
+        .collect();
+    builds.sort_by_key(|b| std::cmp::Reverse(b.0));
+    let now = std::time::SystemTime::now();
+    let mut kept_commits = 1; // `dir` itself
+    for (when, path) in builds {
+        let old = now.duration_since(when).map(|d| d > MAX_AGE).unwrap_or(true);
+        let worktree = path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("worktree-"));
+        if old || (!worktree && kept_commits >= KEEP) {
+            let _ = fs::remove_dir_all(&path);
+        } else if !worktree {
+            kept_commits += 1;
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct Prepared {
     /// Folder holding the build (`src`) and runs (`runs`).
@@ -114,6 +144,7 @@ pub async fn review_sim_prepare(repo: String, rev: String, probe: String) -> Res
         let stamp = dir.join("probe.sha");
         let probe_hash = hash(probe.as_bytes());
         if rev != WORKTREE && exe_path(&src).exists() && fs::read_to_string(&stamp).ok().as_deref() == Some(probe_hash.as_str()) {
+            prune(&dir);
             return Ok(Prepared { dir: dir.display().to_string(), sha, cached: true, log: String::new() });
         }
         export(&root, &rev, &src)?;
@@ -144,6 +175,7 @@ pub async fn review_sim_prepare(repo: String, rev: String, probe: String) -> Res
             return Err(format!("The robot code did not build:\n{tail}"));
         }
         fs::write(&stamp, &probe_hash).map_err(|e| e.to_string())?;
+        prune(&dir);
         // Earlier runs of the working tree came from other code.
         if rev == WORKTREE {
             let _ = fs::remove_dir_all(dir.join("runs"));

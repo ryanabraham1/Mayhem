@@ -77,6 +77,16 @@ export function Replay({ result, onTime, revision }: { result: ScenarioResult; o
   const recorder = useRef<MediaRecorder | null>(null);
   const [recording, setRecording] = useState(false);
   const chunks = useRef<Blob[]>([]);
+  // A recorded clip stays in memory for this replay only; Download saves it, leaving discards it.
+  const [clip, setClip] = useState<{ url: string; blob: Blob }>();
+  useEffect(() => () => setClip((old) => (old && URL.revokeObjectURL(old.url), undefined)), []);
+  const downloadClip = async () => {
+    if (!clip) return;
+    const ext = clip.blob.type.includes("mp4") ? "mp4" : "webm";
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({ defaultPath: `${result.scenario.name.replace(/[^\w.-]+/g, "-")}.${ext}`, filters: [{ name: "Video", extensions: [ext] }] });
+    if (path) await invoke("save_replay_video", { path, bytes: Array.from(new Uint8Array(await clip.blob.arrayBuffer())) });
+  };
   const recordVideo = () => {
     if (!canvas.current || typeof MediaRecorder === "undefined") return;
     // Chromium records WebM; Safari's engine (the macOS app) records MP4.
@@ -84,13 +94,13 @@ export function Replay({ result, onTime, revision }: { result: ScenarioResult; o
     const rec = new MediaRecorder(canvas.current.captureStream(30), type ? { mimeType: type } : undefined);
     chunks.current = [];
     rec.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);
-    rec.onstop = async () => {
+    rec.onstop = () => {
       setRecording(false);
-      const ext = (rec.mimeType || type || "").includes("mp4") ? "mp4" : "webm";
-      const bytes = new Uint8Array(await new Blob(chunks.current, { type: rec.mimeType || `video/${ext}` }).arrayBuffer());
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const path = await save({ defaultPath: `${result.scenario.name.replace(/[^\w.-]+/g, "-")}.${ext}`, filters: [{ name: "Video", extensions: [ext] }] });
-      if (path) await invoke("save_replay_video", { path, bytes: Array.from(bytes) });
+      const blob = new Blob(chunks.current, { type: rec.mimeType || type || "video/webm" });
+      setClip((old) => {
+        if (old) URL.revokeObjectURL(old.url);
+        return { url: URL.createObjectURL(blob), blob };
+      });
     };
     recorder.current = rec;
     setTime(0);
@@ -124,12 +134,35 @@ export function Replay({ result, onTime, revision }: { result: ScenarioResult; o
           )}
           {mode === "3d" && (
             <Button size="sm" icon={Video} disabled={recording} onClick={recordVideo}>
-              {recording ? "Recording…" : "Save video"}
+              {recording ? "Recording…" : "Record clip"}
             </Button>
           )}
         </div>
       )}
       {mode === "3d" && has3D && <Replay3D logs={result.logs} time={time} view={view} onCanvas={(c) => (canvas.current = c)} />}
+      {clip && (
+        <div className="mx-clip">
+          <video src={clip.url} controls autoPlay muted playsInline aria-label="Recorded clip" />
+          <div className="mx-now-actions">
+            <Button size="sm" onClick={() => void downloadClip()}>
+              Download
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                setClip((old) => {
+                  if (old) URL.revokeObjectURL(old.url);
+                  return undefined;
+                })
+              }
+            >
+              Discard
+            </Button>
+            <small className="mx-help">Kept only while this replay is open.</small>
+          </div>
+        </div>
+      )}
       {mode === "2d" && hasPath && (
         <svg
           className="mx-replay-field mx-auto-overlay is-clickable"

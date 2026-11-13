@@ -2,7 +2,7 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +45,29 @@ async function exportRevision(root, rev, dest) {
   });
 }
 
+/**
+ * Keeps the sim cache small (same rules as the desktop app): marks `dir` used, keeps the 4 most
+ * recently used commit builds, deletes anything unused for 10 days.
+ */
+async function prune(dir) {
+  const KEEP = 4, MAX_AGE = 10 * 24 * 3600 * 1000;
+  await writeFile(join(dir, "used"), "");
+  const root = dirname(dir);
+  const entries = [];
+  for (const name of await readdir(root).catch(() => [])) {
+    const path = join(root, name);
+    if (path === dir) continue;
+    const used = await stat(join(path, "used")).then((s) => s.mtimeMs, () => 0);
+    entries.push({ path, used, worktree: name.startsWith("worktree-") });
+  }
+  entries.sort((a, b) => b.used - a.used);
+  let kept = 1;
+  for (const e of entries) {
+    if (Date.now() - e.used > MAX_AGE || (!e.worktree && kept >= KEEP)) await rm(e.path, { recursive: true, force: true });
+    else if (!e.worktree) kept++;
+  }
+}
+
 /** A SimRunner (core/review/simproof.ts) for a robot repo on this computer. */
 export async function nodeRunner(repo) {
   const root = (await git(repo, ["rev-parse", "--show-toplevel"])).trim();
@@ -54,7 +77,10 @@ export async function nodeRunner(repo) {
       const sha = rev === WORKTREE ? WORKTREE : (await git(root, ["rev-parse", "--verify", `${rev}^{commit}`])).trim();
       const dir = join(homedir(), ".mayhem/review-sim", rev === WORKTREE ? `worktree-${hash(root)}` : sha);
       const src = join(dir, "src"), stamp = join(dir, "probe.sha");
-      if (rev !== WORKTREE && existsSync(exePath(src)) && (await readFile(stamp, "utf8").catch(() => "")) === hash(probe)) return { dir, cached: true };
+      if (rev !== WORKTREE && existsSync(exePath(src)) && (await readFile(stamp, "utf8").catch(() => "")) === hash(probe)) {
+        await prune(dir);
+        return { dir, cached: true };
+      }
       await exportRevision(root, rev, src);
       await writeFile(join(src, "src/test/cpp/MayhemReviewProbe.cpp"), probe);
       const env = { ...process.env, MAYHEM_BUILD_SHA: sha, MAYHEM_BUILD_BRANCH: "sim proof", ...((await javaHome()) ? { JAVA_HOME: await javaHome() } : {}) };
@@ -71,6 +97,7 @@ export async function nodeRunner(repo) {
       }
       if (!existsSync(exePath(src))) throw new Error(`The robot code did not build:\n${log.split("\n").slice(-40).join("\n")}`);
       await writeFile(stamp, hash(probe));
+      await prune(dir);
       if (rev === WORKTREE) await rm(join(dir, "runs"), { recursive: true, force: true });
       return { dir, cached: false };
     },

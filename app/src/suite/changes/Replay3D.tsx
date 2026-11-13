@@ -106,7 +106,7 @@ interface Rig {
 }
 
 /** A robot (base plus articulated components) from an AdvantageScope robot asset. */
-async function buildRobot(asset: Asset, ghost: boolean): Promise<Rig> {
+async function buildRobot(asset: Asset): Promise<Rig> {
   const config = JSON.parse(asset.config);
   const root = new THREE.Group();
   const base = (await model(`${asset.dir}/model.glb`)).clone(true);
@@ -127,7 +127,7 @@ async function buildRobot(asset: Asset, ghost: boolean): Promise<Rig> {
   root.traverse((o) => {
     if (o instanceof THREE.Mesh) o.userData.solid = o.material;
   });
-  const fuel = new THREE.InstancedMesh(new THREE.SphereGeometry(0.075, 12, 8), new THREE.MeshStandardMaterial({ color: ghost ? 0xc9c2a0 : 0xf2c200, transparent: ghost, opacity: ghost ? 0.5 : 1 }), 64);
+  const fuel = new THREE.InstancedMesh(new THREE.SphereGeometry(0.075, 12, 8), new THREE.MeshStandardMaterial({ color: 0xf2c200 }), 64);
   fuel.count = 0;
   return { root, components: parts, fuel };
 }
@@ -247,19 +247,21 @@ export function Replay3D({
         if (!before && !after) throw new Error("These runs did not log a 3D robot pose (/RealOutputs/Sim/RobotPose).");
         state.current!.tracks = { before, after };
         if (before) {
-          const rig = await buildRobot(robot, true);
+          const rig = await buildRobot(robot);
           scene.add(rig.root, rig.fuel);
           state.current!.rigs.before = rig;
         }
         if (after) {
-          const rig = await buildRobot(robot, false);
+          const rig = await buildRobot(robot);
           scene.add(rig.root, rig.fuel);
           state.current!.rigs.after = rig;
         }
-        // Start behind the robot.
+        // Start above the robot, looking at it from the middle of the field (never from inside a wall).
         const start = (after ?? before)!.robot[0];
-        controls.target.set(start.p[0] - offset.x, start.p[1] - offset.y, 0.4);
-        camera.position.set(controls.target.x - 3.2, controls.target.y - 3.2, 2.6);
+        const at = new THREE.Vector3(start.p[0] - offset.x, start.p[1] - offset.y, 0.4);
+        const toCenter = new THREE.Vector3(-at.x, -at.y * 0.4, 0).normalize();
+        controls.target.copy(at);
+        camera.position.set(at.x + toCenter.x * 3.6, at.y + toCenter.y * 3.6, 3.4);
         setStatus("");
       } catch (e) {
         setStatus(String(e instanceof Error ? e.message : e));

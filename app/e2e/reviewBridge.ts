@@ -153,6 +153,12 @@ export async function desktop(page: Page, repo: string) {
       });
     }
     if (cmd === "ascope_model") return readFileSync(args.path).toString("base64");
+    // Save video: the save dialog picks MAYHEM_VIDEO (or a temp path), the bytes are written there.
+    if (cmd === "plugin:dialog|save") return process.env.MAYHEM_VIDEO ?? join(tmpdir(), "replay.webm");
+    if (cmd === "save_replay_video") {
+      writeFileSync(args.path, Buffer.from(args.bytes));
+      return null;
+    }
     if (cmd === "review_write_file") {
       const path = join(repo, args.path);
       let current = "";
