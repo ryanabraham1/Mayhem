@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { applyEdit } from "../core/review/edit.ts";
-import { buildReport, settingsOf, WORKTREE, type ReviewReport, type Snapshot } from "../core/review/report.ts";
+import { readProject } from "../core/review/autos.ts";
+import { parseMachineSpecs } from "../core/review/machines.ts";
+import { buildReport, MACHINES_FILE, projectFile, SCENARIOS_FILE, settingsOf, WORKTREE, type ReviewReport, type Snapshot } from "../core/review/report.ts";
+import { scenarioSet } from "../core/review/scenarios.ts";
+import { runSimProof, type SimProof } from "../core/review/simproof.ts";
+import { parseWPILog } from "../core/wpilog.ts";
+import probe from "../core/review/probe.cpp?raw";
 import type { Setting } from "../core/review/settings.ts";
-import { desktop, invoke } from "../native";
+import { desktop, invoke, nativeRead } from "../native";
 
 export interface Revision {
   rev: string;
@@ -38,6 +44,15 @@ export function useReview() {
   const [imported, setImported] = useState<ReviewReport>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const [proof, setProof] = useState<SimProof>();
+  const [simProgress, setSimProgress] = useState<{ text: string; done: number; total: number }>();
+  const [simError, setSimError] = useState<string>();
+  const [simErrors, setSimErrors] = useState<string[]>([]);
+  // A sim proof belongs to the two versions it ran on.
+  useEffect(() => {
+    setProof(undefined);
+    setSimError(undefined);
+  }, [repo, before, after]);
 
   const setRepo = (path: string) => {
     setRepoState(path);
@@ -98,7 +113,34 @@ export function useReview() {
     await load();
   };
 
+  /** Builds both versions with the probe and runs every scenario (desktop only). */
+  const startSim = async () => {
+    if (!snapshots || !repo) return;
+    setSimError(undefined);
+    setProof(undefined);
+    setSimProgress({ text: "Starting…", done: 0, total: 1 });
+    try {
+      const files = snapshots.after.files;
+      const machines = parseMachineSpecs(files[MACHINES_FILE]).machines;
+      const project = projectFile(files);
+      const set = scenarioSet(project ? readProject(files[project]).project : undefined, files[SCENARIOS_FILE]);
+      setSimErrors(set.errors);
+      const runner = {
+        prepare: (rev: string) => invoke<{ dir: string; cached: boolean }>("review_sim_prepare", { repo, rev, probe }),
+        run: (dir: string, id: string, scenario: string) =>
+          invoke<{ log?: string | null; result?: string | null; ok: boolean; output: string }>("review_sim_run", { dir, id, scenario }),
+        readLog: async (path: string) => parseWPILog(await nativeRead(path), path.split("/").pop() ?? path),
+      };
+      setProof(await runSimProof(runner, { before: snapshots.before.rev, after: after === WORKTREE ? WORKTREE : snapshots.after.rev }, set.scenarios, machines, (text, done, total) => setSimProgress({ text, done, total })));
+    } catch (e) {
+      setSimError(String(e));
+    } finally {
+      setSimProgress(undefined);
+    }
+  };
+
   return {
+    sim: { proof, progress: simProgress, error: simError, errors: simErrors, start: startSim, set: setProof },
     repo,
     setRepo,
     info,

@@ -38,6 +38,11 @@ const { applyMachineSpecs, machineFromSpec, specFromMachine, routineFromMtraj } 
 import { execFile } from "node:child_process";
 const { buildReport, WORKTREE } = await import("../app/src/suite/core/review/report.ts");
 const { gitSnapshot } = await import("./review-git.mjs");
+const { nodeRunner } = await import("./review-sim.mjs");
+const { scenarioSet } = await import("../app/src/suite/core/review/scenarios.ts");
+const { runSimProof } = await import("../app/src/suite/core/review/simproof.ts");
+const { parseMachineSpecs } = await import("../app/src/suite/core/review/machines.ts");
+const { readProject } = await import("../app/src/suite/core/review/autos.ts");
 const tools = [
   {
     name: "apply_machine_spec",
@@ -193,6 +198,21 @@ const tools = [
     },
   },
   {
+    name: "run_scenarios",
+    description:
+      "Sim proof (docs/SUITE_AGENTS.md, Sim proof): build a revision of the robot repo with Mayhem's probe test and run scenarios through the robot's own simulation: every controller button tapped and held from teleop, every auto in the root *.mayhem.json, and the team's tools/mayhem/scenarios.json (plain steps such as \"hold A 2\" and expectations such as \"Shooter mode is SHOOTING by 1.5 s\"). With `before`, each scenario also runs on that revision and differences in what the robot does (machine states, drive mode, auto result) are reported; the team rule is that the same driver inputs give the same outcomes. Takes about a minute per revision the first time (cached per commit). Needs the robot's Gradle/WPILib toolchain on this computer.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", description: "Robot repository directory." },
+        after: { type: "string", description: "Revision to test (default WORKTREE, the uncommitted files)." },
+        before: { type: "string", description: "Optional revision to compare against, e.g. HEAD or main." },
+        groups: { type: "array", items: { type: "string", enum: ["button", "auto", "custom"] }, description: "Which scenarios (default all)." },
+      },
+      required: ["repo"],
+    },
+  },
+  {
     name: "analyze_log",
     description:
       "Read a local WPILOG 1.0 or recording JSON and return measured power findings and logging coverage. Returns a compact summary by default (findings, power, top current draws, channel overview). Use `channels` (substring filters) to get per-channel stats and downsampled samples, `from`/`to` to restrict to a time window, and `detail: \"full\"` for the raw legacy dump. Optionally map voltage/current/brownout names.",
@@ -342,8 +362,33 @@ export async function behaviorDiff(args) {
   const { level, findings, errors, before, after } = report;
   return { before, after, level, findings, errors };
 }
+export async function runScenarios(args, progress) {
+  if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
+  const repo = resolve(args.repo);
+  const snapshot = await gitSnapshot(repo, args.after ?? WORKTREE);
+  const machines = parseMachineSpecs(snapshot.files["tools/mayhem/machines.json"]).machines;
+  const project = Object.keys(snapshot.files).find((p) => /^[^/]+\.mayhem\.json$/.test(p));
+  const { scenarios, errors } = scenarioSet(project ? readProject(snapshot.files[project]).project : undefined, snapshot.files["tools/mayhem/scenarios.json"]);
+  const chosen = args.groups?.length ? scenarios.filter((s) => args.groups.includes(s.group)) : scenarios;
+  const proof = await runSimProof(await nodeRunner(repo), { before: args.before, after: args.after ?? WORKTREE }, chosen, machines, progress);
+  return {
+    passed: proof.passed,
+    changed: proof.changed,
+    errors,
+    results: proof.results.map((r) => ({
+      scenario: r.scenario.name,
+      ...(r.failed ? { failed: true } : {}),
+      ...(r.error ? { error: r.error } : {}),
+      ...(r.checks.length ? { checks: r.checks } : {}),
+      ...(r.differences.length ? { differences: r.differences } : {}),
+      ...(r.after?.physics?.hits?.length ? { hits: r.after.physics.hits } : {}),
+      logs: r.logs,
+    })),
+  };
+}
 export async function execute(name, args) {
   if (name === "behavior_diff") return behaviorDiff(args);
+  if (name === "run_scenarios") return runScenarios(args);
   if (name === "validate_project")
     return { issues: validateProject(args.project) };
   if (name === "inspect_live_robot") {
@@ -742,6 +787,32 @@ async function main() {
     }
     return;
   }
+  if (command === "sim") {
+    // sim <repo> [after] [--before <rev>] [--only button,auto,custom] [--json]
+    const rest = process.argv.slice(4);
+    const args = { repo: path };
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === "--before") args.before = rest[++i];
+      else if (rest[i] === "--only") args.groups = rest[++i].split(",");
+      else if (rest[i] === "--json") args.json = true;
+      else args.after = rest[i];
+    }
+    const result = await runScenarios(args, (text, done, total) => process.stderr.write(`\r${done}/${total} ${text.padEnd(60).slice(0, 60)}`));
+    process.stderr.write("\n");
+    if (args.json) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`${result.passed ? "PASSED" : "FAILED"}${args.before ? ` · ${result.changed} scenario(s) behave differently` : ""}`);
+      for (const r of result.results) {
+        if (!r.failed && !r.differences) continue;
+        console.log(`  ${r.failed ? "✗" : "≠"} ${r.scenario}`);
+        for (const c of r.checks ?? []) if (!c.pass) console.log(`      expected: ${c.text} — ${c.detail}`);
+        for (const d of r.differences ?? []) console.log(`      ${d}`);
+        if (r.error) console.log(`      ${r.error.split("\n")[0]}`);
+      }
+      for (const e of result.errors) console.log(`  error: ${e}`);
+    }
+    return;
+  }
   if (command === "example") {
     console.log(JSON.stringify(sampleProject, null, 2));
     return;
@@ -758,7 +829,7 @@ async function main() {
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | review <robot repo> [before] [after] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | open <file> | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev>] [--only button,auto,custom] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | open <file> | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")

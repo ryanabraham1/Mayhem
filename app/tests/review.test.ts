@@ -10,6 +10,8 @@ import { duplicateIds, readDevices } from "../src/suite/core/review/hardware";
 import { buildReport, settingsOf, type Snapshot } from "../src/suite/core/review/report";
 import { readSettings } from "../src/suite/core/review/settings";
 import { sampleProject } from "../src/suite/core/sample";
+import { machineFromSpec } from "../src/suite/core/authoring";
+import { checkExpectations, compareOutcomes, compileSteps, parseExpectation, scenarioSet, type Outcome } from "../src/suite/core/review/scenarios";
 import { execute } from "../../scripts/mayhem.mjs";
 
 const SHOOTER = `// Copyright header that is not a doc comment.
@@ -170,7 +172,9 @@ describe("behavior review", () => {
       expect.objectContaining({ key: "OFF -> SHOOTING", kind: "changed", before: "shootHeld && enabled", after: "shootHeld", driver: true }),
     ]);
     expect(machine.marks.edges["OFF-to-SHOOTING"]).toBe("changed");
-    expect(report.findings).toEqual([expect.objectContaining({ level: "yellow", area: "controls" })]);
+    expect(report.findings.filter((f) => f.area === "controls")).toEqual([expect.objectContaining({ level: "yellow" })]);
+    // The project file wasn't updated, so the robot still runs the old machine.
+    expect(report.findings.filter((f) => f.area === "generated")).toHaveLength(1);
   });
   it("labels path-only changes that still finish green", () => {
     const project = structuredClone(sampleProject);
@@ -211,5 +215,72 @@ describe("behavior_diff agent tool", () => {
     expect(working.findings[0].text).toMatch(/Motor 1.*CAN ID 44 → 41/);
     git("commit", "-qam", "renumber");
     expect((await execute("behavior_diff", { repo, before: "HEAD~1", after: "HEAD" })).level).toBe("red");
+  });
+});
+
+describe("sim proof scenarios", () => {
+  it("reads plain step lines and expectations", () => {
+    expect(compileSteps(["teleop", "hold A 2", "press rt", "stick left 0 1", "select auto Depot Sweep"])).toEqual([
+      { kind: "mode", mode: "teleop" },
+      { kind: "button", button: "A", down: true },
+      { kind: "wait", seconds: 2 },
+      { kind: "button", button: "A", down: false },
+      { kind: "button", button: "RT", down: true },
+      { kind: "wait", seconds: 0.06 },
+      { kind: "button", button: "RT", down: false },
+      { kind: "axis", axis: "leftX", value: 0 },
+      { kind: "axis", axis: "leftY", value: -1 },
+      { kind: "auto", name: "Depot Sweep" },
+    ]);
+    expect(() => compileSteps(["hold Z 1"])).toThrow(/Unknown button/);
+    expect(parseExpectation("Shooter mode is SHOOTING by 1.5 s")).toEqual({ kind: "state", machine: "Shooter mode", state: "SHOOTING", by: 1.5 });
+    expect(parseExpectation("Intake mode never OUTTAKING")).toMatchObject({ never: true });
+    expect(parseExpectation("battery stays above 9 V")).toEqual({ kind: "battery", volts: 9 });
+  });
+  it("builds every button, every auto and the team's scenarios, reporting bad ones", () => {
+    const { scenarios, errors } = scenarioSet(sampleProject, JSON.stringify({ scenarios: [{ name: "Hold A", steps: ["teleop", "hold A 1"], expect: ["Shooter is ON by 1 s"] }, { name: "Bad", steps: ["fly"] }] }));
+    expect(scenarios.filter((s) => s.group === "button")).toHaveLength(32);
+    expect(scenarios.filter((s) => s.group === "auto")).toHaveLength(sampleProject.routines.length);
+    expect(scenarios.find((s) => s.group === "custom")).toMatchObject({ id: "custom-hold-a", expect: ["Shooter is ON by 1 s"] });
+    expect(errors).toEqual(['scenarios.json #2: Unknown step "fly".']);
+  });
+  const machine = machineFromSpec(JSON.parse(MACHINES("shootHeld")).machines[0]);
+  const outcome = (changes: [number, string][], extra: Partial<Outcome> = {}): Outcome => ({
+    tracks: [{ name: "Shooter", channel: "Mayhem/States/Shooter/state", changes: changes.map(([time, value]) => ({ time, value })) }],
+    poses: [],
+    offset: 0,
+    duration: 4,
+    ...extra,
+  });
+  it("judges expectations and flags flickering states", () => {
+    const s = { id: "x", name: "x", group: "custom" as const, alliance: "blue" as const, field: false, steps: [], expect: ["Shooter is SHOOTING by 1.5 s", "Shooter is OFF at 3 s", "Shooter never Off"] };
+    expect(checkExpectations(s, outcome([[0, "OFF"], [1.2, "SHOOTING"], [2.8, "OFF"]]), [machine]).map((c) => c.pass)).toEqual([true, true, false]);
+    const flicker = Array.from({ length: 20 }, (_, i) => [2 + i * 0.02, i % 2 ? "OFF" : "SHOOTING"] as [number, string]);
+    const checks = checkExpectations({ ...s, expect: [] }, outcome([[0, "OFF"], ...flicker]), [machine]);
+    expect(checks).toEqual([expect.objectContaining({ pass: false, detail: "Flips between SHOOTING and OFF 20 times (2.0–2.4 s)" })]);
+  });
+  it("compares before and after runs: states, timing, auto result and path", () => {
+    const path = (dy: number) => ({ poses: [0, 1, 2].map((t) => ({ time: t, x: t, y: t === 2 ? dy : 0, heading: 0 })) });
+    expect(compareOutcomes(outcome([[0, "OFF"], [1, "SHOOTING"]], path(0)), outcome([[0, "OFF"], [1.05, "SHOOTING"]], path(0.1))).same).toBe(true);
+    const diff = compareOutcomes(outcome([[0, "OFF"], [1, "SHOOTING"]], { ...path(0), autoStatus: "Completed" }), outcome([[0, "OFF"], [2, "SHOOTING"]], { ...path(0.6), autoStatus: "Failed" }));
+    expect(diff.differences).toEqual([
+      "Shooter: OFF (0.0 s) → SHOOTING (1.0 s) ⇒ OFF (0.0 s) → SHOOTING (2.0 s)",
+      "Auto result: Completed ⇒ Failed",
+      "Path: up to 0.60 m from the old path (at 2.0 s)",
+    ]);
+  });
+});
+
+describe("generated robot code", () => {
+  it("flags machine and auto changes the generated code doesn't carry", () => {
+    const project = structuredClone(sampleProject);
+    project.routines[0].nodes.find((n) => n.kind === "pose")!.goal!.x += 0.3;
+    const header = { "src/main/include/commands/MayhemProject.h": "// generated" };
+    const report = buildReport(snap({ ...files(), ...header }), snap({ ...files(SHOOTER, SLIDE, MACHINES("shootHeld")), ...header, "robot.mayhem.json": JSON.stringify(project) }));
+    expect(report.findings.filter((f) => f.area === "generated").map((f) => f.text)).toEqual([
+      expect.stringMatching(/machines.json changed but the project file's machines did not/),
+      expect.stringMatching(/autos changed in robot.mayhem.json but MayhemProject.h did not/),
+    ]);
+    expect(report.level).toBe("red");
   });
 });

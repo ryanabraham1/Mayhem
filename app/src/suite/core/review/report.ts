@@ -2,7 +2,7 @@
  * The behavior review between two revisions of the robot code: what a person checks instead of
  * reading code, and how risky the change is. Computed only from the two revisions' files.
  */
-import { diffRoutines, type RoutineDiff } from "./autos.ts";
+import { diffRoutines, readProject, type RoutineDiff } from "./autos.ts";
 import { diffDevices, duplicateIds, readDevices, type Device, type DeviceChange } from "./hardware.ts";
 import { diffMachines, type MachineDiff } from "./machines.ts";
 import { CATEGORY_NAMES, SAFETY_CATEGORIES, diffSettings, isSettingsSource, readSettings, type Setting, type SettingChange } from "./settings.ts";
@@ -19,10 +19,13 @@ export interface Snapshot {
 
 export const WORKTREE = "WORKTREE";
 export const MACHINES_FILE = "tools/mayhem/machines.json";
+export const SCENARIOS_FILE = "tools/mayhem/scenarios.json";
+/** The robot code generated from the project file (tools/mayhem/export.sh). */
+export const GENERATED_FILE = "src/main/include/commands/MayhemProject.h";
 
 /** Files a review needs from a revision. */
 export const isReviewFile = (path: string) =>
-  isSettingsSource(path) || path === MACHINES_FILE || /^[^/]+\.mayhem\.json$/.test(path);
+  isSettingsSource(path) || path === MACHINES_FILE || path === SCENARIOS_FILE || path === GENERATED_FILE || /^[^/]+\.mayhem\.json$/.test(path);
 
 export function projectFile(files: Record<string, string>): string | undefined {
   if ("robot.mayhem.json" in files) return "robot.mayhem.json";
@@ -30,7 +33,7 @@ export function projectFile(files: Record<string, string>): string | undefined {
 }
 
 export type Level = "red" | "yellow" | "green" | "none";
-export type Area = "controls" | "machines" | "settings" | "hardware" | "autos";
+export type Area = "controls" | "machines" | "settings" | "hardware" | "autos" | "generated";
 
 export interface Finding {
   level: Exclude<Level, "none">;
@@ -159,6 +162,23 @@ export function buildReport(before: Snapshot, after: Snapshot): ReviewReport {
       text: `${r.name}: ${r.kind}${r.after && r.before ? `, ${r.before.time.toFixed(1)} s → ${r.after.time.toFixed(1)} s` : ""}${ok ? "" : ` (path preview ${r.after?.status ?? "could not run"})`}`,
     });
   }
+  // The robot runs MayhemProject.h, generated from the project file, which machines.json is applied
+  // to. If a source changed but what it generates did not, the robot won't do what these pages show.
+  const changedFile = (path: string) => before.files[path] !== after.files[path];
+  const machinesInProject = (snap: Snapshot) => {
+    const p = projectFile(snap.files);
+    try {
+      return JSON.stringify(p ? JSON.parse(snap.files[p]).extensions?.machines ?? null : null);
+    } catch {
+      return "";
+    }
+  };
+  if (MACHINES_FILE in after.files && changedFile(MACHINES_FILE) && machinesInProject(before) === machinesInProject(after))
+    findings.push({ level: "red", area: "generated", text: "tools/mayhem/machines.json changed but the project file's machines did not: the robot still runs the old state machines. Run `mayhem.mjs machine apply`, then tools/mayhem/export.sh." });
+  if (GENERATED_FILE in after.files && pa && routines.routines.some((r) => r.kind !== "same") && !changedFile(GENERATED_FILE))
+    findings.push({ level: "red", area: "generated", text: `The autos changed in ${pa} but ${GENERATED_FILE.split("/").pop()} did not: the robot still drives the old autos. Run tools/mayhem/export.sh.` });
+  else if (GENERATED_FILE in after.files && pa && pb && changedFile(pa) && JSON.stringify(readProject(after.files[pa]).project?.extensions?.machines ?? null) !== JSON.stringify(readProject(before.files[pb]).project?.extensions?.machines ?? null) && !changedFile(GENERATED_FILE))
+    findings.push({ level: "red", area: "generated", text: `The state machines changed in ${pa} but ${GENERATED_FILE.split("/").pop()} did not: the robot still runs the old machines. Run tools/mayhem/export.sh.` });
   const level = findings.reduce<Level>((l, f) => worst(l, f.level), "none");
   return {
     format: "mayhem-review",

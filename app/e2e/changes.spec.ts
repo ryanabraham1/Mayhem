@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { gitSnapshot } from "../../scripts/review-git.mjs";
+import { nodeRunner } from "../../scripts/review-sim.mjs";
 
 const SHOOTER = `#pragma once
 namespace shooter {
@@ -78,6 +79,10 @@ async function desktop(page: Page, repo: string) {
         }),
       };
     if (cmd === "review_snapshot") return gitSnapshot(repo, args.rev);
+    // Sim proof through the CLI's runner (the real robot build; only with MAYHEM_REVIEW_REPO).
+    if (cmd === "review_sim_prepare") return (await nodeRunner(repo)).prepare(args.rev);
+    if (cmd === "review_sim_run") return (await nodeRunner(repo)).run(args.dir, args.id, args.scenario);
+    if (cmd === "read_log_file") return readFileSync(args.path).toString("base64");
     if (cmd === "review_write_file") {
       const path = join(repo, args.path);
       if (readFileSync(path, "utf8") !== args.expected) throw new Error("changed on disk");
@@ -88,7 +93,12 @@ async function desktop(page: Page, repo: string) {
   });
   await page.addInitScript(() => {
     (window as any).__TAURI_INTERNALS__ = {
-      invoke: (cmd: string, args: any) => (cmd.startsWith("plugin:event|") ? Promise.resolve(1) : (window as any).__mayhemInvoke(cmd, args)),
+      invoke: async (cmd: string, args: any) => {
+        if (cmd.startsWith("plugin:event|")) return 1;
+        const result = await (window as any).__mayhemInvoke(cmd, args);
+        // Log bytes cross the fake bridge as base64.
+        return cmd === "read_log_file" ? Uint8Array.from(atob(result), (c) => c.charCodeAt(0)).buffer : result;
+      },
       transformCallback: () => 1,
       metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
     };
@@ -128,6 +138,20 @@ test("reviews an agent's change and edits a CAN ID into the robot code", async (
   if (process.env.MAYHEM_REVIEW_REPO) {
     await tab(page, /^Autos/);
     await shot(page, "5-autos");
+  }
+
+  if (process.env.MAYHEM_REVIEW_REPO) {
+    test.setTimeout(900_000);
+    await tab(page, /^Sim proof/);
+    await page.getByRole("button", { name: "Run sim proof" }).click();
+    await expect(page.getByRole("button", { name: "Run again" })).toBeVisible({ timeout: 800_000 });
+    await page.getByRole("button", { name: /^Outpost Trench Sweep x2/ }).click();
+    await page.getByLabel("Replay time").fill("16");
+    await shot(page, "9-sim-autos");
+    await page.getByRole("button", { name: /^Outpost Trench Sweep\b(?! x2)/ }).click();
+    await shot(page, "10-sim-not-regenerated");
+    await page.getByRole("button", { name: /^Buttons/ }).click();
+    await shot(page, "11-sim-buttons");
   }
 
   // Edit: the working copy against the last commit; give the shooter's second motor a new CAN ID.

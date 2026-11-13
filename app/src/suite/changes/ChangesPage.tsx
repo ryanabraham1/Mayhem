@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Cpu,
   FileSearch,
+  FlaskConical,
   FolderGit2,
   Gamepad2,
   GitBranch,
@@ -23,10 +24,11 @@ import { EditSetting, type EditTarget } from "./EditSetting";
 import { HardwareView } from "./HardwareView";
 import { MachinesView } from "./MachinesView";
 import { SettingsView } from "./SettingsView";
+import { SimProofView } from "./SimProofView";
 import { useReview, type Review } from "./useReview";
 import "./changes.css";
 
-type Tab = "summary" | Area;
+type Tab = "summary" | Area | "sim";
 const TABS: { value: Tab; label: string; icon: typeof Cpu }[] = [
   { value: "summary", label: "Summary", icon: LayoutList },
   { value: "controls", label: "Controls", icon: Gamepad2 },
@@ -34,6 +36,7 @@ const TABS: { value: Tab; label: string; icon: typeof Cpu }[] = [
   { value: "settings", label: "Values", icon: SlidersHorizontal },
   { value: "hardware", label: "Hardware", icon: Cpu },
   { value: "autos", label: "Autos", icon: Navigation },
+  { value: "sim", label: "Sim proof", icon: FlaskConical },
 ];
 const LEVEL_TONE: Record<Level, Tone> = { red: "bad", yellow: "warn", green: "good", none: "neutral" };
 
@@ -76,6 +79,7 @@ function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void 
     { area: "settings", title: "Values", icon: SlidersHorizontal, empty: "No changes" },
     { area: "hardware", title: "Hardware", icon: Cpu, empty: "No changes" },
     { area: "autos", title: "Autos", icon: Navigation, empty: "No path changes" },
+    { area: "generated", title: "Generated robot code", icon: RefreshCw, empty: "Up to date" },
   ];
   return (
     <div className="mx-review-summary">
@@ -84,7 +88,7 @@ function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void 
           const n = count(area);
           const level = report.findings.filter((f) => f.area === area).reduce<Level>((l, f) => (f.level === "red" || l === "red" ? "red" : f.level === "yellow" || l === "yellow" ? "yellow" : "green"), n ? "green" : "none");
           return (
-            <button key={area} type="button" className={`mx-area-card is-${level}`} onClick={() => go(area)}>
+            <button key={area} type="button" className={`mx-area-card is-${level}`} onClick={() => go(area === "generated" ? "summary" : area)}>
               <Icon size={18} />
               <strong>{title}</strong>
               <span>{n ? `${n} change${n === 1 ? "" : "s"}` : empty}</span>
@@ -97,7 +101,7 @@ function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void 
           {report.findings.map((f, i) => (
             <li key={i} className={`is-${f.level}`}>
               <Badge tone={LEVEL_TONE[f.level]}>{f.level === "red" ? "safety" : f.level === "yellow" ? "review" : "ok"}</Badge>
-              <button type="button" className="mx-link" onClick={() => go(f.area)}>
+              <button type="button" className="mx-link" onClick={() => go(f.area === "generated" ? "summary" : f.area)}>
                 {f.text}
               </button>
             </li>
@@ -198,7 +202,12 @@ export function ChangesPage({ notify }: { notify: (message: string) => void }) {
             value={tab}
             onChange={setTab}
             options={TABS.map((t) => {
-              const n = t.value === "summary" ? 0 : report.findings.filter((f) => f.area === t.value).length;
+              const n =
+                t.value === "summary"
+                  ? 0
+                  : t.value === "sim"
+                    ? (review.sim.proof?.results.filter((r) => r.failed || r.differences.length).length ?? 0)
+                    : report.findings.filter((f) => f.area === t.value).length;
               return { value: t.value, icon: t.icon, label: n ? `${t.label} · ${n}` : t.label };
             })}
           />
@@ -209,6 +218,7 @@ export function ChangesPage({ notify }: { notify: (message: string) => void }) {
             {tab === "settings" && <SettingsView report={report} review={review} editSetting={setEditing} />}
             {tab === "hardware" && <HardwareView report={report} review={review} editSetting={setEditing} />}
             {tab === "autos" && <AutosView report={report} />}
+            {tab === "sim" && <SimProofView report={report} review={review} />}
           </div>
         </>
       )}

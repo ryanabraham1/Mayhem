@@ -73,7 +73,7 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 }
 ```
 
-Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `run_scenarios` (see "Sim proof"), `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
 
 ## Authoring machines and routines
 
@@ -263,6 +263,28 @@ People on the team review what a change does to the robot, not the code. The des
 - **Autos** from the root `*.mayhem.json`: step changes, and each routine driven in the path preview before and after.
 
 Risk: **red** = a CAN ID, motor direction, brake/coast, current limit, travel limit, gear ratio or calibration offset changed, a device was added/removed, or two devices of the same type now share a CAN ID; **yellow** = controls, machines or other values changed, or a changed auto no longer finishes; **green** = only auto paths changed and every changed path finishes. Run `behavior_diff` on your change before asking for review, and keep these shapes (named constants, one configuration function per motor group, transitions in machines.json) so the review can read your code. People can also edit a value from the page; that rewrites only that literal in the working tree, so expect such edits in `git status`.
+
+## Sim proof
+
+`run_scenarios` (CLI: `node scripts/mayhem.mjs sim <robot repo> [after] [--before <rev>] [--only button,auto,custom]`; the app: Changes → Sim proof) builds a revision with Mayhem's probe test (`app/src/suite/core/review/probe.cpp`, copied into a clean export of that revision, never committed) and runs each scenario through the robot's own `RobotHarness`, one process each, logging a WPILOG:
+
+- every controller button tapped and held for 2 s from teleop (the button → outcome map),
+- every routine in the root `*.mayhem.json` as a 20 s auto on the full field (`auto completes`, `no tip-over`),
+- the team's `tools/mayhem/scenarios.json`.
+
+`tools/mayhem/scenarios.json` is the regression gate; keep it passing and add a scenario for every behavior a driver relies on:
+
+```json
+{ "scenarios": [ {
+  "name": "Outtaking blocks shooting (outside the zone)",
+  "steps": ["teleop", "wait 0.3", "stick left 0 1", "wait 1.2", "stick left 0 0", "wait 0.5", "down LT", "wait 0.3", "down A", "wait 1", "up A", "up LT"],
+  "expect": ["Shooter mode is OFF at 2.2 s", "Shooter mode never SHOOTING"]
+} ] }
+```
+
+Steps: `teleop` | `auto` | `disabled`, `select auto <name>`, `wait <s>`, `press <button>`, `hold <button> <s>`, `down`/`up <button>`, `stick left|right <x> <y>` (forward +y). Buttons: A B X Y LB RB LT RT Back Start LS RS Up Down Left Right. Expectations: `<machine> is <STATE> by|at <t> s`, `<machine> reaches <STATE>`, `<machine> never <STATE>`, `auto completes`, `no tip-over`, `no collisions`, `battery stays above <v> V` (machine and state by name or id; seconds from the scenario start). A machine state that flips back and forth (6+ changes 0.1 s apart) always fails.
+
+Outcomes are compared on every machine's `Mayhem/States/<id>/state` log channel, the drive mode, the auto status and the simulated robot pose; a difference in what the robot does for the same inputs is reported. Builds and runs are cached per commit in `~/.mayhem/review-sim`. The project file, `machines.json` and the generated `MayhemProject.h` must agree: `behavior_diff` reports red when a source changed but the generated code did not, because the robot (and the sim) would still run the old behavior.
 
 ## Digging into logs
 

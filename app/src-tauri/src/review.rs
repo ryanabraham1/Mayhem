@@ -30,6 +30,8 @@ fn review_file(path: &str) -> bool {
         && (path.ends_with(".h") || path.ends_with(".hpp"));
     settings
         || path == "tools/mayhem/machines.json"
+        || path == "tools/mayhem/scenarios.json"
+        || path == "src/main/include/commands/MayhemProject.h"
         || (!path.contains('/') && path.ends_with(".mayhem.json"))
 }
 

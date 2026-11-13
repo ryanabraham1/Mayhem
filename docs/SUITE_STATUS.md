@@ -19,6 +19,12 @@ The suite is a working development foundation, not a finished replacement for ev
 
 [USER_GUIDE.md](USER_GUIDE.md) is the suite workflow guide: projects and file links, pose editing, preview modes, state inspection, log analysis, robot collection and agent handoff. Existing solver instructions are preserved in [CLASSIC_PLANNER.md](CLASSIC_PLANNER.md). The README, build instructions and VitePress site now route readers to the appropriate suite or classic workflow; classic screenshots are labeled. Documentation changes do not change the validation or release status recorded below.
 
+## Sim proof (2026-11-13, v0.9.33)
+
+- Changes → **Sim proof** builds both versions of the robot code with a probe test and runs, in the robot's own simulation: every controller button tapped and held, every auto on the full field, and the team's `tools/mayhem/scenarios.json` (plain steps and expectations; three starter scenarios are on `mayhem/suite-integration`). Results: pass/fail per expectation, before/after differences (machine states, drive mode, auto result, path), flickering states, and a before/after replay (field, time slider, state timelines). Agents: `run_scenarios` MCP tool, `mayhem.mjs sim`.
+- Behavior review now reports red when `machines.json` or the autos changed but the generated robot code (`MayhemProject.h`) did not.
+- Measured on this Mac: building a revision ~45 s, all 40 scenarios ~1 min (4 at a time), cached per commit. Not verified: Windows/Linux GradleRIO test task names, and per-motor configuration readback from the simulation (still read from source).
+
 ## Behavior review: Changes page (2026-11-13, v0.9.32)
 
 - New **Changes** page compares two versions of the robot repo (branches, tags, commits, or uncommitted files) and shows what changes on the robot: driver controls (button → outcome from the state machines), state machines (one graph, added/changed/removed highlighted), values with units (constants, lookup tables, motor configurations), hardware on a top-view robot map (CAN IDs, direction, brake/coast, current limits, gear ratios, encoder offsets, duplicate CAN IDs), and autos (old and new path driven in the preview, drawn on the field). A red/yellow/green label summarizes it. Read from code, never from agent summaries (`app/src/suite/core/review/`).
