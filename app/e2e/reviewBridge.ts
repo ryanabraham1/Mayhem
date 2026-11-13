@@ -136,6 +136,23 @@ export async function desktop(page: Page, repo: string) {
     if (cmd === "review_sim_prepare") return (await nodeRunner(repo)).prepare(args.rev);
     if (cmd === "review_sim_run") return (await nodeRunner(repo)).run(args.dir, args.id, args.scenario);
     if (cmd === "read_log_file") return readFileSync(args.path).toString("base64");
+    // 3D replay assets: AdvantageScope's folders on this computer.
+    if (cmd === "ascope_assets") {
+      const base = join(process.env.HOME ?? "", "Library/Application Support/AdvantageScope");
+      return ["userAssets", "autoAssets"].flatMap((root) => {
+        try {
+          return readdirSync(join(base, root))
+            .filter((n) => n.startsWith("Robot_") || n.startsWith("Field3d_"))
+            .map((n) => {
+              const dir = join(base, root, n);
+              return { kind: n.startsWith("Robot_") ? "robot" : "field", name: n, dir, config: readFileSync(join(dir, "config.json"), "utf8"), models: readdirSync(dir).filter((f) => /^model.*\.glb$/.test(f)) };
+            });
+        } catch {
+          return [];
+        }
+      });
+    }
+    if (cmd === "ascope_model") return readFileSync(args.path).toString("base64");
     if (cmd === "review_write_file") {
       const path = join(repo, args.path);
       let current = "";
@@ -154,7 +171,7 @@ export async function desktop(page: Page, repo: string) {
         if (cmd.startsWith("plugin:event|")) return 1;
         const result = await (window as any).__mayhemInvoke(cmd, args);
         // Log bytes cross the fake bridge as base64.
-        return cmd === "read_log_file" ? Uint8Array.from(atob(result), (c) => c.charCodeAt(0)).buffer : result;
+        return cmd === "read_log_file" || cmd === "ascope_model" ? Uint8Array.from(atob(result), (c) => c.charCodeAt(0)).buffer : result;
       },
       transformCallback: () => 1,
       metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },

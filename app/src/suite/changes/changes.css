@@ -1137,3 +1137,50 @@
 .mx-callout.mx-loud {
   font-size: 13px;
 }
+
+/* 3D replay. */
+.mx-replay-modes {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mx-replay-3d {
+  position: relative;
+  height: min(520px, 60vh);
+  border-radius: var(--mx-r-md);
+  overflow: hidden;
+  background: var(--mx-surface-2);
+}
+.mx-replay-3d canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.mx-replay-3d-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 20px;
+  color: var(--mx-muted);
+  text-align: center;
+}
+.mx-replay-3d-tag {
+  position: absolute;
+  top: 10px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(20, 14, 40, 0.6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.mx-replay-3d-tag.is-left {
+  left: 10px;
+}
+.mx-replay-3d-tag.is-right {
+  left: calc(50% + 10px);
+}

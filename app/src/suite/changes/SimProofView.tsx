@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CircleCheck, CircleX, FlaskConical, MessageSquarePlus, Pause, Play, TriangleAlert } from "lucide-react";
+import { CircleCheck, CircleX, FlaskConical, MessageSquarePlus, Pause, Play, TriangleAlert, Video } from "lucide-react";
+import { Replay3D, type View3D } from "./Replay3D";
 import { useTasks } from "../tasks/feedback";
 import { fieldPoint } from "../tasks/anchors";
 import { FieldArt } from "../../components/FieldArt";
@@ -11,7 +12,7 @@ import { parseMachineSpecs } from "../core/review/machines.ts";
 import { MACHINES_FILE } from "../core/review/report.ts";
 import { ButtonMap } from "./ButtonMap";
 import type { ScenarioResult, SimProof } from "../core/review/simproof.ts";
-import { desktop } from "../native";
+import { desktop, invoke } from "../native";
 import { Badge, Button, EmptyState, Segmented } from "../ui";
 import type { Review } from "./useReview";
 
@@ -69,6 +70,36 @@ export function Replay({ result, onTime, revision }: { result: ScenarioResult; o
     return () => cancelAnimationFrame(raf.current);
   }, [playing, duration]);
   useEffect(() => onTime?.(time), [time, onTime]);
+  // 3D: the robot's own simulation drawn with the team's CAD model; record it to a video.
+  const [mode, setMode] = useState<"2d" | "3d">("2d");
+  const [view, setView] = useState<View3D>("side");
+  const canvas = useRef<HTMLCanvasElement | null>(null);
+  const recorder = useRef<MediaRecorder | null>(null);
+  const [recording, setRecording] = useState(false);
+  const chunks = useRef<Blob[]>([]);
+  const recordVideo = () => {
+    if (!canvas.current || typeof MediaRecorder === "undefined") return;
+    const type = ["video/webm;codecs=vp9", "video/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+    const rec = new MediaRecorder(canvas.current.captureStream(30), type ? { mimeType: type } : undefined);
+    chunks.current = [];
+    rec.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);
+    rec.onstop = async () => {
+      setRecording(false);
+      const bytes = new Uint8Array(await new Blob(chunks.current, { type: "video/webm" }).arrayBuffer());
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({ defaultPath: `${result.scenario.name.replace(/[^\w.-]+/g, "-")}.webm`, filters: [{ name: "Video", extensions: ["webm"] }] });
+      if (path) await invoke("save_replay_video", { path, bytes: Array.from(bytes) });
+    };
+    recorder.current = rec;
+    setTime(0);
+    setRecording(true);
+    rec.start();
+    setPlaying(true);
+  };
+  useEffect(() => {
+    if (!playing && recording && recorder.current?.state === "recording") recorder.current.stop();
+  }, [playing, recording]);
+  const has3D = !!(result.logs.before || result.logs.after) && desktop;
   const names = [...new Set([...(result.before?.tracks ?? []), ...(result.after?.tracks ?? [])].map((t) => t.name))];
   const hasPath = !!(result.before?.poses.length || result.after?.poses.length);
   const robot = (o: Outcome | undefined, className: string) => {
@@ -83,7 +114,21 @@ export function Replay({ result, onTime, revision }: { result: ScenarioResult; o
   const line = (o?: Outcome) => o?.poses.map((p) => `${p.x.toFixed(3)},${(field.width - p.y).toFixed(3)}`).join(" ");
   return (
     <div className="mx-replay-proof">
-      {hasPath && (
+      {has3D && (
+        <div className="mx-replay-modes">
+          <Segmented label="Replay view" value={mode} onChange={setMode} options={[{ value: "2d", label: "Field" }, { value: "3d", label: "3D" }]} />
+          {mode === "3d" && result.logs.before && result.logs.after && (
+            <Segmented label="Before and after" value={view} onChange={setView} options={[{ value: "side", label: "Side by side" }, { value: "overlay", label: "Overlay" }]} />
+          )}
+          {mode === "3d" && (
+            <Button size="sm" icon={Video} disabled={recording} onClick={recordVideo}>
+              {recording ? "Recording…" : "Save video"}
+            </Button>
+          )}
+        </div>
+      )}
+      {mode === "3d" && has3D && <Replay3D logs={result.logs} time={time} view={view} onCanvas={(c) => (canvas.current = c)} />}
+      {mode === "2d" && hasPath && (
         <svg
           className="mx-replay-field mx-auto-overlay is-clickable"
           viewBox={`-.3 -.3 ${field.length + 0.6} ${field.width + 0.6}`}
