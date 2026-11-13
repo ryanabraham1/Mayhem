@@ -15,7 +15,9 @@ import {
   Pause,
   Play,
   Radio,
+  MessageSquarePlus,
 } from "lucide-react";
+import { useTasks } from "../tasks/feedback";
 import { copyText, openContextMenu } from "../ContextMenu";
 import { ANY_STATE, checkedIn, evaluate, type Signals } from "../core/model.ts";
 import { edgeLabels } from "../core/edgeLabels.ts";
@@ -52,6 +54,7 @@ import {
   Dot,
   EmptyState,
   FileButton,
+  IconButton,
   PageHeader,
   Segmented,
 } from "../ui";
@@ -67,6 +70,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
   const live = robot.live;
   const [choice, setChoice] = useState(`auto:${s.routine.id}`);
   const [selected, setSelected] = useState(s.routine.initial);
+  const { openFeedback } = useTasks();
   const [selectedEdge, setSelectedEdge] = useState<string>();
   const [manualInputs, setManualInputs] = useState<Signals>({});
   const [simState, setSimState] = useState<string | null>(null);
@@ -550,6 +554,23 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                 {node.id === active && " · active"}
               </span>
               <h2>{node.name}</h2>
+            </div>
+            <div className="mx-insp-actions">
+              <IconButton
+                label="Comment on this state"
+                title="Comment on this state (and the selected transition): it becomes a task for the agents"
+                icon={MessageSquarePlus}
+                onClick={() => {
+                  const edge = graph.transitions.find((t) => t.id === selectedEdge);
+                  openFeedback({
+                    title: `${machine ? machine.name : graph.name} · ${node.name}${edge ? ` → ${graph.nodes.find((n) => n.id === edge.to)?.name ?? edge.to}` : ""}: `,
+                    context: edge ? "Pinned to this transition of the state machine." : "Pinned to this state of the state machine.",
+                    anchor: machine
+                      ? { machine: machine.name, state: node.id, ...(edge ? { transition: edge.name ? `${edge.id} (${edge.name})` : edge.id } : {}) }
+                      : { routine: graph.name, step: { id: node.id, name: node.name, kind: node.kind } },
+                  });
+                }}
+              />
             </div>
           </div>
           {node.description && <p className="mx-help">{node.description}</p>}

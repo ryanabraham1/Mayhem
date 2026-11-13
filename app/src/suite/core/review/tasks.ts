@@ -49,6 +49,14 @@ export interface Anchor {
   /** A sim proof scenario, routine, finding or other behavior item the feedback is about. */
   scenario?: string;
   routine?: string;
+  /** The auto step selected in the Autonomous editor (its target, for pose steps). */
+  step?: { id: string; name: string; kind: string; x?: number; y?: number; heading?: number; action?: string };
+  /** A state machine and the state or transition selected on the State machines page. */
+  machine?: string;
+  state?: string;
+  transition?: string;
+  /** The Mayhem project file the routine lives in. */
+  project?: string;
   behavior?: string;
   /** Match name or number, e.g. "Qual 14". */
   match?: string;

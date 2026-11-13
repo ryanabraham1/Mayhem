@@ -61,3 +61,23 @@ test("feedback becomes an agent task: plan approval, commit, risk and the why li
 });
 
 const readShooter = (repo: string) => execFileSync("cat", [join(repo, "src/main/include/subsystems/shooter/ShooterConstants.h")]).toString();
+
+test("a comment on an auto step reaches agents with the step's details", async ({ page }) => {
+  const repo = fixtureRepo();
+  await desktop(page, repo);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("button", { name: "Choose robot code folder" }).first().click();
+  await page.getByRole("button", { name: "Autonomous", exact: true }).click();
+  await page.getByRole("button", { name: "Comment on this step" }).click();
+  const dialog = page.getByRole("dialog", { name: "Feedback" });
+  await expect(dialog.getByText(/step “/)).toBeVisible();
+  await dialog.getByLabel("What happened, or what should change?").fill("Approach this pickup slower, the intake bounces the piece away.");
+  await dialog.getByLabel("Your name").fill("Maya");
+  await shot(page, "t5-step-comment");
+  await dialog.getByRole("button", { name: "Send to agents" }).click();
+  const { tasks } = await execute("list_tasks", { repo });
+  const task = await execute("get_task", { repo, id: tasks[0].id });
+  expect(task.anchor).toMatchObject({ routine: expect.any(String), step: { id: expect.any(String), name: expect.any(String), kind: expect.any(String) } });
+  expect(task.text).toMatch(/slower/);
+});

@@ -83,8 +83,10 @@ export const anchorText = (a: Anchor) =>
     a.log && `${a.log}${a.time !== undefined ? ` @ ${a.time.toFixed(1)} s` : ""}`,
     !a.log && a.scenario && `${a.scenario}${a.time !== undefined ? ` @ ${a.time.toFixed(1)} s` : ""}`,
     a.routine && !a.scenario && `auto ${a.routine}`,
+    a.step && `step “${a.step.name}”${a.step.x !== undefined ? ` at (${a.step.x.toFixed(1)}, ${a.step.y!.toFixed(1)}) m` : ""}`,
+    a.machine && `${a.machine}${a.state ? ` · state ${a.state}` : ""}${a.transition ? ` · transition ${a.transition}` : ""}`,
     a.behavior,
-    a.pose && `field (${a.pose.x.toFixed(1)}, ${a.pose.y.toFixed(1)}) m`,
+    a.pose && a.step?.x === undefined && `field (${a.pose.x.toFixed(1)}, ${a.pose.y.toFixed(1)}) m`,
     a.revision && `code ${a.revision === "WORKTREE" ? "on this computer" : a.revision.slice(0, 7)}`,
   ]
     .filter(Boolean)
