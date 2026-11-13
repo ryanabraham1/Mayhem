@@ -2005,7 +2005,7 @@ dependencies = [
 
 [[package]]
 name = "mayhem"
-version = "0.9.37"
+version = "0.9.38"
 dependencies = [
  "libc",
  "reqwest",
