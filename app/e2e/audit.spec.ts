@@ -56,7 +56,7 @@ for (const theme of ["light", "dark"] as const)
       await page.getByRole("button", { name: /Choose robot code folder|robot-demo/ }).first().click();
       await page.getByLabel("Before version").selectOption(git("rev-parse", "mayhem/suite-integration"));
       await page.getByLabel("After version").selectOption(git("rev-parse", "HEAD"));
-      await expect(page.locator(".mx-risk")).toBeVisible();
+      await expect(page.locator(".mx-risk-chip")).toBeVisible();
       await shot("changes-summary");
       for (const [name, re] of [["controls", /^Controls/], ["machines", /^State machines/], ["values", /^Values/], ["hardware", /^Hardware/], ["autos", /^Autos/]] as const) {
         await tab(re);

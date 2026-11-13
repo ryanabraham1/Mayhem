@@ -1064,3 +1064,76 @@
 .mx-lane-bar span {
   z-index: 0;
 }
+
+/* Quiet status: a chip on the tab row, one-line results, slim callouts. */
+.mx-tab-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.mx-tab-row > .mx-segmented {
+  flex: 1 1 auto;
+}
+.mx-risk-chip,
+.mx-result-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.mx-risk-chip {
+  padding: 5px 11px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.mx-risk-chip.is-red {
+  background: var(--mx-bad-soft);
+  color: var(--mx-bad);
+}
+.mx-risk-chip.is-yellow {
+  background: var(--mx-warn-soft);
+  color: var(--mx-warn);
+}
+.mx-risk-chip.is-green {
+  background: var(--mx-good-soft);
+  color: var(--mx-good);
+}
+.mx-risk-chip.is-none {
+  background: var(--mx-surface-2);
+  color: var(--mx-muted);
+}
+.mx-result-line {
+  margin: 0;
+}
+.mx-result-line span {
+  font-weight: 400;
+  color: var(--mx-muted);
+}
+.mx-result-line.is-red {
+  color: var(--mx-bad);
+}
+.mx-result-line.is-yellow {
+  color: var(--mx-warn);
+}
+.mx-result-line.is-green {
+  color: var(--mx-good);
+}
+.mx-callout {
+  padding: 7px 12px;
+  border: 0;
+  border-radius: var(--mx-r-sm);
+  font-size: 13px;
+  align-items: center;
+}
+.mx-callout > svg {
+  margin-top: 0;
+}
+.mx-callout.is-bad,
+.mx-callout.is-warn {
+  border: 0;
+}
+.mx-callout.mx-loud {
+  font-size: 13px;
+}

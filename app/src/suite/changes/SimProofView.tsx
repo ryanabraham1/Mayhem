@@ -192,18 +192,14 @@ export function SimProofView({ report, review }: { report: ReviewReport; review:
       )}
       {proof && (
         <>
-          <div className={`mx-risk ${proof.passed ? (proof.changed ? "is-yellow" : "is-green") : "is-red"}`}>
-            {proof.passed ? <CircleCheck size={22} /> : <CircleX size={22} />}
-            <div>
-              <strong>
-                {proof.passed ? "Every scenario passes" : `${proof.results.filter((r) => r.failed).length} scenario(s) fail`}
-                {proof.changed ? ` · ${proof.changed} behave differently` : review.before ? " · same behavior as before" : ""}
-              </strong>
-              <span>
-                {proof.results.length} scenarios on {report.after.label}
-              </span>
-            </div>
-          </div>
+          <p className={`mx-result-line is-${proof.passed ? (proof.changed ? "yellow" : "green") : "red"}`} role="status">
+            {proof.passed ? <CircleCheck size={15} /> : <CircleX size={15} />}
+            <strong>
+              {proof.passed ? "Every scenario passes" : `${proof.results.filter((r) => r.failed).length} of ${proof.results.length} fail`}
+              {proof.changed ? ` · ${proof.changed} behave differently` : review.before ? " · same behavior as before" : ""}
+            </strong>
+            <span>{proof.results.length} scenarios</span>
+          </p>
           <Segmented
             label="Scenario groups"
             value={group}

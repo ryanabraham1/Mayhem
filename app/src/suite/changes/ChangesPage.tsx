@@ -204,15 +204,7 @@ export function ChangesPage({ notify }: { notify: (message: string) => void }) {
         </EmptyState>
       ) : (
         <>
-          <div className={`mx-risk is-${report.level}`} role="status">
-            {report.level === "red" ? <ShieldAlert size={22} /> : <ShieldCheck size={22} />}
-            <div>
-              <strong>{LEVEL_TEXT[report.level]}</strong>
-              <span>
-                {report.before.label} → {report.after.label}
-              </span>
-            </div>
-          </div>
+          <div className="mx-tab-row">
           <Segmented
             label="Review sections"
             value={tab}
@@ -227,6 +219,11 @@ export function ChangesPage({ notify }: { notify: (message: string) => void }) {
               return { value: t.value, icon: t.icon, label: n ? `${t.label} · ${n}` : t.label };
             })}
           />
+            <span className={`mx-risk-chip is-${report.level}`} role="status" title={`${report.before.label} → ${report.after.label}`}>
+              {report.level === "red" ? <ShieldAlert size={14} /> : <ShieldCheck size={14} />}
+              {LEVEL_TEXT[report.level]}
+            </span>
+          </div>
           <div className="mx-review-body">
             {tab === "summary" && (
               <>
