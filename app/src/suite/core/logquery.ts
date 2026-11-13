@@ -143,7 +143,7 @@ export function findAnomalies(
   const sens = Math.min(Math.max(opts.sensitivity ?? 1, 0.25), 4);
   const from = opts.from ?? -Infinity;
   const to = opts.to ?? Infinity;
-  const pool = opts.channels?.length ? resolveChannels(recording, opts.channels).found : recording.channels;
+  const pool = opts.channels?.length ? resolveChannels(recording, opts.channels).found : meaningful(recording);
   const found: Anomaly[] = [];
   const add = (a: Anomaly) => {
     if (a.end >= from && a.start <= to && Number.isFinite(a.score)) found.push({ ...a, score: round(a.score, 2) });
@@ -225,7 +225,7 @@ export function findAnomalies(
             }
         }
       }
-    } else if (c.samples.every((s) => typeof s.value === "boolean")) {
+    } else if (c.samples.every((s) => typeof s.value === "boolean" || typeof s.value === "string")) {
       const changes: number[] = [];
       c.samples.forEach((s, i) => { if (i && s.value !== c.samples[i - 1].value) changes.push(s.time); });
       // Sliding one-second window with many toggles.
@@ -235,7 +235,7 @@ export function findAnomalies(
         const count = hi - lo + 1;
         if (count >= Math.ceil(6 / sens))
           add({ channel: c.name, kind: "flapping", start: changes[lo], end: changes[hi], score: count,
-            detail: `${count} toggles within ${round(changes[hi] - changes[lo], 2)} s.` });
+            detail: `${count} ${typeof c.samples[0].value === "string" ? "state changes" : "toggles"} within ${round(changes[hi] - changes[lo], 2)} s.` });
       }
     }
   }
@@ -247,8 +247,9 @@ export function findAnomalies(
   }
   const all = [...best.values()].sort((a, b) => b.score - a.score);
   const limit = Math.min(opts.limit ?? 25, 100);
-  // Round-robin across kinds so one noisy kind can't hide the others.
-  const queues = new Map<string, Anomaly[]>();
+  // Round-robin across kinds so one noisy kind can't hide the others; flapping (a state machine or
+  // switch fighting itself) leads, since it is almost always a real logic problem.
+  const queues = new Map<string, Anomaly[]>([["flapping", []]]);
   for (const a of all) (queues.get(a.kind) ?? queues.set(a.kind, []).get(a.kind)!).push(a);
   const ranked: Anomaly[] = [];
   for (let i = 0; ranked.length < all.length; i++)
@@ -298,15 +299,24 @@ export function whatChanged(
 }
 
 /** Chronological state/boolean/string transitions, merged across channels. */
+/** Dashboard plumbing (widget types, colors, schemas) and NetworkTables mirrors of logged channels. */
+const NOISE = /\/\.(type|name|controllable|status)\b|\/(backgroundColor|color|weight|angle|length)$|\/Schema\/|FMSInfo|LiveWindow|\/guards\/|Mechanism2d|\/RootDirection\//;
+export function meaningful(recording: Recording) {
+  const logged = new Set(recording.channels.filter((c) => !c.name.startsWith("NT:")).map((c) => c.name.replace(/^\/?(RealOutputs\/)?/, "")));
+  return recording.channels.filter(
+    (c) => c.samples.length && !NOISE.test(c.name) && !(c.name.startsWith("NT:") && logged.has(c.name.slice(3).replace(/^\/?(RealOutputs\/|AdvantageKit\/RealOutputs\/)?/, ""))),
+  );
+}
+
 export function logEvents(
   recording: Recording,
-  opts: { channels?: string[]; from?: number; to?: number; limit?: number } = {},
+  opts: { channels?: string[]; from?: number; to?: number; limit?: number; all?: boolean } = {},
 ) {
   const from = opts.from ?? -Infinity;
   const to = opts.to ?? Infinity;
   const pool = opts.channels?.length
     ? resolveChannels(recording, opts.channels).found
-    : recording.channels.filter((c) => c.samples.length && !isNumeric(c));
+    : (opts.all ? recording.channels : meaningful(recording)).filter((c) => c.samples.length && !isNumeric(c));
   const events: { time: number; channel: string; from: unknown; to: unknown }[] = [];
   for (const c of pool) {
     c.samples.forEach((s, i) => {
@@ -323,5 +333,65 @@ export function logEvents(
     totalEvents: events.length,
     truncated: events.length > limit,
     events: events.slice(0, limit).map((e) => ({ ...e, time: round(e.time, 3) })),
+  };
+}
+
+/**
+ * Each Mayhem state machine's history from the log (`Mayhem/States/<id>/state`, `/transition` and
+ * `/inputs/*`): every state change with the transition that fired and the inputs at that moment.
+ * Bursts of back-and-forth (a machine fighting itself) are collapsed into one entry with the pair of
+ * transitions involved and the inputs that kept both true.
+ */
+export function machineStates(
+  recording: Recording,
+  opts: { machines?: string[]; from?: number; to?: number; limit?: number } = {},
+) {
+  const from = opts.from ?? -Infinity;
+  const to = opts.to ?? Infinity;
+  const ids = [...new Set(recording.channels.flatMap((c) => /^\/?(?:RealOutputs\/)?Mayhem\/States\/([^/]+)\/state$/.exec(c.name)?.[1] ?? []))]
+    .filter((id) => !opts.machines?.length || opts.machines.some((m) => id.toLowerCase().includes(m.toLowerCase())));
+  const find = (re: RegExp) => recording.channels.find((c) => !c.name.startsWith("NT:") && re.test(c.name) && c.samples.length);
+  const limit = Math.min(opts.limit ?? 40, 200);
+  return {
+    machines: ids.map((id) => {
+      const state = find(new RegExp(`Mayhem/States/${id}/state$`))!;
+      const transition = find(new RegExp(`Mayhem/States/${id}/transition$`));
+      const inputs = recording.channels.filter((c) => new RegExp(`Mayhem/States/${id}/inputs/[^/]+$`).test(c.name) && !c.name.startsWith("NT:") && c.samples.length);
+      const inputsAt = (t: number) =>
+        Object.fromEntries(inputs.filter((c) => !/stateTime$/.test(c.name)).map((c) => [c.name.split("/").pop()!, show(valueAt(c, t))]));
+      const changes: { time: number; from: unknown; to: unknown; transition?: unknown; inputs: Record<string, unknown> }[] = [];
+      state.samples.forEach((s, i) => {
+        if (s.time < from || s.time > to || (i && s.value === state.samples[i - 1].value)) return;
+        changes.push({
+          time: round(s.time, 3),
+          from: i ? show(state.samples[i - 1].value) : null,
+          to: show(s.value),
+          ...(transition ? { transition: show(valueAt(transition, s.time)) } : {}),
+          inputs: inputsAt(s.time),
+        });
+      });
+      // Collapse bursts: changes 0.1 s apart or closer, six or more in a row.
+      const entries: unknown[] = [];
+      for (let i = 0; i < changes.length; ) {
+        let j = i + 1;
+        while (j < changes.length && changes[j].time - changes[j - 1].time <= 0.1) j++;
+        if (j - i >= 6) {
+          const run = changes.slice(i, j);
+          entries.push({
+            flapping: true,
+            start: run[0].time,
+            end: run[run.length - 1].time,
+            changes: run.length,
+            states: [...new Set(run.map((c) => c.to))],
+            // Both directions, from the state pairs (the transition channel holds one per loop).
+            transitions: [...new Set(run.map((c) => `${c.from} → ${c.to}`))],
+            inputs: run[1].inputs,
+            hint: "Both transitions' conditions are true at once: one leaves the state the other enters. Make the guards exclusive (or add a hold/settle).",
+          });
+        } else entries.push(...changes.slice(i, j));
+        i = j;
+      }
+      return { id, channel: state.name, count: changes.length, truncated: entries.length > limit, history: entries.slice(0, limit) };
+    }),
   };
 }

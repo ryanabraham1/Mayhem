@@ -15,7 +15,7 @@ import { downloadCpp } from "../cppExport";
 import { desktop } from "../native";
 import { download } from "../storage";
 import type { SuiteState } from "../useSuiteProject";
-import { Badge, Button, PageHeader, Panel } from "../ui";
+import { Badge, Button, Panel } from "../ui";
 
 function CopyBlock({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -81,6 +81,7 @@ export function agentBrief(s: SuiteState) {
   return lines.join("\n");
 }
 
+/** Connecting agents to the project (shown at the bottom of the Tasks page). */
 export function AgentsPage({ s }: { s: SuiteState }) {
   const [json, setJson] = useState(() => JSON.stringify(s.project, null, 2));
   const [dirty, setDirty] = useState(false);
@@ -97,11 +98,7 @@ export function AgentsPage({ s }: { s: SuiteState }) {
     2,
   );
   return (
-    <div className="mx-page-scroll">
-      <PageHeader
-        title="Tasks"
-        subtitle="Agents write the autos and robot code. Connect them here; the Changes page shows what each change does to the robot."
-      />
+    <div className="mx-agent-setup">
       <div className="mx-agent-grid">
         <Panel title="Share this project with an agent" icon={FileText}>
           <p className="mx-help">

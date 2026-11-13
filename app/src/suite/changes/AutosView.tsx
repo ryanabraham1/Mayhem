@@ -6,6 +6,8 @@ import field from "../core/rebuilt-2026.json";
 import type { DrivenPath, RoutineDiff } from "../core/review/autos.ts";
 import type { ReviewReport } from "../core/review/report.ts";
 import { Badge, EmptyState, Stat, type Tone } from "../ui";
+import { useTasks } from "../tasks/feedback";
+import { fieldPoint } from "../tasks/anchors";
 
 const TONE: Record<string, Tone> = { added: "good", removed: "bad", changed: "warn", same: "neutral" };
 const points = (p: DrivenPath) => p.poses.map((q) => `${q.x.toFixed(3)},${(field.width - q.y).toFixed(3)}`).join(" ");
@@ -19,9 +21,22 @@ function Robot({ pose, className }: { pose: { x: number; y: number; heading: num
   );
 }
 
-function Overlay({ r }: { r: RoutineDiff }) {
+function Overlay({ r, revision }: { r: RoutineDiff; revision: string }) {
+  const { openFeedback } = useTasks();
   return (
-    <svg className="mx-replay-field mx-auto-overlay" viewBox={`-.3 -.3 ${field.length + 0.6} ${field.width + 0.6}`} aria-label={`${r.name}: old and new paths`}>
+    <svg
+      className="mx-replay-field mx-auto-overlay is-clickable"
+      viewBox={`-.3 -.3 ${field.length + 0.6} ${field.width + 0.6}`}
+      aria-label={`${r.name}: old and new paths (click to comment on a spot)`}
+      onClick={(e) =>
+        openFeedback({
+          kind: "field-point",
+          title: `${r.name}: `,
+          context: "Pinned to this spot on the field for this auto.",
+          anchor: { routine: r.name, revision, pose: fieldPoint(e.currentTarget, e.clientX, e.clientY, field.width) },
+        })
+      }
+    >
       <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
         <FieldArt field={field as FieldModel} hideFuel />
       </g>
@@ -62,7 +77,7 @@ export function AutosView({ report }: { report: ReviewReport }) {
             <span className="is-before">Before</span>
             <span className="is-after">After</span>
           </div>
-          <Overlay r={r} />
+          <Overlay r={r} revision={report.after.rev} />
           <div className="mx-stats">
             <Stat label="Time" value={stat(r.before?.time, r.after?.time, " s")} />
             <Stat label="Distance" value={stat(r.before?.distance, r.after?.distance, " m")} />

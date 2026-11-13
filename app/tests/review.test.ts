@@ -13,6 +13,8 @@ import { sampleProject } from "../src/suite/core/sample";
 import { machineFromSpec } from "../src/suite/core/authoring";
 import { checkExpectations, compareOutcomes, compileSteps, parseExpectation, scenarioSet, type Outcome } from "../src/suite/core/review/scenarios";
 import { execute } from "../../scripts/mayhem.mjs";
+import { readItem, saveItem } from "../../scripts/review-tasks.mjs";
+import { createItem, move, parseItem, serializeItem, tasksInMessage } from "../src/suite/core/review/tasks";
 
 const SHOOTER = `// Copyright header that is not a doc comment.
 #pragma once
@@ -282,5 +284,69 @@ describe("generated robot code", () => {
       expect.stringMatching(/autos changed in robot.mayhem.json but MayhemProject.h did not/),
     ]);
     expect(report.level).toBe("red");
+  });
+});
+
+describe("feedback and tasks", () => {
+  it("turns feedback into tasks with context, and only allows sensible moves", () => {
+    const now = new Date("2026-11-13T18:00:00Z");
+    const item = createItem({ author: "Maya", kind: "thumbs-down", text: "Shooter keeps spinning after I let go of A. Happened twice.", anchor: { log: "Q14.wpilog", time: 42.5 } }, now);
+    expect(item).toMatchObject({ status: "open", title: "Shooter keeps spinning after I let go of A", anchor: { log: "Q14.wpilog", time: 42.5 } });
+    expect(createItem({ author: "Maya", kind: "thumbs-up", text: "" }, now).status).toBe("noted");
+    expect(() => move(item, "approve", "Maya")).toThrow(/Can't approve/);
+    const claimed = move(item, "claim", "claude-1", {}, now);
+    expect(() => move(claimed, "plan", "claude-1", { plan: " " })).toThrow(/plan needs text/);
+    expect(() => move(claimed, "plan", "codex-2", { plan: "x" })).toThrow(/belongs to claude-1/);
+    const planned = move(claimed, "plan", "claude-1", { plan: "Stop the flywheel when A is released, even in the alliance zone." }, now);
+    const sentBack = move(planned, "reject", "Coach Lee", { note: "Keep it revving in the zone" }, now);
+    expect(sentBack).toMatchObject({ status: "claimed", planDecision: { approved: false, by: "Coach Lee", note: "Keep it revving in the zone" } });
+    const approved = move(move(sentBack, "plan", "claude-1", { plan: "Lower the idle speed in the zone." }), "approve", "Coach Lee");
+    expect(approved.status).toBe("approved");
+    expect(parseItem(serializeItem(approved))).toEqual(approved);
+    expect(tasksInMessage("Lower idle\n\nMayhem-Task: 20261113180000-ab12\nCo-Authored-By: x")).toEqual(["20261113180000-ab12"]);
+  });
+
+  it("runs the agent loop through the MCP tools, labels risk and auto-accepts path-only changes", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "mayhem-tasks-"));
+    try {
+      const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" }).toString().trim();
+      git("init", "-q");
+      git("config", "user.email", "test@example.com");
+      git("config", "user.name", "Test");
+      for (const [path, text] of Object.entries(files())) {
+        await mkdir(join(repo, path, ".."), { recursive: true });
+        await writeFile(join(repo, path), text);
+      }
+      git("add", ".");
+      git("commit", "-qm", "robot");
+      const added = await execute("add_feedback", { repo, author: "Maya", kind: "thumbs-down", text: "Auto misses the first piece" });
+      expect((await execute("list_tasks", { repo })).tasks.map((t: { id: string }) => t.id)).toEqual([added.id]);
+      await execute("claim_task", { repo, id: added.id, agent: "claude-1" });
+      await execute("propose_plan", { repo, id: added.id, agent: "claude-1", plan: "Move the first pickup 30 cm left." });
+      await expect(execute("report_progress", { repo, id: added.id, agent: "claude-1", revision: "HEAD" })).rejects.toThrow(/Can't progress/);
+      // A person approves in the app (same file rules).
+      const { item, text } = await readItem(repo, added.id);
+      await saveItem(repo, move(item, "approve", "Coach Lee"), text);
+      const project = structuredClone(sampleProject);
+      project.routines[0].nodes.find((n) => n.kind === "pose")!.goal!.x += 0.3;
+      await writeFile(join(repo, "robot.mayhem.json"), JSON.stringify(project));
+      git("commit", "-qam", `Move pickup\n\nMayhem-Task: ${added.id}`);
+      const progressed = await execute("report_progress", { repo, id: added.id, agent: "claude-1", revision: "HEAD", summary: "moved pickup" });
+      expect(progressed.changes[0]).toMatchObject({ summary: "moved pickup", level: expect.stringMatching(/green|yellow/) });
+      const finished = await execute("finish_task", { repo, id: added.id, agent: "claude-1" });
+      expect(finished.status).toBe(progressed.changes[0].level === "green" ? "done" : "review");
+      // A safety change always waits for a person.
+      const second = await execute("add_feedback", { repo, author: "Maya", text: "Shooter browns out" });
+      await execute("claim_task", { repo, id: second.id, agent: "claude-1" });
+      await execute("propose_plan", { repo, id: second.id, agent: "claude-1", plan: "Lower the shooter current limit to 60 A." });
+      const r2 = await readItem(repo, second.id);
+      await saveItem(repo, move(r2.item, "approve", "Coach Lee"), r2.text);
+      await writeFile(join(repo, "src/main/include/subsystems/shooter/ShooterConstants.h"), SHOOTER.replace("80_A", "60_A"));
+      git("commit", "-qam", "Lower limit");
+      expect((await execute("report_progress", { repo, id: second.id, agent: "claude-1", revision: "HEAD" })).changes[0].level).toBe("red");
+      expect((await execute("finish_task", { repo, id: second.id, agent: "claude-1" })).status).toBe("review");
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
   });
 });

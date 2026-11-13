@@ -209,6 +209,96 @@ pub async fn review_write_file(repo: String, path: String, expected: String, tex
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Serialize)]
+pub struct Commit {
+    sha: String,
+    subject: String,
+    body: String,
+}
+
+/// Commits after `before` up to `after` (the working tree counts as HEAD), newest first.
+#[tauri::command]
+pub async fn review_commits(repo: String, before: String, after: String) -> Result<Vec<Commit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let after = if after == WORKTREE { "HEAD".to_string() } else { after };
+        let before = if before == WORKTREE { "HEAD".to_string() } else { before };
+        let range = format!("{before}..{after}");
+        let log = git(&repo, &["log", "-200", "--format=%H%x1f%s%x1f%b%x1e", &range])?;
+        Ok(log
+            .split('\x1e')
+            .filter_map(|entry| {
+                let f: Vec<&str> = entry.trim_start_matches('\n').splitn(3, '\x1f').collect();
+                (f.len() == 3 && !f[0].is_empty()).then(|| Commit { sha: f[0].into(), subject: f[1].into(), body: f[2].trim().into() })
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+const REVIEW_DIR: &str = "tools/mayhem/review";
+
+fn item_id(id: &str) -> Result<(), String> {
+    if id.is_empty() || id.len() > 80 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err(format!("Bad review item id {id}"));
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct Item {
+    id: String,
+    text: String,
+}
+
+/// Every feedback/task file in the robot repo's working tree.
+#[tauri::command]
+pub async fn review_items(repo: String) -> Result<Vec<Item>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(git(&repo, &["rev-parse", "--show-toplevel"])?.trim());
+        let dir = root.join(REVIEW_DIR);
+        let Ok(entries) = fs::read_dir(&dir) else { return Ok(Vec::new()) };
+        let mut items = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(id) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+            if path.extension().is_some_and(|e| e == "json") && item_id(id).is_ok() {
+                if let Ok(text) = fs::read_to_string(&path) {
+                    items.push(Item { id: id.to_string(), text });
+                }
+            }
+        }
+        Ok(items)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Creates (`expected` absent: the file must not exist) or updates (the file must still hold
+/// `expected`) one feedback/task file, atomically.
+#[tauri::command]
+pub async fn review_item_save(repo: String, id: String, text: String, expected: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        item_id(&id)?;
+        let root = PathBuf::from(git(&repo, &["rev-parse", "--show-toplevel"])?.trim());
+        let dir = root.join(REVIEW_DIR);
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let target = dir.join(format!("{id}.json"));
+        let current = fs::read_to_string(&target).ok();
+        if current != expected {
+            return Err(if expected.is_none() { format!("{id} already exists") } else { "Someone changed this item meanwhile. Reload and try again.".into() });
+        }
+        let temporary = dir.join(format!(".{id}.{}.tmp", std::process::id()));
+        fs::write(&temporary, text).map_err(|e| e.to_string())?;
+        fs::rename(&temporary, &target).map_err(|e| {
+            let _ = fs::remove_file(&temporary);
+            e.to_string()
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +313,7 @@ mod tests {
         assert!(inside(root, "src/main/include/A.h").is_ok());
         assert!(inside(root, "../etc/passwd").is_err());
         assert!(inside(root, "/etc/passwd").is_err());
+        assert!(item_id("20261113101500-ab12").is_ok());
+        assert!(item_id("../x").is_err());
     }
 }

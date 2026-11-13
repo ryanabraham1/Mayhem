@@ -76,6 +76,7 @@ test("the linked project reloads when the file changes on disk, keeping the sele
   await desktop(page, file);
   await page.goto("/");
   await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByText("Connect an agent").click();
   await page.getByRole("button", { name: "Open project file" }).click();
   await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
 
@@ -117,6 +118,7 @@ test("keep mine writes this copy over the changed file", async ({ page }) => {
   const bridge = await desktop(page, file);
   await page.goto("/");
   await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByText("Connect an agent").click();
   await page.getByRole("button", { name: "Open project file" }).click();
   await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
   bridge.freeze(true);
@@ -143,6 +145,7 @@ test("a disk change while this copy has unsaved edits asks instead of overwritin
   const bridge = await desktop(page, file);
   await page.goto("/");
   await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByText("Connect an agent").click();
   await page.getByRole("button", { name: "Open project file" }).click();
   await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
   // An agent rewrites the file while the user renames the project, before the app has read the

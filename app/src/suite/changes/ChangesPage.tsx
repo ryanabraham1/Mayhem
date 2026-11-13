@@ -14,9 +14,13 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
+  ThumbsDown,
+  ThumbsUp,
 } from "lucide-react";
+import { useTasks } from "../tasks/feedback";
 import { LEVEL_TEXT, WORKTREE, type Area, type Level, type ReviewReport } from "../core/review/report.ts";
 import { desktop } from "../native";
+import { chooseRepo as pickRepo } from "../robotRepo";
 import { Badge, Button, EmptyState, FileButton, PageHeader, Segmented, type Tone } from "../ui";
 import { AutosView } from "./AutosView";
 import { ControlsView } from "./ControlsView";
@@ -25,6 +29,7 @@ import { HardwareView } from "./HardwareView";
 import { MachinesView } from "./MachinesView";
 import { SettingsView } from "./SettingsView";
 import { SimProofView } from "./SimProofView";
+import { WhyPanel } from "./WhyPanel";
 import { useReview, type Review } from "./useReview";
 import "./changes.css";
 
@@ -72,6 +77,9 @@ function RevisionPicker({ review, side }: { review: Review; side: "before" | "af
 }
 
 function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void }) {
+  const { openFeedback } = useTasks();
+  const thumbs = (kind: "thumbs-up" | "thumbs-down", text: string) =>
+    openFeedback({ kind, title: kind === "thumbs-up" ? `Looks good: ${text.slice(0, 80)}` : `Not right: ${text.slice(0, 80)}`, context: "About this change in the robot code.", anchor: { behavior: text, revision: report.after.rev } });
   const count = (area: Area) => report.findings.filter((f) => f.area === area).length;
   const areas: { area: Area; title: string; icon: typeof Cpu; empty: string }[] = [
     { area: "controls", title: "Driver controls", icon: Gamepad2, empty: "Same buttons, same outcomes" },
@@ -104,6 +112,14 @@ function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void 
               <button type="button" className="mx-link" onClick={() => go(f.area === "generated" ? "summary" : f.area)}>
                 {f.text}
               </button>
+              <span className="mx-thumbs">
+                <button type="button" aria-label="Looks good" title="Looks good" onClick={() => thumbs("thumbs-up", f.text)}>
+                  <ThumbsUp size={13} />
+                </button>
+                <button type="button" aria-label="Not right" title="Not right: tell the agents" onClick={() => thumbs("thumbs-down", f.text)}>
+                  <ThumbsDown size={13} />
+                </button>
+              </span>
             </li>
           ))}
         </ul>
@@ -123,11 +139,7 @@ export function ChangesPage({ notify }: { notify: (message: string) => void }) {
   const [editing, setEditing] = useState<EditTarget>();
   const { report } = review;
 
-  const chooseRepo = async () => {
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const picked = await open({ directory: true, title: "Choose the robot code folder (a git repository)" });
-    if (typeof picked === "string") review.setRepo(picked);
-  };
+  const chooseRepo = () => pickRepo(review.setRepo);
   const importReport = async (file?: File) => {
     if (!file) return;
     try {
@@ -212,7 +224,12 @@ export function ChangesPage({ notify }: { notify: (message: string) => void }) {
             })}
           />
           <div className="mx-review-body">
-            {tab === "summary" && <Summary report={report} go={setTab} />}
+            {tab === "summary" && (
+              <>
+                <WhyPanel review={review} />
+                <Summary report={report} go={setTab} />
+              </>
+            )}
             {tab === "controls" && <ControlsView report={report} />}
             {tab === "machines" && <MachinesView report={report} />}
             {tab === "settings" && <SettingsView report={report} review={review} editSetting={setEditing} />}

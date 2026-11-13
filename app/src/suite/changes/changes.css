@@ -836,3 +836,44 @@
   background: var(--mx-line-strong);
   color: var(--mx-ink-2);
 }
+.mx-thumbs {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0.55;
+}
+.mx-findings li:hover .mx-thumbs {
+  opacity: 1;
+}
+.mx-thumbs button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mx-ink-2);
+  cursor: pointer;
+}
+.mx-thumbs button:hover {
+  background: var(--mx-accent-soft);
+  color: var(--mx-accent-ink);
+}
+.mx-auto-overlay.is-clickable {
+  cursor: crosshair;
+}
+.mx-why {
+  margin-bottom: 14px;
+  border-color: var(--mx-accent-line);
+}
+.mx-why h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.mx-why-item p {
+  margin: 4px 0;
+}

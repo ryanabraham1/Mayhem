@@ -30,7 +30,7 @@ const { exportCpp } = await import("../app/src/suite/core/export-cpp.ts");
 const { simulate } = await import("../app/src/suite/core/runtime.ts");
 const { headingLints } = await import("../app/src/suite/core/headingLint.ts");
 import { analyze, parseRecordingJSON, currentBreakdown } from "../app/src/suite/core/analysis.ts";
-import { listChannels, logTable, findAnomalies, whatChanged, logEvents } from "../app/src/suite/core/logquery.ts";
+import { listChannels, logTable, findAnomalies, whatChanged, logEvents, machineStates } from "../app/src/suite/core/logquery.ts";
 import { NT4Observer } from "../app/src/suite/core/nt4.ts";
 import { parseWPILog } from "../app/src/suite/core/wpilog.ts";
 import { vendorCpp } from "./cpp-vendor.mjs";
@@ -39,10 +39,12 @@ import { execFile } from "node:child_process";
 const { buildReport, WORKTREE } = await import("../app/src/suite/core/review/report.ts");
 const { gitSnapshot } = await import("./review-git.mjs");
 const { nodeRunner } = await import("./review-sim.mjs");
-const { scenarioSet } = await import("../app/src/suite/core/review/scenarios.ts");
+const { scenarioSet, describeTrack } = await import("../app/src/suite/core/review/scenarios.ts");
 const { runSimProof } = await import("../app/src/suite/core/review/simproof.ts");
 const { parseMachineSpecs } = await import("../app/src/suite/core/review/machines.ts");
 const { readProject } = await import("../app/src/suite/core/review/autos.ts");
+const { createItem, move, STATUS_NAMES } = await import("../app/src/suite/core/review/tasks.ts");
+const { listItems, readItem, saveItem } = await import("./review-tasks.mjs");
 const tools = [
   {
     name: "apply_machine_spec",
@@ -208,8 +210,69 @@ const tools = [
         after: { type: "string", description: "Revision to test (default WORKTREE, the uncommitted files)." },
         before: { type: "string", description: "Optional revision to compare against, e.g. HEAD or main." },
         groups: { type: "array", items: { type: "string", enum: ["button", "auto", "custom"] }, description: "Which scenarios (default all)." },
+        names: { type: "array", items: { type: "string" }, description: "Only scenarios whose name contains one of these (case-insensitive), e.g. [\"Hold A\", \"Outpost\"]." },
+        scenarios: {
+          type: "array",
+          description: "Extra scenarios to run now without editing scenarios.json (same format: { name, steps, expect }). With `scenarios` and no groups/names, only these run.",
+          items: { type: "object", properties: { name: { type: "string" }, steps: { type: "array", items: { type: "string" } }, expect: { type: "array", items: { type: "string" } }, alliance: { type: "string" }, field: { type: "boolean" } }, required: ["name", "steps"] },
+        },
       },
       required: ["repo"],
+    },
+  },
+  {
+    name: "list_tasks",
+    description:
+      "Feedback from the team turned into tasks (docs/SUITE_AGENTS.md, Tasks): one file each in the robot repo's tools/mayhem/review/. Returns id, title, kind, status, agent and anchor (log, time, revision, field pose, scenario). `status` filters (default: everything not done/declined/noted). Pick an open task, claim it, then propose a plan and wait for a person to approve it before changing code.",
+    inputSchema: { type: "object", properties: { repo: { type: "string" }, status: { type: "array", items: { type: "string", enum: ["noted", "open", "claimed", "plan", "approved", "review", "done", "declined"] } } }, required: ["repo"] },
+  },
+  {
+    name: "get_task",
+    description: "One task with its full context: the feedback text, driver form answers, anchor (log name/path and seconds into it, code revision, field pose, sim scenario), plan, decision, commits with their behavior risk, and history.",
+    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" } }, required: ["repo", "id"] },
+  },
+  {
+    name: "claim_task",
+    description: "Take an open task. `agent` is your name (shown to people). Records the repo's current HEAD as the base the change is compared against.",
+    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" }, agent: { type: "string" } }, required: ["repo", "id", "agent"] },
+  },
+  {
+    name: "propose_plan",
+    description:
+      "Before changing code: describe in plain English, for people who don't read code, what will change on the robot and how they will be able to tell (which button, auto or value; what sim proof scenario covers it). The task waits in \"Plan to approve\" until a person approves it in the Mayhem app; poll get_task until status is \"approved\" (or back to \"claimed\" with a note asking for a different plan). Do not start coding before approval.",
+    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" }, agent: { type: "string" }, plan: { type: "string" } }, required: ["repo", "id", "agent", "plan"] },
+  },
+  {
+    name: "report_progress",
+    description:
+      "After committing work for an approved task, report the commit. Put a `Mayhem-Task: <id>` trailer in the commit message so the Changes page links the change to this feedback. Mayhem runs behavior_diff on the commit (against the task's base) and stores its risk level and findings on the task.",
+    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" }, agent: { type: "string" }, revision: { type: "string" }, summary: { type: "string" } }, required: ["repo", "id", "agent", "revision"] },
+  },
+  {
+    name: "finish_task",
+    description:
+      "Mark an approved task's work done. If every reported commit is green (only auto paths changed and every changed path finishes), it is accepted automatically; otherwise a person checks it (\"Ready to check\"). Run run_scenarios with `before` = the task's base first and mention the result in `note`.",
+    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" }, agent: { type: "string" }, note: { type: "string" } }, required: ["repo", "id", "agent"] },
+  },
+  {
+    name: "release_task",
+    description: "Give a claimed task back (open again), e.g. when it needs something you can't do. Say why in `note`.",
+    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" }, agent: { type: "string" }, note: { type: "string" } }, required: ["repo", "id", "agent"] },
+  },
+  {
+    name: "add_feedback",
+    description: "Record feedback someone gave you (e.g. a driver in chat) as a task, with whatever anchor you know.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string" },
+        author: { type: "string", description: "The person who gave the feedback." },
+        kind: { type: "string", enum: ["comment", "thumbs-up", "thumbs-down", "field-point", "pit-note"] },
+        title: { type: "string" },
+        text: { type: "string" },
+        anchor: { type: "object" },
+      },
+      required: ["repo", "author", "text"],
     },
   },
   {
@@ -257,10 +320,16 @@ const tools = [
     inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log (adds the estimated total current channel)." }, time: { type: "number" }, window: { type: "number" }, filter: { type: "array", items: { type: "string" } }, limit: { type: "integer" } }, required: ["path", "time"] },
   },
   {
+    name: "log_states",
+    description:
+      "Why each state machine did what it did: from Mayhem's logged Mayhem/States/<id>/state, /transition and /inputs/*, every state change with the transition that fired and the input values at that moment. Back-and-forth bursts (a machine fighting itself) collapse into one entry naming both transitions and the inputs that kept both true. Start here for state-machine bugs, e.g. on a run_scenarios log.",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, machines: { type: "array", items: { type: "string" }, description: "Machine id substrings (default all)." }, from: { type: "number" }, to: { type: "number" }, limit: { type: "integer", description: "Entries per machine (default 40, max 200)." } }, required: ["path"] },
+  },
+  {
     name: "log_events",
     description:
-      "Chronological list of value changes for boolean/string/state channels (all non-numeric by default, or the named `channels`), merged across channels. Shows state-machine transitions, mode changes and alerts in order.",
-    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log (adds the estimated total current channel)." }, channels: { type: "array", items: { type: "string" } }, from: { type: "number" }, to: { type: "number" }, limit: { type: "integer" } }, required: ["path"] },
+      "Chronological list of value changes for boolean/string/state channels (all meaningful non-numeric channels by default: dashboard plumbing, guard flags and NetworkTables copies of logged channels are skipped unless `all`; or the named `channels`), merged across channels. Shows state-machine transitions, mode changes and alerts in order.",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log (adds the estimated total current channel)." }, channels: { type: "array", items: { type: "string" } }, from: { type: "number" }, to: { type: "number" }, limit: { type: "integer" }, all: { type: "boolean" } }, required: ["path"] },
   },
 ];
 function pathFor(path) {
@@ -368,8 +437,18 @@ export async function runScenarios(args, progress) {
   const snapshot = await gitSnapshot(repo, args.after ?? WORKTREE);
   const machines = parseMachineSpecs(snapshot.files["tools/mayhem/machines.json"]).machines;
   const project = Object.keys(snapshot.files).find((p) => /^[^/]+\.mayhem\.json$/.test(p));
-  const { scenarios, errors } = scenarioSet(project ? readProject(snapshot.files[project]).project : undefined, snapshot.files["tools/mayhem/scenarios.json"]);
-  const chosen = args.groups?.length ? scenarios.filter((s) => args.groups.includes(s.group)) : scenarios;
+  const fileScenarios = snapshot.files["tools/mayhem/scenarios.json"];
+  const merged = args.scenarios?.length
+    ? JSON.stringify({ scenarios: [...((fileScenarios && JSON.parse(fileScenarios).scenarios) || []), ...args.scenarios] })
+    : fileScenarios;
+  const { scenarios, errors } = scenarioSet(project ? readProject(snapshot.files[project]).project : undefined, merged);
+  const inline = new Set((args.scenarios ?? []).map((s) => s.name));
+  const chosen = scenarios.filter(
+    (s) =>
+      (!args.groups?.length || args.groups.includes(s.group)) &&
+      (!args.names?.length || args.names.some((n) => s.name.toLowerCase().includes(String(n).toLowerCase()))) &&
+      (args.groups?.length || args.names?.length || !inline.size || inline.has(s.name)),
+  );
   const proof = await runSimProof(await nodeRunner(repo), { before: args.before, after: args.after ?? WORKTREE }, chosen, machines, progress);
   return {
     passed: proof.passed,
@@ -382,11 +461,47 @@ export async function runScenarios(args, progress) {
       ...(r.checks.length ? { checks: r.checks } : {}),
       ...(r.differences.length ? { differences: r.differences } : {}),
       ...(r.after?.physics?.hits?.length ? { hits: r.after.physics.hits } : {}),
+      // What happened, in brief: each machine's states after the scenario started (flapping collapsed).
+      ...(r.after && (r.failed || r.differences.length || inline.has(r.scenario.name))
+        ? { timeline: Object.fromEntries(r.after.tracks.filter((t) => t.changes.length > 1).map((t) => [t.name, describeTrack(t, 12)])) }
+        : {}),
       logs: r.logs,
     })),
   };
 }
+const summarize = (t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, statusText: STATUS_NAMES[t.status], author: t.author, ...(t.agent ? { agent: t.agent } : {}), anchor: t.anchor, createdAt: t.createdAt });
+export async function taskTool(name, args) {
+  if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
+  const repo = resolve(args.repo);
+  if (name === "list_tasks") {
+    const wanted = args.status?.length ? args.status : ["open", "claimed", "plan", "approved", "review"];
+    return { tasks: (await listItems(repo)).filter((t) => wanted.includes(t.status)).map(summarize) };
+  }
+  if (name === "add_feedback") return saveItem(repo, createItem({ author: args.author, kind: args.kind ?? "comment", title: args.title, text: args.text, anchor: args.anchor }), null);
+  const { item, text } = await readItem(repo, args.id);
+  if (name === "get_task") return item;
+  if (typeof args.agent !== "string" || !args.agent.trim()) throw new Error("Say who you are: agent.");
+  const agent = args.agent.trim();
+  let next;
+  if (name === "claim_task") {
+    next = move(item, "claim", agent);
+    next.base = (await new Promise((done, fail) => execFile("git", ["-C", repo, "rev-parse", "HEAD"], (e, out) => (e ? fail(e) : done(out.trim())))));
+  } else if (name === "propose_plan") next = move(item, "plan", agent, { plan: args.plan });
+  else if (name === "release_task") next = move(item, "release", agent, { note: args.note });
+  else if (name === "report_progress") {
+    const diff = await behaviorDiff({ repo, before: item.base ?? `${args.revision}~1`, after: args.revision });
+    next = move(item, "progress", agent, { change: { revision: diff.after.rev, summary: args.summary, level: diff.level, findings: diff.findings.map((f) => `[${f.level}] ${f.text}`) } });
+  } else if (name === "finish_task") {
+    if (!item.changes.length) throw new Error("Report at least one commit with report_progress first.");
+    const allGreen = item.changes.every((c) => c.level === "green" || c.level === "none");
+    next = move(item, "finish", agent, { note: args.note });
+    // Path-only changes that pass the preview need no person (team rule): accepted automatically.
+    if (allGreen) next = move(next, "accept", "Mayhem", { note: "auto-OK: only auto paths changed and every changed path finishes" });
+  } else throw new Error(`Unknown task tool ${name}`);
+  return saveItem(repo, next, text);
+}
 export async function execute(name, args) {
+  if (["list_tasks", "get_task", "claim_task", "propose_plan", "report_progress", "finish_task", "release_task", "add_feedback"].includes(name)) return taskTool(name, args);
   if (name === "behavior_diff") return behaviorDiff(args);
   if (name === "run_scenarios") return runScenarios(args);
   if (name === "validate_project")
@@ -539,9 +654,10 @@ export async function execute(name, args) {
     };
   }
   if (
-    ["list_log_channels", "log_table", "log_anomalies", "log_what_changed", "log_events"].includes(name)
+    ["list_log_channels", "log_table", "log_anomalies", "log_what_changed", "log_events", "log_states"].includes(name)
   ) {
     const recording = await loadLog(path, args.mapping);
+    if (name === "log_states") return machineStates(recording, args);
     if (name === "list_log_channels") return listChannels(recording, args);
     if (name === "log_table") return logTable(recording, args);
     if (name === "log_anomalies") return findAnomalies(recording, args);

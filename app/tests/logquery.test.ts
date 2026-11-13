@@ -1,11 +1,12 @@
 // @vitest-environment node
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { Recording } from "../src/suite/core/analysis";
 import {
   findAnomalies,
   listChannels,
   logEvents,
   logTable,
+  machineStates,
   whatChanged,
 } from "../src/suite/core/logquery";
 
@@ -59,4 +60,39 @@ it("shows what deviated around a moment", () => {
 it("lists non-numeric transitions in order", () => {
   const e = logEvents(recording, { channels: ["/Mode"] });
   expect(e.events.map((x) => x.to)).toEqual(["IDLE", "SHOOT", "IDLE"]);
+});
+
+describe("machine states for agents", () => {
+  const ch = (name: string, samples: [number, string | boolean][]) => ({ name, type: typeof samples[0][1] === "string" ? "string" : "boolean", samples: samples.map(([time, value]) => ({ time, value })) });
+  const flicker = Array.from({ length: 30 }, (_, i) => [2 + i * 0.02, i % 2 ? "OFF" : "SHOOTING"] as [number, string]);
+  const recording = {
+    name: "sim.wpilog",
+    duration: 4,
+    warnings: [],
+    channels: [
+      ch("Mayhem/States/ShooterMode/state", [[0, "OFF"], ...flicker]),
+      ch("Mayhem/States/ShooterMode/transition", [[2, "OFF-to-SHOOTING"]]),
+      ch("/RealOutputs/Mayhem/States/ShooterMode/inputs/shootHeld", [[0, false], [1.9, true]]),
+      ch("/RealOutputs/Mayhem/States/ShooterMode/inputs/outtakeHeld", [[0, false], [1.5, true]]),
+      ch("NT:/Mayhem/States/ShooterMode/state", [[0, "OFF"], ...flicker]),
+      ch("NT:/SmartDashboard/Field/.type", [[0, "Field2d"]]),
+    ],
+  } as unknown as Recording;
+  it("explains a machine fighting itself with the inputs that kept both transitions true", () => {
+    const { machines } = machineStates(recording);
+    expect(machines).toHaveLength(1);
+    expect(machines[0].history[1]).toMatchObject({
+      flapping: true,
+      changes: 30,
+      transitions: ["OFF → SHOOTING", "SHOOTING → OFF"],
+      inputs: { shootHeld: true, outtakeHeld: true },
+    });
+  });
+  it("ranks flapping first and keeps dashboard plumbing and NT copies out of events", () => {
+    expect(findAnomalies(recording).anomalies[0]).toMatchObject({ kind: "flapping", channel: "Mayhem/States/ShooterMode/state" });
+    const names = new Set(logEvents(recording, { limit: 500 }).events.map((e) => e.channel));
+    expect(names.has("NT:/SmartDashboard/Field/.type")).toBe(false);
+    expect(names.has("NT:/Mayhem/States/ShooterMode/state")).toBe(false);
+    expect(names.has("Mayhem/States/ShooterMode/state")).toBe(true);
+  });
 });

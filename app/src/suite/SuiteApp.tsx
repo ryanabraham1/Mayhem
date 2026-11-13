@@ -23,7 +23,8 @@ import { AutosPage } from "./autos/AutosPage";
 import { StatesPage } from "./states/StatesPage";
 import { LogsPage } from "./logs/LogsPage";
 import { RobotPage, setRobotTab } from "./robot/RobotPage";
-import { AgentsPage } from "./agents/AgentsPage";
+import { TasksPage } from "./tasks/TasksPage";
+import { FeedbackProvider, useTasks } from "./tasks/feedback";
 import { ChangesPage } from "./changes/ChangesPage";
 import { OverviewPage } from "./overview/OverviewPage";
 import { SettingsPage, type ThemeChoice } from "./settings/SettingsPage";
@@ -94,6 +95,12 @@ function UpdateNotice() {
       )}
     </div>
   );
+}
+
+/** Plans to approve and changes to check, on the Tasks tab. */
+function WaitingCount() {
+  const n = useTasks().items.filter((t) => t.status === "plan" || t.status === "review").length;
+  return n ? <i className="mx-nav-count" aria-label={`${n} waiting for you`}>{n}</i> : null;
 }
 
 function SidebarRobot({ go }: { go: () => void }) {
@@ -230,6 +237,7 @@ function Shell({
             >
               <Icon size={16} />
               <span>{name}</span>
+              {id === "tasks" && <WaitingCount />}
             </button>
           ))}
         </nav>
@@ -262,7 +270,7 @@ function Shell({
         {page === "logs" && <LogsPage notify={s.notify} openRobot={() => { setRobotTab("logs"); setPage("robot"); }} />}
         {page === "robot" && <RobotPage s={s} />}
         {page === "changes" && <ChangesPage notify={s.notify} />}
-        {page === "tasks" && <AgentsPage key={s.project.id} s={s} />}
+        {page === "tasks" && <TasksPage s={s} go={setPage} />}
         {page === "settings" && (
           <SettingsPage
             theme={theme}
@@ -369,7 +377,9 @@ export default function SuiteApp() {
   return (
     <RobotProvider>
       <WithLogs s={s}>
-        <Shell s={s} theme={theme} setTheme={setTheme} dark={dark} />
+        <FeedbackProvider notify={s.notify}>
+          <Shell s={s} theme={theme} setTheme={setTheme} dark={dark} />
+        </FeedbackProvider>
       </WithLogs>
     </RobotProvider>
   );

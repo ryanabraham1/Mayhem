@@ -73,7 +73,7 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 }
 ```
 
-Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `run_scenarios` (see "Sim proof"), `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `run_scenarios` (see "Sim proof"), `list_tasks`, `get_task`, `claim_task`, `propose_plan`, `report_progress`, `finish_task`, `release_task`, `add_feedback` (see "Tasks"), `log_states`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
 
 ## Authoring machines and routines
 
@@ -286,6 +286,25 @@ Steps: `teleop` | `auto` | `disabled`, `select auto <name>`, `wait <s>`, `press 
 
 Outcomes are compared on every machine's `Mayhem/States/<id>/state` log channel, the drive mode, the auto status and the simulated robot pose; a difference in what the robot does for the same inputs is reported. Builds and runs are cached per commit in `~/.mayhem/review-sim`. The project file, `machines.json` and the generated `MayhemProject.h` must agree: `behavior_diff` reports red when a source changed but the generated code did not, because the robot (and the sim) would still run the old behavior.
 
+### Closed loop: code, simulate, read, fix
+
+1. Change the robot code (regenerate `MayhemProject.h` with `tools/mayhem/export.sh` if you touched `robot.mayhem.json` or `machines.json`).
+2. `run_scenarios` with `after: "WORKTREE"` and either `names` (a few existing scenarios) or inline `scenarios` for the behavior you are testing. The working tree rebuilds incrementally (~45 s); a run of a few scenarios takes seconds. Each failed or changed result carries a `timeline` (every machine's states, flickering collapsed) and its log path.
+3. For a state-machine problem, `log_states` on that log: each transition with the inputs at that moment; a flickering burst names both directions and the inputs that kept both guards true. For anything else, `log_anomalies` (flickering first), then `log_what_changed` at the time, then `log_table` of the suspects.
+4. Fix and repeat. Before handing off, run everything with `before` set to your base (`run_scenarios {before: "HEAD"}` or the task's base) and add the scenario that reproduces the bug to `tools/mayhem/scenarios.json` so it stays fixed.
+
+## Tasks
+
+People leave feedback in the app (Logs: comment at a moment; Changes: thumbs up/down on any finding, click a field spot; Sim proof: comment at a replay time; Tasks: pit notes and the post-match driver form). Each becomes `tools/mayhem/review/<id>.json` in the robot repo with its context (`anchor`: log name and `logPath`, seconds into it, code revision, field pose, scenario, match).
+
+1. `list_tasks`, then `get_task` for the context; open the log at `anchor.logPath` with the log tools.
+2. `claim_task` (records `base` = HEAD).
+3. `propose_plan` in plain English for people who don't read code: what changes on the robot and how they can see it. Wait: poll `get_task` until `status` is `approved` (or back to `claimed` with `planDecision.note` asking for something else). Do not change code before approval.
+4. Commit with a `Mayhem-Task: <id>` trailer, then `report_progress` with the revision. Mayhem stores `behavior_diff`'s risk on the task: red (CAN IDs, limits, brake/coast, directions, ratios, offsets; or stale generated code), yellow (controls, machines, other values), green (only auto paths changed and every changed path finishes).
+5. `finish_task`. If every reported commit is green it is accepted automatically; otherwise it waits in "Ready to check" for a person. `release_task` gives a task back with a note.
+
+The Changes page shows, for the revisions being reviewed, the feedback and approved plan behind them ("Why this change"). Task files are plain JSON and written atomically; commit them with the code (or at least push them) so teammates and agents on other computers see them.
+
 ## Digging into logs
 
 `analyze_log` returns a compact summary (add `channels`, `from`/`to` for per-channel stats, or `detail: "full"` for everything). To investigate, use the exploration tools; all take a WPILOG path (parsed once and cached) and return small ranked results:
@@ -293,7 +312,8 @@ Outcomes are compared on every machine's `Mayhem/States/<id>/state` log channel,
 1. `log_anomalies` — scan every channel for outliers, big jumps, sampling dropouts, flatlined sensors, boolean flapping, and channels that stop or start logging. Each hit has a time.
 2. `log_what_changed` — for a suspicious `time`, rank the channels that deviated most from their own normal within `window` seconds, with before/after values.
 3. `log_table` — line up to 20 channels on one clock (`step` or `points`, max 500 rows) to compare them at the same instants; up to 8 channels also returns pairwise correlation.
-4. `log_events` — merged chronological changes of state/boolean/string channels (state machines, modes, alerts).
+4. `log_events` — merged chronological changes of state/boolean/string channels (state machines, modes, alerts); dashboard plumbing, guard flags and NetworkTables copies are skipped unless `all: true`.
+6. `log_states` — each Mayhem state machine's transitions with the inputs at each one; flickering bursts collapsed and explained.
 5. `list_log_channels` — find channel names; `filter` takes case-insensitive substrings, which also match derived `/x`, `/heading`, `/0/speed` pose and module channels.
 
 Typical loop: anomalies → what changed at that time → table of the suspects → events for the state that was active. Findings are symptoms to verify, not proven causes. Struct arrays (swerve module states/positions, Pose3d lists) are decoded into per-element channels, capped at 32 elements.

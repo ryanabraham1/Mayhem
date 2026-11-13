@@ -9,6 +9,7 @@ import { parseWPILog } from "../core/wpilog.ts";
 import probe from "../core/review/probe.cpp?raw";
 import type { Setting } from "../core/review/settings.ts";
 import { desktop, invoke, nativeRead } from "../native";
+import { takeCompareRequest, useRobotRepo } from "../robotRepo";
 
 export interface Revision {
   rev: string;
@@ -25,21 +26,14 @@ export interface RepoInfo {
   revisions: Revision[];
 }
 
-const REPO_KEY = "mayhem.review.repo";
-const remembered = () => {
-  try {
-    return localStorage.getItem(REPO_KEY) ?? "";
-  } catch {
-    return "";
-  }
-};
 
 /** Two revisions of the robot repo, the review between them, and edits to the working copy. */
 export function useReview() {
-  const [repo, setRepoState] = useState(remembered);
+  const [repo, setRepoState] = useRobotRepo();
   const [info, setInfo] = useState<RepoInfo>();
-  const [before, setBefore] = useState("HEAD");
-  const [after, setAfter] = useState(WORKTREE);
+  const [request] = useState(takeCompareRequest);
+  const [before, setBefore] = useState(request?.before ?? "HEAD");
+  const [after, setAfter] = useState(request?.after ?? WORKTREE);
   const [snapshots, setSnapshots] = useState<{ before: Snapshot; after: Snapshot }>();
   const [imported, setImported] = useState<ReviewReport>();
   const [loading, setLoading] = useState(false);
@@ -57,11 +51,6 @@ export function useReview() {
   const setRepo = (path: string) => {
     setRepoState(path);
     setImported(undefined);
-    try {
-      localStorage.setItem(REPO_KEY, path);
-    } catch {
-      /* a convenience only */
-    }
   };
 
   const load = useCallback(async () => {

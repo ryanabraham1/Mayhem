@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CircleCheck, CircleX, FlaskConical, Pause, Play, TriangleAlert } from "lucide-react";
+import { CircleCheck, CircleX, FlaskConical, MessageSquarePlus, Pause, Play, TriangleAlert } from "lucide-react";
+import { useTasks } from "../tasks/feedback";
+import { fieldPoint } from "../tasks/anchors";
 import { FieldArt } from "../../components/FieldArt";
 import type { Field as FieldModel } from "../../types";
 import field from "../core/rebuilt-2026.json";
@@ -41,7 +43,9 @@ function Timeline({ track, duration, time }: { track?: Track; duration: number; 
 const poseAt = (o: Outcome | undefined, t: number) => o?.poses.reduce<Outcome["poses"][number] | undefined>((best, p) => (p.time <= t + 1e-6 ? p : best), o.poses[0]);
 
 /** Before and after robots on the field, with a shared clock, and each machine's states below. */
-export function Replay({ result, onTime }: { result: ScenarioResult; onTime?: (t: number) => void }) {
+export function Replay({ result, onTime, revision }: { result: ScenarioResult; onTime?: (t: number) => void; revision?: string }) {
+  const { openFeedback } = useTasks();
+  const anchor = (extra = {}) => ({ scenario: result.scenario.name, time: Math.round(time * 100) / 100, ...(revision ? { revision } : {}), ...(result.scenario.routine ? { routine: result.scenario.routine } : {}), ...extra });
   const duration = Math.max(result.before?.duration ?? 0, result.after?.duration ?? 0, 0.1);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -80,7 +84,18 @@ export function Replay({ result, onTime }: { result: ScenarioResult; onTime?: (t
   return (
     <div className="mx-replay-proof">
       {hasPath && (
-        <svg className="mx-replay-field mx-auto-overlay" viewBox={`-.3 -.3 ${field.length + 0.6} ${field.width + 0.6}`} aria-label="Before and after replay">
+        <svg
+          className="mx-replay-field mx-auto-overlay is-clickable"
+          viewBox={`-.3 -.3 ${field.length + 0.6} ${field.width + 0.6}`}
+          aria-label="Before and after replay (click to comment on a spot)"
+          onClick={(e) =>
+            openFeedback({
+              kind: "field-point",
+              context: "Pinned to this spot on the field and this moment of the simulation.",
+              anchor: anchor({ pose: fieldPoint(e.currentTarget, e.clientX, e.clientY, field.width) }),
+            })
+          }
+        >
           <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
             <FieldArt field={field as FieldModel} hideFuel />
           </g>
@@ -96,6 +111,9 @@ export function Replay({ result, onTime }: { result: ScenarioResult; onTime?: (t
         </Button>
         <input type="range" min={0} max={duration} step={0.02} value={time} onChange={(e) => (setPlaying(false), setTime(Number(e.target.value)))} aria-label="Replay time" />
         <span className="mx-mono">{time.toFixed(2)} s</span>
+        <Button size="sm" variant="ghost" icon={MessageSquarePlus} onClick={() => openFeedback({ context: "Pinned to this moment of the simulation.", anchor: anchor() })}>
+          Comment here
+        </Button>
       </div>
       <div className="mx-timelines">
         {names.map((name) => (
@@ -248,7 +266,7 @@ export function SimProofView({ report, review }: { report: ReviewReport; review:
                   {selected.after?.physics?.hits?.length ? (
                     <p className="mx-help is-bad">Collisions: {selected.after.physics.hits.join("; ")}</p>
                   ) : null}
-                  {(selected.before || selected.after) && <Replay key={selected.scenario.id} result={selected} />}
+                  {(selected.before || selected.after) && <Replay key={selected.scenario.id} result={selected} revision={review.snapshots?.after.rev} />}
                 </div>
               )}
             </div>

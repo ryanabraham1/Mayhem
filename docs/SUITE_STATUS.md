@@ -19,6 +19,14 @@ The suite is a working development foundation, not a finished replacement for ev
 
 [USER_GUIDE.md](USER_GUIDE.md) is the suite workflow guide: projects and file links, pose editing, preview modes, state inspection, log analysis, robot collection and agent handoff. Existing solver instructions are preserved in [CLASSIC_PLANNER.md](CLASSIC_PLANNER.md). The README, build instructions and VitePress site now route readers to the appropriate suite or classic workflow; classic screenshots are labeled. Documentation changes do not change the validation or release status recorded below.
 
+## Feedback → agent tasks, approvals, closed-loop log tools (2026-11-13, v0.9.34)
+
+- **Tasks** page (replaces Agents; agent setup is at its bottom): a board from New → Agent planning → Plan to approve → Agent working → Ready to check → Done, quick pit notes, a post-match driver form attached to a log, and a count on the Tasks tab when a plan or change waits for a person. Items are one JSON file each in the robot repo (`tools/mayhem/review/`).
+- Feedback anywhere: Logs (comment at the playback moment, with the robot's pose), Changes (thumbs up/down on every finding; click the auto field), Sim proof (comment at the replay time; click the field). Each carries log, time, revision, pose, scenario.
+- Agents: `list_tasks`, `get_task`, `claim_task`, `propose_plan` (waits for a person), `report_progress` (stores the commit's behavior_diff risk), `finish_task` (green changes auto-accepted, others wait), `release_task`, `add_feedback`. Changes → Summary shows "Why this change" from `Mayhem-Task:` commit trailers and reported commits.
+- Closed loop: `run_scenarios` takes inline scenarios and `names`, and returns a per-scenario timeline digest; new `log_states` explains machine transitions with their inputs and collapses flickering; `log_anomalies` ranks flickering first and, like `log_events`, skips dashboard plumbing and NT copies by default.
+- Not yet: sharing tasks beyond the repo (team-site sync), notifications outside the app.
+
 ## Sim proof (2026-11-13, v0.9.33)
 
 - Changes → **Sim proof** builds both versions of the robot code with a probe test and runs, in the robot's own simulation: every controller button tapped and held, every auto on the full field, and the team's `tools/mayhem/scenarios.json` (plain steps and expectations; three starter scenarios are on `mayhem/suite-integration`). Results: pass/fail per expectation, before/after differences (machine states, drive mode, auto result, path), flickering states, and a before/after replay (field, time slider, state timelines). Agents: `run_scenarios` MCP tool, `mayhem.mjs sim`.
