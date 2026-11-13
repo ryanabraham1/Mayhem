@@ -200,3 +200,24 @@ describe('priority select ("selection": "priority")', () => {
     expect(plainText(not(all(sig("a"), sig("b"))), info)).toBe("not (a and b)");
   });
 });
+
+describe("autonomous path runs", () => {
+  it("collapse pass-through poses into one view node and keep steps that do something", async () => {
+    const { collapsePaths, chainOrder } = await import("../src/suite/states/autoPaths.ts");
+    const pose = (id: string, goal: object = {}) => ({ id, name: id, kind: "pose" as const, timeout: 5, goal: { x: id.length, y: 0, heading: 0, translationTolerance: 0.05, rotationTolerance: 0.05, velocityTolerance: 0.1, settleTime: 0, handoffRadius: 0, headingMode: "fixed" as const, stop: false, ...goal } });
+    const always = { kind: "always" as const };
+    const nodes = [pose("a"), pose("bb"), pose("ccc"), pose("dddd", { markers: [{ kind: "event", key: "s.setState.INTAKE", t: 0.5 }] }), pose("e"), pose("ff"), pose("ggg", { stop: true }), { id: "done", name: "Done", kind: "finish" as const, timeout: 1 }];
+    const ids = nodes.map((n) => n.id);
+    const routine = { id: "r", name: "R", initial: "a", nodes, transitions: ids.slice(1).map((to, i) => ({ id: `t${i}`, from: ids[i], to, condition: always })) } as any;
+    const view = collapsePaths(routine, new Set());
+    expect(view.graph.nodes.map((n: any) => n.id)).toEqual(["@path:a", "dddd", "@path:e", "ggg", "done"]);
+    expect(view.runs.get("@path:a")!.nodes.map((n: any) => n.id)).toEqual(["a", "bb", "ccc"]);
+    expect(view.graph.initial).toBe("@path:a");
+    expect(chainOrder(view.graph)).toEqual(["@path:a", "dddd", "@path:e", "ggg", "done"]);
+    // Expanded runs and the project itself are unchanged.
+    expect(collapsePaths(routine, new Set(["@path:a"])).graph.nodes.map((n: any) => n.id).slice(0, 3)).toEqual(["a", "bb", "ccc"]);
+    expect(routine.nodes).toHaveLength(8);
+    // A branch is not a chain.
+    expect(chainOrder({ ...routine, transitions: [...routine.transitions, { id: "x", from: "a", to: "done", condition: always }] })).toBeUndefined();
+  });
+});

@@ -517,3 +517,20 @@
   margin-left: 0;
   margin-right: auto;
 }
+/* A collapsed run of pass-through poses: "Drive path" with a small trace of the route. */
+.mx-state.is-path {
+  padding-right: 58px;
+  border-style: dashed;
+  border-left-style: solid;
+}
+.mx-path-trace {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.mx-path-trace polyline {
+  stroke: var(--mx-path, var(--mx-accent));
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}

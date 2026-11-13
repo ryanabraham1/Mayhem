@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import dagre from "@dagrejs/dagre";
-import { ChevronDown, ChevronRight, Circle, Code2, Flag, Minus, Navigation, Plus, Zap } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, Code2, Flag, Minus, Navigation, Plus, Route, Zap } from "lucide-react";
 import {
   ANY_STATE,
   evaluate,
@@ -13,6 +13,7 @@ import { compactCondition, edgeLabels, elideMiddle } from "../core/edgeLabels.ts
 import "./states.css";
 import { categoryLookup, type InputSource } from "../core/inputCategories.ts";
 import { ConditionText, glyphText } from "./ConditionText";
+import { chainOrder, collapsePaths, type PathRun } from "./autoPaths";
 import { PlainCondition, type InputInfo } from "./PlainCondition";
 
 /** State card size; machine cards are compact (the source path is in the inspector). */
@@ -102,6 +103,42 @@ export function layoutGraph(
   return { positions, geometry, width: Math.ceil(size.width ?? 0), height: Math.ceil(size.height ?? 0) };
 }
 
+/**
+ * A single chain of steps laid out to fill the view: rows of cards that snake left to right,
+ * then right to left, choosing the row length that shows the whole chain largest.
+ */
+export function layoutChain(order: string[], wires: Wire[], view: Box, { w: W, h: H }: Box = NODE) {
+  const GX = 56, GY = 52;
+  const fitScale = (perRow: number) => {
+    const rows = Math.ceil(order.length / perRow);
+    const width = PAD * 2 + perRow * (W + GX) - GX, height = PAD * 2 + rows * (H + GY) - GY;
+    return { width, height, scale: Math.min(1, view.w / width, view.h / height) };
+  };
+  let perRow = 1;
+  for (let n = 1; n <= order.length; n++) if (fitScale(n).scale > fitScale(perRow).scale + 1e-9) perRow = n;
+  const { width, height } = fitScale(perRow);
+  const positions = new Map<string, { x: number; y: number }>();
+  order.forEach((id, i) => {
+    const row = Math.floor(i / perRow), col = i % perRow;
+    positions.set(id, { x: PAD + (row % 2 ? perRow - 1 - col : col) * (W + GX), y: PAD + row * (H + GY) });
+  });
+  const geometry = new Map<string, WireGeometry>();
+  for (const w of wires) {
+    const a = positions.get(w.from), b = positions.get(w.to);
+    if (!a || !b) continue;
+    let points;
+    if (a.y === b.y) {
+      const right = b.x > a.x;
+      points = [
+        { x: right ? a.x + W : a.x, y: a.y + H / 2 },
+        { x: right ? b.x : b.x + W, y: b.y + H / 2 },
+      ];
+    } else points = [{ x: a.x + W / 2, y: a.y + H }, { x: b.x + W / 2, y: b.y }];
+    geometry.set(w.key, { points, lx: (points[0].x + points[1].x) / 2, ly: (points[0].y + points[1].y) / 2 });
+  }
+  return { positions, geometry, width, height };
+}
+
 /** A smooth path through the layout's points (Catmull-Rom as cubic Béziers). */
 function smoothPath(points: { x: number; y: number }[]) {
   if (points.length < 2) return "";
@@ -114,7 +151,7 @@ function smoothPath(points: { x: number; y: number }[]) {
 }
 
 export function StateGraph({
-  graph,
+  graph: source,
   signalLabel = (key: string) => key,
   signals,
   selected,
@@ -144,6 +181,13 @@ export function StateGraph({
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
+  // Autonomous routines: runs of pass-through poses show as one "Drive path" card (view only).
+  const [expanded, setExpanded] = useState(new Set<string>());
+  useEffect(() => setExpanded(new Set()), [source.id]);
+  const paths = useMemo(() => (machine ? undefined : collapsePaths(source, expanded)), [machine, source, expanded]);
+  const graph = paths?.graph ?? source;
+  const runOf = (id: string) => paths?.runOf.get(id);
+  const shown = (id: string) => runOf(id) ?? id;
   const [allWires, setAllWires] = useState(false);
   // The "from any state" list starts as a one-line bar (the graph gets the room); remembered.
   const [listOpen, setListOpenState] = useState(() => {
@@ -297,18 +341,23 @@ export function StateGraph({
   }, [labelKey]);
   const nodeSize = machine ? MACHINE_NODE : NODE;
   const chipCount = (id: string) => (globals.groups.some((g) => g.to === id) ? 1 : 0);
+  // A routine that is one chain (after collapsing paths) snakes to fill the view.
+  const chain = useMemo(() => (machine ? undefined : chainOrder(graph)), [machine, graph]);
+  const view = chain ? { w: Math.max(200, (box.w || 1200) - 16), h: Math.max(200, (box.h || 700) - 16) } : undefined;
   const { positions, geometry, width, height } = useMemo(
     () =>
-      layoutGraph(
-        wired.nodes.map((n) => n.id),
-        graph.initial,
-        wires.map((w) => ({ key: w.key, from: w.from, to: w.t.to })),
-        labelBoxes,
-        (id) => chipCount(id) * CHIP,
-        nodeSize,
-      ),
+      chain
+        ? layoutChain(chain, wires.map((w) => ({ key: w.key, from: w.from, to: w.t.to })), view!, nodeSize)
+        : layoutGraph(
+            wired.nodes.map((n) => n.id),
+            graph.initial,
+            wires.map((w) => ({ key: w.key, from: w.from, to: w.t.to })),
+            labelBoxes,
+            (id) => chipCount(id) * CHIP,
+            nodeSize,
+          ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [wired, wires, labelBoxes, graph.initial, globals],
+    [wired, wires, labelBoxes, graph.initial, globals, chain, view?.w, view?.h],
   );
   // Hovering or selecting a state highlights its wires and dims the rest.
   const [hovered, setHovered] = useState<string>();
@@ -374,6 +423,11 @@ export function StateGraph({
     {ladder}
     <div className="mx-graph-frame">
     <div className="mx-graph-zoom" role="group" aria-label="Zoom">
+      {expanded.size > 0 && (
+        <button type="button" onClick={() => setExpanded(new Set())} title="Show each pass-through path as one card again">
+          Collapse paths
+        </button>
+      )}
       <button type="button" aria-label="Zoom out" onClick={() => step(1 / 1.2)}>
         <Minus size={14} />
       </button>
@@ -409,12 +463,12 @@ export function StateGraph({
           {wires.map(({ key, t, from }) => {
             const geo = geometry.get(key);
             if (!geo) return null;
-            const fromActive = from === active;
+            const fromActive = from === shown(active);
             const live = fromActive && evaluate(t.condition, signals);
             const info = labels.get(t.id)!;
             const label = info.label;
             const picked = selectedEdge === t.id && (t.from !== ANY_STATE || from === selected);
-            const near = from === focus || t.to === focus;
+            const near = from === shown(focus) || t.to === shown(focus);
             const box = labelBoxes.get(key);
             const title = [t.name, glyphText(compactCondition(t.condition, signalLabel), isKey, categoryOf), t.description]
               .filter(Boolean)
@@ -450,6 +504,14 @@ export function StateGraph({
         </svg>
         {graph.nodes.map((node) => {
           const p = positions.get(node.id)!;
+          const run = paths?.runs.get(node.id);
+          if (run) return <PathCard key={node.id} run={run} p={p} size={nodeSize}
+            selected={shown(selected) === node.id} active={shown(active) === node.id}
+            hover={setHovered}
+            open={() => {
+              setExpanded((old) => new Set(old).add(node.id));
+              select(run.nodes[0].id);
+            }} />;
           const Icon = machine
             ? Circle
             : node.kind === "pose" ? Navigation : node.kind === "finish" ? Flag : node.kind === "custom" ? Code2 : Zap;
@@ -496,7 +558,7 @@ export function StateGraph({
                 </span>
               )}
               <strong>{node.name}</strong>
-              {!machine && <small>{node.kind === "pose" ? "Measured arrival" : node.action || "Done"}</small>}
+              {!machine && <small>{stepNote(node)}</small>}
             </button>
           );
         })}
@@ -518,4 +580,60 @@ interface AnyStateGroup {
   /** States other than the target that this group does not leave. */
   missing: string[];
   label: string;
+}
+
+/** What a step does, under its name: an event it fires, a stop, an action, or arrival. */
+function stepNote(n: AutoRoutine["nodes"][number]) {
+  if (n.kind !== "pose") return n.action || "Done";
+  const events = (n.goal?.markers ?? []).flatMap((m) => (m.kind === "event" && m.key ? [m.key.split(".").pop()] : []));
+  if (events.length) return `Event: ${events.join(", ")}${n.goal?.stop ? " · stops" : ""}`;
+  return n.goal?.stop ? "Stops here" : "Measured arrival";
+}
+
+/**
+ * A run of pass-through poses as one card: how many points, how far, the time span when the
+ * step names carry it ("… @ 0.63s"), and a small trace of the path. Click to expand.
+ */
+function PathCard({ run, p, size, selected, active, open, hover }: {
+  run: PathRun;
+  p: { x: number; y: number };
+  size: { w: number; h: number };
+  selected: boolean;
+  active: boolean;
+  open: () => void;
+  hover: (id?: string) => void;
+}) {
+  const goals = run.nodes.map((n) => n.goal!);
+  const xs = goals.map((g) => g.x), ys = goals.map((g) => g.y);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const span = Math.max(x1 - x0, y1 - y0, 1e-6);
+  const T = 40;
+  // Field y points up; the thumbnail draws it up too.
+  const trace = goals.map((g) => `${2 + ((g.x - x0) / span) * T},${2 + T - ((g.y - y0) / span) * T}`).join(" ");
+  const time = (name: string) => /@\s*([\d.]+)\s*s/.exec(name)?.[1];
+  const [t0, t1] = [time(run.nodes[0].name), time(run.nodes[run.nodes.length - 1].name)];
+  return (
+    <button
+      className={`mx-state is-pose is-path ${selected ? "is-selected" : ""} ${active ? "is-active" : ""}`}
+      aria-current={active ? "step" : undefined}
+      style={{ left: p.x, top: p.y, width: size.w, height: size.h }}
+      title={`${run.nodes[0].name} → ${run.nodes[run.nodes.length - 1].name}\nClick to show each point.`}
+      aria-label={`Drive path, ${run.nodes.length} points. Click to show each point.`}
+      onClick={open}
+      onMouseEnter={() => hover(run.id)}
+      onMouseLeave={() => hover(undefined)}
+    >
+      <span className="mx-state-kind">
+        <Route size={12} />
+        Drive path
+      </span>
+      <strong>
+        {run.nodes.length} points · {run.length.toFixed(1)} m
+      </strong>
+      <small>{t0 && t1 ? `${t0} s → ${t1} s` : "Pass-through points"}</small>
+      <svg className="mx-path-trace" width={T + 4} height={T + 4} aria-hidden="true">
+        <polyline points={trace} fill="none" />
+      </svg>
+    </button>
+  );
 }

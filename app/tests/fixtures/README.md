@@ -21,3 +21,7 @@ edge labels never overlap each other or a state and stay inside the graph. `late
 same file later (Superstructure as explicit button edges plus a few `"*"` rows, long input
 names); the spec checks that no condition chip runs past its card in a narrow inspector, and that
 the Superstructure graph fits a laptop window readably.
+
+`robot-project.json` is the whole 3256 offseason `robot.mayhem.json` (five pose-chain autos of
+20 to 46 steps, and the three machines). `e2e/auto-paths.spec.ts` checks that each auto's graph
+collapses pass-through points into "Drive path" cards and fits a laptop window without scrolling.
