@@ -10,6 +10,8 @@ import {
   FileUp,
   GitBranch,
   Navigation,
+  PanelRightClose,
+  PanelRightOpen,
   Pause,
   Play,
   Radio,
@@ -72,6 +74,24 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The details panel (inputs, exits) can be hidden to give the graph the whole width; remembered.
+  const [detailsOpen, setDetailsOpenState] = useState(() => {
+    try {
+      const saved = localStorage.getItem("mayhem.states.details");
+      // Until chosen, a laptop-sized window starts with the graph at full width.
+      return saved ? saved === "open" : window.innerWidth >= 1600;
+    } catch {
+      return window.innerWidth >= 1600;
+    }
+  });
+  const setDetailsOpen = (open: boolean) => {
+    setDetailsOpenState(open);
+    try {
+      localStorage.setItem("mayhem.states.details", open ? "open" : "closed");
+    } catch {
+      /* a convenience only */
+    }
+  };
   const worker = useRef<Worker | null>(null);
 
   const manifests = useMemo(() => {
@@ -303,7 +323,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
           </>
         }
       />
-      <div className="mx-states-grid">
+      <div className={`mx-states-grid ${detailsOpen ? "" : "is-wide"}`}>
         <nav className="mx-rail" aria-label="Machines">
           <div className="mx-rail-head">
             <h2>Autonomous routines</h2>
@@ -372,7 +392,9 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
             <span className="mx-stage-spacer" />
             {machine && source === "simulate" && (
               <>
-                <span className="mx-stage-meta">Toggle inputs to step the machine</span>
+                <span className="mx-stage-meta">
+                  {detailsOpen ? "Toggle inputs to step the machine" : "Show details to toggle inputs"}
+                </span>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -390,6 +412,15 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                 {busy ? "Reading…" : "Replay a log"}
               </FileButton>
             )}
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={detailsOpen ? PanelRightClose : PanelRightOpen}
+              aria-pressed={detailsOpen}
+              onClick={() => setDetailsOpen(!detailsOpen)}
+            >
+              {detailsOpen ? "Hide details" : "Show details"}
+            </Button>
             {source === "live" && machine && (
               <Badge tone={connected ? "good" : "warn"}>
                 {connected ? `Live · ${robot.host}` : live.snapshot.status === "disconnected" ? "Offline" : "Connecting…"}
@@ -516,6 +547,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
           )}
         </section>
 
+        {detailsOpen && (
         <aside className="mx-inspector" aria-label="State details">
           <div className="mx-insp-head">
             <div>
@@ -684,6 +716,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
           )}
           {source === "live" && live.snapshot.error && <p className="mx-help is-bad">{live.snapshot.error}</p>}
         </aside>
+        )}
       </div>
       {graph.nodes.length === 0 && <EmptyState icon={GitBranch} title="No states" />}
     </div>

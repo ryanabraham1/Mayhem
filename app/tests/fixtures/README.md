@@ -18,5 +18,6 @@ values and solve status against those external results.
 overlapped in the old graph layout) and `current` (Superstructure, a fully connected priority
 supervisor; IntakeSequence; ShotCycle). `e2e/state-graph-layout.spec.ts` checks that their
 edge labels never overlap each other or a state and stay inside the graph. `latest` is the
-same file after Superstructure moved to `"selection": "priority"` and inputs got long names; the
-same spec checks that no condition chip runs past its card in a narrow inspector.
+same file later (Superstructure as explicit button edges plus a few `"*"` rows, long input
+names); the spec checks that no condition chip runs past its card in a narrow inspector, and that
+the Superstructure graph fits a laptop window readably.

@@ -1962,6 +1962,15 @@ svg.mx-field {
   gap: 14px;
   padding: 0 18px 18px;
 }
+.mx-states-grid.is-wide {
+  grid-template-columns: 236px minmax(0, 1fr);
+}
+/* On short screens (a laptop), drop page subtitles so the work area gets the height. */
+@media (max-height: 940px) {
+  .mx-page-title p {
+    display: none;
+  }
+}
 .mx-machine-list {
   display: flex;
   flex-direction: column;
@@ -3233,6 +3242,9 @@ svg.mx-field {
   .mx-states-grid {
     grid-template-columns: 220px minmax(0, 1fr) 290px;
   }
+  .mx-states-grid.is-wide {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
   .mx-autos-grid.is-collapsed {
     grid-template-columns: 220px minmax(0, 1fr);
   }
@@ -3261,7 +3273,7 @@ svg.mx-field {
     box-shadow: var(--mx-shadow-float);
   }
   /* The state inspector is always open: keep the graph or decision ladder out from under it. */
-  .mx-states-grid > .mx-stage {
+  .mx-states-grid:not(.is-wide) > .mx-stage {
     margin-right: 316px;
   }
   .mx-robot-grid,
@@ -3290,7 +3302,7 @@ svg.mx-field {
   .mx-stage {
     min-height: 460px;
   }
-  .mx-states-grid > .mx-stage {
+  .mx-states-grid:not(.is-wide) > .mx-stage {
     margin-right: 0;
   }
   .mx-page-head,

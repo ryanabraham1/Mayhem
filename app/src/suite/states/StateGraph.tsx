@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import dagre from "@dagrejs/dagre";
-import { Circle, Code2, Flag, Navigation, Zap } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, Code2, Flag, Minus, Navigation, Plus, Zap } from "lucide-react";
 import {
   ANY_STATE,
   evaluate,
@@ -15,8 +15,9 @@ import { categoryLookup, type InputSource } from "../core/inputCategories.ts";
 import { ConditionText, glyphText } from "./ConditionText";
 import { PlainCondition, type InputInfo } from "./PlainCondition";
 
-const W = 196,
-  H = 78,
+/** State card size; machine cards are compact (the source path is in the inspector). */
+const NODE: Box = { w: 196, h: 78 },
+  MACHINE_NODE: Box = { w: 164, h: 58 },
   GAP_Y = 46,
   PAD = 28;
 
@@ -32,6 +33,7 @@ interface Wire { key: string; from: string; to: string }
 /** Where a wire runs (start to arrowhead) and the center of its label. */
 interface WireGeometry { points: { x: number; y: number }[]; lx: number; ly: number }
 const CHIP = 20;
+const LIST_KEY = "mayhem.states.anyList";
 
 /**
  * Layered top-to-bottom layout (dagre) with each edge label as an obstacle of its measured size,
@@ -40,7 +42,14 @@ const CHIP = 20;
  * initial state, and get their own lanes instead of looping under the states. `lift` reserves
  * room above a state for its "from any state" chips. Without wires, states form a grid.
  */
-export function layoutGraph(nodes: string[], initial: string, wires: Wire[], labels: Map<string, Box>, lift: (id: string) => number) {
+export function layoutGraph(
+  nodes: string[],
+  initial: string,
+  wires: Wire[],
+  labels: Map<string, Box>,
+  lift: (id: string) => number,
+  { w: W, h: H }: Box = { w: NODE.w, h: NODE.h },
+) {
   const positions = new Map<string, { x: number; y: number }>();
   const geometry = new Map<string, WireGeometry>();
   if (!wires.length) {
@@ -69,7 +78,7 @@ export function layoutGraph(nodes: string[], initial: string, wires: Wire[], lab
   for (const id of nodes) if (!state.has(id)) visit(id);
 
   const g = new dagre.graphlib.Graph({ multigraph: true });
-  g.setGraph({ rankdir: "TB", nodesep: 36, edgesep: 18, ranksep: 44, marginx: PAD, marginy: PAD });
+  g.setGraph({ rankdir: "TB", nodesep: 28, edgesep: 10, ranksep: 36, marginx: PAD, marginy: PAD });
   g.setDefaultEdgeLabel(() => ({}));
   for (const id of nodes) g.setNode(id, { width: W, height: H + lift(id) });
   for (const w of wires) {
@@ -136,6 +145,25 @@ export function StateGraph({
   const scroller = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [allWires, setAllWires] = useState(false);
+  // The "from any state" list starts as a one-line bar (the graph gets the room); remembered.
+  const [listOpen, setListOpenState] = useState(() => {
+    try {
+      return localStorage.getItem(LIST_KEY) === "open";
+    } catch {
+      return false;
+    }
+  });
+  const setListOpen = (open: boolean) => {
+    setListOpenState(open);
+    try {
+      localStorage.setItem(LIST_KEY, open ? "open" : "closed");
+    } catch {
+      /* a convenience only */
+    }
+  };
+  // Zoom: "fit" frames the whole graph (the default after loading a machine), or a fixed scale.
+  const [zoom, setZoom] = useState<"fit" | number>("fit");
+  useEffect(() => setZoom("fit"), [graph.id]);
   useEffect(() => setAllWires(false), [graph.id]);
   // Transitions that leave (almost) every state for the same target on the same condition
   // (or are declared `from: "*"`) form one "from any state" group: a chip on the target and a
@@ -150,7 +178,9 @@ export function StateGraph({
       for (const id of from) set.add(id);
       sources.set(key, set);
     }
-    const threshold = Math.max(3, Math.ceil((graph.nodes.length - 1) * 0.6));
+    // Only near-universal targets (every other state, or all but one) collapse; explicit edges from
+    // most states stay wires so each state's own buttons can be followed.
+    const threshold = Math.max(3, graph.nodes.length - 2);
     const ids = new Set<string>();
     const groups: AnyStateGroup[] = [];
     const byKey = new Map<string, AnyStateGroup>();
@@ -265,7 +295,8 @@ export function StateGraph({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [labelKey]);
-  const chipCount = (id: string) => globals.groups.filter((g) => g.to === id).length;
+  const nodeSize = machine ? MACHINE_NODE : NODE;
+  const chipCount = (id: string) => (globals.groups.some((g) => g.to === id) ? 1 : 0);
   const { positions, geometry, width, height } = useMemo(
     () =>
       layoutGraph(
@@ -274,6 +305,7 @@ export function StateGraph({
         wires.map((w) => ({ key: w.key, from: w.from, to: w.t.to })),
         labelBoxes,
         (id) => chipCount(id) * CHIP,
+        nodeSize,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [wired, wires, labelBoxes, graph.initial, globals],
@@ -291,11 +323,21 @@ export function StateGraph({
     return () => observer.disconnect();
   }, []);
   // Shrink large machines to fit, but never below a readable size; scroll beyond that.
-  const scale = box.w ? Math.max(0.8, Math.min(1, (box.w - 16) / width, (box.h - 16) / height)) : 1;
+  const fit = box.w ? Math.max(0.45, Math.min(1, (box.w - 16) / width, (box.h - 16) / height)) : 1;
+  const scale = zoom === "fit" ? fit : zoom;
+  const step = (factor: number) => setZoom(Math.min(1.5, Math.max(0.4, Math.round(scale * factor * 100) / 100)));
   const ladder = globals.groups.length > 0 && (
-    <section className={`mx-any-ladder ${wires.length ? "" : "is-primary"}`} aria-label="Transitions from any state">
+    <section
+      className={`mx-any-ladder ${wires.length ? "" : "is-primary"} ${listOpen ? "" : "is-collapsed"}`}
+      aria-label="Transitions from any state"
+    >
       <header>
-        <strong>From any state</strong>
+        <button type="button" className="mx-any-toggle" aria-expanded={listOpen} onClick={() => setListOpen(!listOpen)}>
+          {listOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <strong>
+            {globals.groups.length} transition{globals.groups.length === 1 ? "" : "s"} from any state
+          </strong>
+        </button>
         <span>
           {wires.length || allWires
             ? "Checked in this order, before or among each state's own exits."
@@ -305,6 +347,7 @@ export function StateGraph({
           {allWires ? "Hide their wires" : "Show all wires"}
         </button>
       </header>
+      {listOpen && (
       <ol>
         {globals.groups.map((g) => (
           <li key={g.key}>
@@ -323,11 +366,24 @@ export function StateGraph({
           </li>
         ))}
       </ol>
+      )}
     </section>
   );
   return (
     <>
     {ladder}
+    <div className="mx-graph-frame">
+    <div className="mx-graph-zoom" role="group" aria-label="Zoom">
+      <button type="button" aria-label="Zoom out" onClick={() => step(1 / 1.2)}>
+        <Minus size={14} />
+      </button>
+      <button type="button" aria-pressed={zoom === "fit"} onClick={() => setZoom("fit")} title="Fit the whole graph">
+        {zoom === "fit" ? "Fit" : `${Math.round(scale * 100)}%`}
+      </button>
+      <button type="button" aria-label="Zoom in" onClick={() => step(1.2)}>
+        <Plus size={14} />
+      </button>
+    </div>
     <div className="mx-graph-scroll" ref={scroller}>
       <div className="mx-graph-sizer" style={{ width: width * scale, height: height * scale }}>
       <div className={`mx-graph ${hovered ? "has-focus" : ""}`} style={{ width, height, transform: `scale(${scale})` }}>
@@ -407,44 +463,46 @@ export function StateGraph({
               key={node.id}
               aria-current={active === node.id ? "step" : undefined}
               className={`mx-state is-${machine ? "machine" : node.kind} ${selected === node.id ? "is-selected" : ""} ${active === node.id ? "is-active" : ""} ${graph.initial === node.id ? "is-initial" : ""}`}
-              style={{ left: p.x, top: p.y, width: W, height: H }}
+              style={{ left: p.x, top: p.y, width: nodeSize.w, height: nodeSize.h }}
               title={[node.name, node.source, node.description].filter(Boolean).join("\n")}
               onClick={() => select(node.id)}
               onMouseEnter={() => setHovered(node.id)}
               onMouseLeave={() => setHovered(undefined)}
               onContextMenu={menu && ((e) => menu(e, node.id))}
             >
-              {globals.groups
-                .filter((g) => g.to === node.id)
-                .map((g, i) => (
+              {(() => {
+                // One tag per state, however many "from any state" transitions lead to it.
+                const into = globals.groups.filter((g) => g.to === node.id);
+                if (!into.length) return null;
+                const names = into.map((g) => g.transitions[0].name).filter(Boolean) as string[];
+                const short = names.length === into.length && names.join(", ").length <= 22 ? ` · ${names.join(", ")}` : into.length > 1 ? ` ×${into.length}` : "";
+                return (
                   <span
-                    key={g.key}
-                    className={`mx-any ${groupLive(g) ? "is-live" : ""}`}
-                    style={{ top: -11 - i * 20 }}
-                    title={groupTitle(g)}
+                    className={`mx-any ${into.some(groupLive) ? "is-live" : ""}`}
+                    style={{ top: -11 }}
+                    title={into.map(groupTitle).join("\n\n")}
                   >
-                    {g.missing.length ? `from any state but ${g.missing.length}` : "from any state"}
+                    {into.length === 1 && into[0].missing.length ? `from any state but ${into[0].missing.length}` : "from any state"}
+                    {short}
                   </span>
-                ))}
-              <span className="mx-state-kind">
-                <Icon size={12} />
-                {kind}
-              </span>
+                );
+              })()}
+              {/* Machine cards stay compact: the name, plus "Initial state" on the first one; the
+                  source file is in the tooltip and the inspector. */}
+              {(!machine || graph.initial === node.id) && (
+                <span className="mx-state-kind">
+                  <Icon size={12} />
+                  {kind}
+                </span>
+              )}
               <strong>{node.name}</strong>
-              <small>
-                {machine
-                  ? node.source
-                    ? shortSource(node.source)
-                    : elideMiddle(node.description ?? node.id, 26)
-                  : node.kind === "pose"
-                    ? "Measured arrival"
-                    : node.action || "Done"}
-              </small>
+              {!machine && <small>{node.kind === "pose" ? "Measured arrival" : node.action || "Done"}</small>}
             </button>
           );
         })}
       </div>
       </div>
+    </div>
     </div>
     </>
   );

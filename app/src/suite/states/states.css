@@ -455,3 +455,65 @@
     max-width: 100%;
   }
 }
+/* The graph area: zoom controls float over its bottom-right corner. */
+.mx-graph-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mx-graph-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  border: 1px solid var(--mx-line-strong);
+  border-radius: var(--mx-r-md);
+  background: var(--mx-surface);
+  box-shadow: var(--mx-shadow-lift);
+  overflow: hidden;
+}
+.mx-graph-zoom button {
+  min-width: 30px;
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: var(--mx-ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mx-graph-zoom button + button {
+  border-left: 1px solid var(--mx-line);
+}
+.mx-graph-zoom button:hover {
+  background: var(--mx-surface-2);
+}
+/* Collapsed "from any state" list: one line above the graph. */
+.mx-any-ladder.is-collapsed {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.mx-any-ladder.is-collapsed header {
+  margin-bottom: 0;
+}
+.mx-any-ladder.is-collapsed header > span {
+  display: none;
+}
+.mx-any-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mx-ink);
+  font: inherit;
+  cursor: pointer;
+}
+.mx-any-ladder header > .mx-any-toggle {
+  margin-left: 0;
+  margin-right: auto;
+}

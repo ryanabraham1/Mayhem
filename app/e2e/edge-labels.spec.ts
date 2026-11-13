@@ -53,8 +53,10 @@ test("long state names and source paths stay readable on state cards", async ({ 
   await expect(card.locator("strong")).toHaveText("Intake deployed and ready to collect");
   const cut = await card.locator("strong").evaluate((e) => e.scrollHeight > e.clientHeight + 1);
   expect(cut).toBe(false);
-  await expect(card.locator("small")).toHaveText("…/IntakeSequence.cpp:142");
+  // Machine cards are compact: the source is in the tooltip and the inspector.
   await expect(card).toHaveAttribute("title", /src\/main\/cpp\/subsystems\/intake\/IntakeSequence\.cpp:142/);
+  await card.click();
+  await expect(page.locator(".mx-source code")).toHaveText("src/main/cpp/subsystems/intake/IntakeSequence.cpp:142");
   // A named edge shows its name; the inspector lists name, condition and description.
   await expect(page.locator("button.mx-edge-label", { hasText: "Deploy" })).toBeVisible();
   await page.locator(".mx-state", { hasText: "Parked" }).click();
@@ -153,6 +155,9 @@ test("a priority supervisor (every state to every state) reads as a ladder, with
   await page.getByRole("button", { name: "State machines", exact: true }).click();
   await imports.setInputFiles({ name: "supervisor.machine.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(expanded)) });
   const ladder = page.getByLabel("Transitions from any state");
+  // Collapsed to one line by default so the graph gets the room; it opens on click.
+  await expect(ladder.locator("li")).toHaveCount(0);
+  await ladder.getByRole("button", { name: "5 transitions from any state" }).click();
   await expect(ladder.locator("li")).toHaveCount(5);
   await expect(ladder.locator("li").nth(1)).toContainText("→ Shoot + jitter");
   await expect(ladder.locator("li").nth(1)).toContainText("Oshoot and Ojitter");

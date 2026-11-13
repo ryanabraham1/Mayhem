@@ -10,6 +10,8 @@ export default defineConfig({
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: "http://127.0.0.1:4173",
+    // Tests drive the state inspector, which a laptop-sized window otherwise starts with hidden.
+    storageState: "e2e/details-open.json",
     browserName: "chromium",
     viewport: { width: 1440, height: 900 },
     colorScheme: "light",

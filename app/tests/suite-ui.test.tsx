@@ -180,6 +180,7 @@ it("opens on the overview by default with a card per routine that leads into the
 });
 it("steps a robot state machine when its simulated inputs change", () => {
   localStorage.setItem("mayhem.page.v1", "states");
+  localStorage.setItem("mayhem.states.details", "open"); // the inputs live in the details panel
   render(<SuiteApp />);
   fireEvent.click(screen.getByRole("button", { name: /Intake state machine/ }));
   const active = () => document.querySelector(".mx-state.is-active")?.textContent ?? "";

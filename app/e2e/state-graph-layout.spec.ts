@@ -120,3 +120,39 @@ test("condition chips wrap inside their cards in a narrow inspector, for every s
     await page.screenshot({ path: info.outputPath(`${machine.id}-narrow.png`) });
   }
 });
+
+test.describe("on a laptop-sized window, with no saved layout", () => {
+  test.use({ storageState: { cookies: [], origins: [] }, viewport: { width: 1440, height: 900 } });
+  test("the graph gets the room: details hidden, list collapsed, one tag per state, whole graph in view", async ({ page }, info) => {
+    page.on("pageerror", (error) => { throw error; });
+    const fixtures = JSON.parse(await readFile(new URL("../tests/fixtures/robot-machines.json", import.meta.url), "utf8"));
+    const machine = fixtures.latest.find((m: { id: string }) => m.id === "Superstructure");
+    await page.goto("/");
+    await page.getByRole("button", { name: "State machines", exact: true }).click();
+    await importMachine(page, machine);
+    await expect(page.locator(".mx-inspector")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Show details" })).toBeVisible();
+    const list = page.getByLabel("Transitions from any state");
+    await expect(list.locator("li")).toHaveCount(0);
+    expect((await list.boundingBox())!.height).toBeLessThan(80);
+    // At most one "from any state" tag per state.
+    const tags = await page.locator(".mx-state").evaluateAll((cards) => cards.map((c) => c.querySelectorAll(".mx-any").length));
+    expect(Math.max(...tags)).toBeLessThanOrEqual(1);
+    await expectLegible(page, "Superstructure");
+    // Fit frames the whole graph at a readable size.
+    const fit = await page.evaluate(() => {
+      const scroll = document.querySelector(".mx-graph-scroll")!;
+      const sizer = document.querySelector(".mx-graph-sizer")!.getBoundingClientRect();
+      const scale = Number(/scale\(([\d.]+)\)/.exec((document.querySelector(".mx-graph") as HTMLElement).style.transform)![1]);
+      return { fits: sizer.width <= scroll.clientWidth + 1 && sizer.height <= scroll.clientHeight + 1, scale };
+    });
+    expect(fit.fits).toBe(true);
+    expect(fit.scale).toBeGreaterThanOrEqual(0.7);
+    await page.screenshot({ path: info.outputPath("superstructure-1440.png") });
+    // The zoom controls step away from fit and back.
+    await page.getByRole("button", { name: "Zoom in" }).click();
+    await expect(page.getByRole("group", { name: "Zoom" })).toContainText("%");
+    await page.getByTitle("Fit the whole graph").click();
+    await expect(page.getByRole("group", { name: "Zoom" })).toContainText("Fit");
+  });
+});
