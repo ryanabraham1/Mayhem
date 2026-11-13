@@ -318,7 +318,9 @@ whose centre is outside it are dropped, except parts of a component, which may e
 components, each with node-path regexes and a joint (`revolute` axis + origin, or `prismatic`
 axis). The script's docstring documents every field. `--list` prints every part instance (node index,
 robot-frame box centre, z range, whether and why it is dropped), so strays that share a path with
-real parts can be found by position. Output: `Robot_<Name>/config.json`,
+real parts can be found by position. An optional `"clip": {"minZ": m, "maxZ": m}` on a component
+(or at the top level for the base model) clamps its vertices to that robot-frame height range,
+for parts cut down after the CAD export (e.g. a hopper trimmed to 0.555 m). Output: `Robot_<Name>/config.json`,
 `model.glb`, `model_<i>.glb` (flat-shaded, CAD colours kept, robot frame, total size within
 `targetMB`, default 15 MB), plus `Robot_<Name>.preview.png` (side and top views coloured by
 component, with the origin and joint axes) and `Robot_<Name>.joints.json`. Copy the folder into

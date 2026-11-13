@@ -33,9 +33,11 @@ Config (JSON):
                                 # box (strays); parts matched by a component are exempt
   "targetMB": 15,             # total budget for all .glb files; met by uniform vertex clustering
   "quadric": false,             # also run quadric decimation first (sharper, but can fold thin parts)
+  "clip": {"maxZ": 1.2},        # optional: clamp the base model's vertices to this robot-frame z range
   "components": [
     {"name": "intake", "match": ["(?i)intake"],
-     "joint": {"type": "revolute", "axis": [0, 1, 0], "origin": [0.30, 0, 0.20]}},
+     "joint": {"type": "revolute", "axis": [0, 1, 0], "origin": [0.30, 0, 0.20]},
+     "clip": {"maxZ": 0.555}},  # optional: clamp this component's vertices (e.g. a part cut down after the CAD)
     {"name": "elevator", "match": ["(?i)carriage"],
      "joint": {"type": "prismatic", "axis": [0, 0, 1]}}
   ]
@@ -496,6 +498,23 @@ def main() -> None:
         sys.exit("every part was dropped; check dropOutside / dropBelowFloor")
     print(f"{len(parts)} parts, {total_in:,} triangles; kept {len(kept)} parts, {sum(len(p.faces) for p in kept):,} triangles"
           f" (box filters dropped {dropped_box.get('outside', 0)} outside, {dropped_box.get('below floor', 0)} below the floor)")
+
+    # Optional clip: clamp each part's robot-frame z to its component's range ("clip" on a
+    # component, or top-level "clip" for the base), for parts modified after the CAD export.
+    def clip_range(comp: int) -> tuple[float, float]:
+        c = (components[comp].get("clip") if comp >= 0 else config.get("clip")) or {}
+        return float(c.get("minZ", -math.inf)), float(c.get("maxZ", math.inf))
+
+    clipped = 0
+    for p in kept:
+        comp = next((i for i, ms in enumerate(matchers) if any(r.search(p.path) for r in ms)), -1)
+        lo, hi = clip_range(comp)
+        if math.isfinite(lo) or math.isfinite(hi):
+            before = p.vertices[:, 2].copy()
+            p.vertices[:, 2] = np.clip(p.vertices[:, 2], lo, hi)
+            clipped += int(np.any(before != p.vertices[:, 2]))
+    if clipped:
+        print(f"clip: {clipped} parts clamped to their z range")
 
     # Group by (component, colour), weld for decimation.
     grouped: dict[tuple, list[Part]] = {}
