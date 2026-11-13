@@ -35,6 +35,9 @@ node scripts/mayhem.mjs simulate robot.mayhem.json '{"signals":{"pieceDetected":
 node scripts/mayhem.mjs simulate robot.mayhem.json '{"freezeDrive":true}'
 node scripts/mayhem.mjs cpp robot.mayhem.json --out src/main/include/MayhemProject.h
 node scripts/mayhem.mjs cpp robot.mayhem.json --check src/main/include/MayhemProject.h
+node scripts/mayhem.mjs machine apply robot.mayhem.json tools/mayhem/machines.json
+node scripts/mayhem.mjs machine spec robot.mayhem.json ShooterMode
+node scripts/mayhem.mjs route import-mtraj robot.mayhem.json tools/mayhem/routes.json --dry-run
 node scripts/mayhem.mjs analyze run.wpilog
 node scripts/mayhem.mjs live roborio-3256-frc.local '{"topics":["/Robot/BatteryVoltage"],"durationMs":1000}'
 ```
@@ -69,7 +72,90 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 }
 ```
 
-Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+
+## Authoring machines and routines
+
+Do not keep ad-hoc dict builders in the robot repo for machines or routines. Write a compact spec and apply it; the tools validate it, write the project atomically with a revision bump, and the desktop app reloads it.
+
+### Machine specs
+
+`node scripts/mayhem.mjs machine apply <project> <spec.json | - | JSON> [--dry-run] [--expect-revision N]` (MCP `apply_machine_spec {path, spec, expectedRevision?, dryRun?}`) turns each spec into a `mayhem-machine` manifest and replaces the machine with the same `id` in `extensions.machines`, in place, or appends it. The spec is one machine, a list, or `{"machines": [...]}`. `machine spec <project> <id>` (MCP `machine_spec`) prints an existing machine as a spec, so you can edit it and apply it back. A dry run returns the manifests and writes nothing; a failed apply writes nothing.
+
+```json
+{
+  "id": "IntakeMode",
+  "name": "Intake mode",
+  "description": "What the intake is doing.",
+  "initial": "STOWED",
+  "source": "src/main/cpp/subsystems/Superstructure.cpp",
+  "inputChannel": "/RealOutputs/Mayhem/States/Superstructure/inputs/{key}",
+  "stateChannel": "/RealOutputs/Superstructure/IntakeMode",
+  "inputs": {
+    "operator": {
+      "intakePressed": { "name": "X pressed (intake on / off)", "event": true },
+      "jitterHeld": "Y held (jitter)"
+    },
+    "internal": {
+      "enabled": "Robot enabled",
+      "stopAll": { "name": "Stop everything", "event": true },
+      "deploy": { "name": "Intake mode wants the slide out", "derivedFrom": ["intakePressed", "jitterHeld"] }
+    },
+    "sensor": { "distance": { "name": "Shot distance", "type": "number", "unit": "m", "initial": 0 } }
+  },
+  "states": {
+    "STOWED": "Stowed",
+    "INTAKING": { "name": "Intaking", "description": "Slide out, rollers in." },
+    "JITTERING": "Jittering"
+  },
+  "transitions": [
+    "* -> STOWED: !enabled || stopAll  # Disabled or stop all",
+    "STOWED -> INTAKING: enabled && intakePressed  # X",
+    "INTAKING -> STOWED: intakePressed  # X",
+    "INTAKING -> JITTERING: jitterHeld && distance < 2.5",
+    { "from": "JITTERING", "to": "INTAKING", "when": "!jitterHeld", "name": "Y released", "description": "Back to intaking." },
+    "* except STOWED -> JITTERING: stateTime > 10"
+  ]
+}
+```
+
+- **Header fields**: `id` (required); `name` (default `id`); `description`; `initial` (default the first state); `selection: "priority"`; `stateChannel`; `source` (code reference for every state); `inputChannel` (each input's `channel`; `{machine}` and `{key}` are replaced).
+- **`inputs`**: category (`operator`, `sensor`, `internal`, `timer`, `auto`) → key → a display name, or `{name, type, initial, unit, event, channel, derivedFrom}`. Types default to boolean (initial `false`; numbers `0`, strings `""`). `event: true` marks a one-shot input. `derivedFrom` entries are same-machine keys or `"<Machine>::<key>"` for another machine's input. Inputs appear in the manifest (and the generated `Inputs` struct) in the order written. `stateTime` is declared for you when a condition uses it.
+- **`states`**: ID → display name or `{name, description, source}`, in declaration order (or a list of IDs / `{id, ...}` objects).
+- **`transitions`**, in priority order: `"FROM -> TO: condition  # name"`, `"* -> TO: ..."` (from any state), `"* except A, B -> TO: ..."`, or `{id, from, to, when, name, description, except}` when a state ID contains spaces or you want a description. IDs default to `<from>-to-<to>` (`any-to-<to>` for `*`; repeats get `-2`).
+- **Conditions**: input keys; `&&`/`and`, `||`/`or`, `!`/`not`, parentheses; comparisons `==`, `!=`, `>`, `<`, `>=`, `<=` with `true`/`false`, numbers or quoted strings; `always`. A bare boolean input means `== true` and `!input` means `== false`; `!=`, `>=`, `<=` are stored as `not` of `==`, `<`, `>`. An undeclared input, a type mismatch, or an unknown state is an error naming the machine, the transition and the reason. Inputs that no transition reads are reported as warnings.
+
+### Routes from solved `.mtraj` passes
+
+`node scripts/mayhem.mjs route import-mtraj <project> <spec.json | - | JSON> [--dry-run] [--expect-revision N]` (MCP `import_mtraj_route`) builds or rebuilds routines from solved classic-planner passes. Each pass becomes pose steps at its original waypoints plus the fewest extra points that keep the driven line within `pathTolerance` m and the heading within `headingTolerance` degrees of the solve (Douglas-Peucker between waypoints), merged when closer than `minDt` s. Each step gets the solved position and heading (fixed heading, profiled), and a speed cap equal to the fastest solved speed on its segment × `speedScale`, clamped to [`minSpeed`, `maxSpeed`] (default: the robot's max velocity); the last step of a pass stops, with `finalSpeed`. Pass-through steps hand off at `cornerRadius`. Solved events listed in `events` become event markers at their position on the segment; others are reported and skipped. `.mtraj` paths are relative to the project file. A dry run returns the routines and writes nothing.
+
+```json
+{
+  "events": { "intake": "superstructure.intake" },
+  "endEvents": ["superstructure.stow"],
+  "options": { "pathTolerance": 0.15, "headingTolerance": 10, "minDt": 0.15, "finalSpeed": 3 },
+  "constraints": { "translationKp": 4.5 },
+  "routines": [
+    {
+      "routine": "depot-sweep",
+      "name": "Depot Trench Sweep",
+      "finish": { "id": "done" },
+      "passes": [
+        {
+          "mtraj": "tools/mayhem/solved/DepotTrenchSweepBumpPt1.mtraj",
+          "after": [{ "id": "align-shoot-0", "name": "Aim and shoot", "kind": "custom",
+                      "action": "drivetrain.alignAndShoot", "timeout": 3.5, "onTimeout": "succeed" }]
+        }
+      ]
+    }
+  ]
+}
+```
+
+- Top-level `events`, `endEvents`, `options` and `constraints` are defaults for every routine in `routines` (a single routine spec works too). `endEvents` fire at the end of each pass (t = 1 on its last step).
+- `options` (defaults): `pathTolerance` 0.15, `headingTolerance` 10, `minDt` 0.15, `speedScale` 1, `minSpeed` 0.8, `maxSpeed` robot max, `finalSpeed` 3, `cornerRadius` 0.3, `pointTolerance` 0.12, `pointHeadingTolerance` 0.2 rad, `finalTolerance` 0.15, `finalHeadingTolerance` 0.08 rad, `settleTime` 0.04, `stepTimeout` 5.
+- `after` steps are appended after their pass (IDs default to `<routine>-pass<n>-after<k>`). Every step continues to the next with an Always transition, then a finish step (`finish: false` to leave it out; `{id, name}` to name it). Step IDs are `<routine>-pass<n>-p<k>`. The routine's start pose is the first pass's first sample, and an existing routine keeps its other fields.
+- With the 3256 robot's solved passes this reproduces `rebuild_routes.py` exactly for passes it did not hand-edit. Hand-placed passes and per-point heading overrides are ordinary edits afterwards (in the app or with `save_project`).
 
 ## Generated C++ for robot code
 

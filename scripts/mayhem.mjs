@@ -34,8 +34,44 @@ import { listChannels, logTable, findAnomalies, whatChanged, logEvents } from ".
 import { NT4Observer } from "../app/src/suite/core/nt4.ts";
 import { parseWPILog } from "../app/src/suite/core/wpilog.ts";
 import { vendorCpp } from "./cpp-vendor.mjs";
+const { applyMachineSpecs, machineFromSpec, specFromMachine, routineFromMtraj } = await import("../app/src/suite/core/authoring.ts");
 import { execFile } from "node:child_process";
 const tools = [
+  {
+    name: "apply_machine_spec",
+    description:
+      "Create or replace state machines in a project from compact specs (docs/SUITE_AGENTS.md, Authoring machines and routines): inputs grouped by category, states, and transitions with readable conditions such as \"FROM -> TO: enabled && deploy && !hoodClear  # name\". A misspelled input or state is an error. Each machine replaces the one with the same id in extensions.machines, in place, or is appended. Saves atomically with a revision bump (expectedRevision optional); dryRun returns the manifests without writing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Project file (*.mayhem.json)." },
+        spec: { description: "One machine spec, a list of them, or { machines: [...] }." },
+        expectedRevision: { type: "integer" },
+        dryRun: { type: "boolean" },
+      },
+      required: ["path", "spec"],
+    },
+  },
+  {
+    name: "machine_spec",
+    description: "Return the compact spec of a machine in a project (conditions as text), to edit and pass back to apply_machine_spec.",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, machine: { type: "string" } }, required: ["path", "machine"] },
+  },
+  {
+    name: "import_mtraj_route",
+    description:
+      "Build (or rebuild) autonomous routines from solved classic-planner .mtraj passes: each pass becomes key-waypoint pose steps (its waypoints plus the fewest points that stay within pathTolerance m and headingTolerance deg of the solve) with the solved heading and a speed cap from the solved speed, mapped event markers, and optional steps after each pass (e.g. an aim-and-shoot custom step with onTimeout \"succeed\"). .mtraj paths are relative to the project file. Saves atomically with a revision bump; dryRun returns the routines without writing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Project file (*.mayhem.json)." },
+        spec: { description: "One route spec, a list, or { routines: [...], events, endEvents, options } with shared defaults." },
+        expectedRevision: { type: "integer" },
+        dryRun: { type: "boolean" },
+      },
+      required: ["path", "spec"],
+    },
+  },
   {
     name: "inspect_live_robot",
     description:
@@ -254,6 +290,33 @@ export async function openInApp(path, app = process.env.MAYHEM_APP || "Mayhem") 
   );
   return { opened: file, app, note: "The app switches to this project and watches the file; edits on disk appear within about a second." };
 }
+const asList = (spec, key) => {
+  if (Array.isArray(spec)) return spec;
+  if (spec && typeof spec === "object" && Array.isArray(spec[key])) return spec[key];
+  if (spec && typeof spec === "object") return [spec];
+  throw new Error("Expected a spec object or a list of specs.");
+};
+/** Route specs with shared `events`, `endEvents`, `options`, `constraints` defaults applied. */
+const routeSpecs = (spec) => {
+  const shared = spec && !Array.isArray(spec) && Array.isArray(spec.routines) ? spec : {};
+  return asList(spec, "routines").map((r) => ({
+    ...r,
+    events: { ...(shared.events ?? {}), ...(r.events ?? {}) },
+    endEvents: r.endEvents ?? shared.endEvents,
+    options: { ...(shared.options ?? {}), ...(r.options ?? {}) },
+    ...(shared.constraints || r.constraints ? { constraints: { ...(shared.constraints ?? {}), ...(r.constraints ?? {}) } } : {}),
+  }));
+};
+/** Read, change and save a project with the same revision check and atomic write as save_project. */
+async function updateProject(path, args, change) {
+  const current = parseProject(await readFile(path, "utf8"));
+  if (args.expectedRevision !== undefined && args.expectedRevision !== null && args.expectedRevision !== current.revision)
+    throw new Error(`Revision conflict: current revision is ${current.revision}. Re-read before editing.`);
+  const { project, ...result } = change(current);
+  if (args.dryRun) return { dryRun: true, revision: current.revision, ...result };
+  const saved = await execute("save_project", { path, project, expectedRevision: current.revision });
+  return { ...saved, ...result };
+}
 export async function execute(name, args) {
   if (name === "validate_project")
     return { issues: validateProject(args.project) };
@@ -289,6 +352,45 @@ export async function execute(name, args) {
   if (name === "vendor_cpp")
     return vendorCpp(args.robotDir, { dest: args.dest, snapshot: args.snapshot, check: args.check === true });
   const path = pathFor(args.path);
+  if (name === "apply_machine_spec") {
+    const specs = asList(args.spec, "machines");
+    return updateProject(path, args, (project) => {
+      const { project: next, machines, warnings } = applyMachineSpecs(project, specs);
+      return { project: next, machines, warnings, ...(args.dryRun ? { manifests: specs.map(machineFromSpec) } : {}) };
+    });
+  }
+  if (name === "machine_spec") {
+    const project = parseProject(await readFile(path, "utf8"));
+    const machine = (project.extensions.machines ?? []).find((m) => m?.id === args.machine);
+    if (!machine) throw new Error(`No machine ${args.machine}. Machines: ${(project.extensions.machines ?? []).map((m) => m?.id).join(", ") || "none"}.`);
+    return specFromMachine(machine);
+  }
+  if (name === "import_mtraj_route") {
+    const specs = routeSpecs(args.spec);
+    const base = dirname(path);
+    const files = new Map();
+    for (const spec of specs)
+      for (const pass of spec.passes ?? []) {
+        if (typeof pass?.mtraj !== "string") throw new Error(`Routine ${spec.routine}: every pass needs an "mtraj" path.`);
+        const file = resolve(base, pass.mtraj);
+        if (!files.has(file)) files.set(file, JSON.parse(await readFile(file, "utf8")));
+      }
+    return updateProject(path, args, (project) => {
+      const routines = [], warnings = [];
+      for (const spec of specs) {
+        const result = routineFromMtraj(project, spec, (p) => files.get(resolve(base, p)));
+        project = result.project;
+        routines.push({ routine: result.routine, steps: result.steps });
+        warnings.push(...result.warnings);
+      }
+      return {
+        project,
+        routines,
+        warnings,
+        ...(args.dryRun ? { preview: project.routines.filter((r) => specs.some((s) => s.routine === r.id)) } : {}),
+      };
+    });
+  }
   if (name === "export_cpp")
     return { code: exportCpp(parseProject(await readFile(path, "utf8"))) };
   if (name === "inspect_project")
@@ -557,6 +659,31 @@ async function main() {
     process.stdout.write(code);
     return;
   }
+  if (command === "machine" || command === "route") {
+    // machine apply <project> <spec> | machine spec <project> <id> | route import-mtraj <project> <spec>
+    const [sub, project, specArg, ...flags] = process.argv.slice(3);
+    const usage = "Usage: node scripts/mayhem.mjs machine apply <project> <spec.json|-|JSON> [--dry-run] [--expect-revision N] | machine spec <project> <machine id> | route import-mtraj <project> <spec.json|-|JSON> [--dry-run] [--expect-revision N]";
+    if (!project || !specArg) throw new Error(usage);
+    if (command === "machine" && sub === "spec") {
+      console.log(JSON.stringify(await execute("machine_spec", { path: project, machine: specArg }), null, 2));
+      return;
+    }
+    const tool = command === "machine" && sub === "apply" ? "apply_machine_spec" : command === "route" && sub === "import-mtraj" ? "import_mtraj_route" : null;
+    if (!tool) throw new Error(usage);
+    const args = { path: project };
+    for (let i = 0; i < flags.length; i++) {
+      if (flags[i] === "--dry-run") args.dryRun = true;
+      else if (flags[i] === "--expect-revision" && /^\d+$/.test(flags[i + 1] ?? "")) args.expectedRevision = Number(flags[++i]);
+      else throw new Error(usage);
+    }
+    const text =
+      specArg === "-"
+        ? await new Promise((done) => { let t = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (c) => (t += c)); process.stdin.on("end", () => done(t)); })
+        : /^\s*[[{]/.test(specArg) ? specArg : await readFile(specArg, "utf8");
+    args.spec = JSON.parse(text);
+    console.log(JSON.stringify(await execute(tool, args), null, 2));
+    return;
+  }
   if (command === "vendor") {
     // vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check]
     const flags = process.argv.slice(4);
@@ -591,7 +718,7 @@ async function main() {
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | open <file> | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | open <file> | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")
