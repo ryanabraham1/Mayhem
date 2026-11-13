@@ -8,10 +8,11 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   autonomousManifest,
   canonicalJson,
+  cppIdentifiers,
   exportCpp,
   qualifiedTransitionId,
 } from "../src/suite/core/export-cpp.ts";
-import { exampleMachine, parseMachineManifest } from "../src/suite/core/machines.ts";
+import { exampleMachine, parseMachineManifest, settleMachine, type MachineManifest } from "../src/suite/core/machines.ts";
 import { parseProject, type SuiteProject } from "../src/suite/core/model.ts";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -56,7 +57,7 @@ describe("C++ export for robot projects", () => {
     expect(cpp).toContain("namespace Intake = machine_0;");
     expect(cpp).toContain('inline bool guard_0([[maybe_unused]] const mayhem::SignalSource& h)');
     expect(cpp).toContain('{"acquire","Idle","Acquiring",guard_0}');
-    expect(cpp).toContain("inline constexpr mayhem::MachineView machine{id,\"Idle\",states.data(),states.size(),transitions.data(),transitions.size(),manifest};");
+    expect(cpp).toContain("inline constexpr mayhem::MachineView machine{id,\"Idle\",states.data(),states.size(),transitions.data(),transitions.size(),manifest,false,inputs.data(),inputs.size()};");
     expect(cpp).toContain('inline constexpr std::string_view name = "Collect & score";');
     expect(cpp).toContain("inline constexpr std::array<mayhem::RoutineInfo,1> routines = {{\n  routine_0::info,\n}};");
     expect(cpp).toContain("inline constexpr double fieldLength = 16.541;");
@@ -223,5 +224,129 @@ int main() {
     ]);
     // shoot beats intake from IDLE; SHOOT stays; home wins; from HOME toShoot is excepted.
     expect(execFileSync(exe, { encoding: "utf8" }).trim()).toBe("valid SHOOT SHOOT HOME IDLE");
+  });
+
+  // Two mode machines shaped like the 3256 robot's, with one-shot presses marked as events.
+  const sig = (key: string, value: boolean | number | string = true, op: "eq" | "gt" | "lt" = "eq") => ({ kind: "signal" as const, key, op, value });
+  const all = (...conditions: any[]) => ({ kind: "all" as const, conditions });
+  const any = (...conditions: any[]) => ({ kind: "any" as const, conditions });
+  const bool = (key: string, extra: object = {}) => ({ key, name: key, type: "boolean" as const, initial: false, ...extra });
+  const modeMachines = (): MachineManifest[] => [
+    {
+      format: "mayhem-machine", version: 1, id: "ShooterMode", name: "Shooter mode", initial: "OFF",
+      states: ["OFF", "REV", "SHOOTING"].map((id) => ({ id, name: id })),
+      inputs: [bool("enabled"), bool("stopAll", { event: true }), bool("shootHeld"), bool("inAllianceZone"),
+        { key: "shot.distance", name: "Shot distance", type: "number", initial: 3.5, unit: "m", category: "sensor" },
+        { key: "mode", name: "Mode", type: "string", initial: "hub" }],
+      transitions: [
+        { id: "stop", from: "*", to: "OFF", condition: any(sig("enabled", false), sig("stopAll")) },
+        { id: "shoot", from: "OFF", to: "SHOOTING", condition: all(sig("shootHeld"), sig("shot.distance", 6, "lt"), sig("mode", "hub")) },
+        { id: "revShoot", from: "REV", to: "SHOOTING", condition: sig("shootHeld") },
+        { id: "released", from: "SHOOTING", to: "OFF", condition: sig("shootHeld", false) },
+        { id: "zone", from: "OFF", to: "REV", condition: all(sig("enabled"), sig("inAllianceZone")) },
+        { id: "leftZone", from: "REV", to: "OFF", condition: sig("inAllianceZone", false) },
+      ],
+    },
+    {
+      format: "mayhem-machine", version: 1, id: "IntakeMode", name: "Intake mode", initial: "STOWED",
+      states: ["STOWED", "INTAKING", "default"].map((id) => ({ id, name: id })),
+      inputs: [bool("enabled"), bool("intakePressed", { event: true, category: "operator" }),
+        { key: "stateTime", name: "Seconds in state", type: "number", initial: 0, category: "timer" }],
+      transitions: [
+        { id: "on", from: "STOWED", to: "INTAKING", condition: all(sig("enabled"), sig("intakePressed")) },
+        { id: "off", from: "INTAKING", to: "STOWED", condition: sig("intakePressed") },
+        { id: "stale", from: "INTAKING", to: "default", condition: sig("stateTime", 2, "gt") },
+      ],
+    },
+  ];
+  const compile = (name: string, code: string, header: string) => {
+    writeFileSync(resolve(dir, `${name}.hpp`), header);
+    writeFileSync(resolve(dir, `${name}.cpp`), code.replace("HEADER", `${name}.hpp`));
+    return spawnSync(process.env.CXX ?? "clang++", [
+      "-std=c++17", "-Wall", "-Wextra", "-Werror", `-I${resolve(root, "lib-cpp/include")}`,
+      resolve(dir, `${name}.cpp`), "-o", resolve(dir, name),
+    ], { encoding: "utf8" });
+  };
+
+  it("names typed members after manifest IDs, as valid unique C++ identifiers", () => {
+    expect(cppIdentifiers(["shootHeld", "intake.requested", "intake-requested", "2fast", "default", "_x", "a__b", "NULL"])).toEqual([
+      "shootHeld", "intake_requested", "intake_requested_2", "k2fast", "default_", "k_x", "a_b", "NULL_",
+    ]);
+  });
+
+  it("exports a typed machine API whose guards read an Inputs struct and settle like the robot", () => {
+    const p = load();
+    (p.extensions as any).machines = modeMachines();
+    const cpp = exportCpp(p);
+    expect(cpp).toContain("enum class State : int { OFF, REV, SHOOTING };");
+    expect(cpp).toContain("  double shot_distance = 3.5; // \"shot.distance\" · Shot distance · sensor");
+    expect(cpp).toContain("  std::string mode = \"hub\";");
+    expect(cpp).toContain("  bool intakePressed = false; // operator · event: reset after the first step of each loop");
+    expect(cpp).toContain('{"stopAll","",mayhem::InputType::Boolean,true,mayhem::SignalValue{false}}');
+    expect(cpp).toContain("mayhem::CompareTyped(in.shootHeld, mayhem::CompareOp::Eq, true)");
+    expect(cpp).toContain("mayhem::CompareTyped(stateTime, mayhem::CompareOp::Gt, double{2})");
+    expect(cpp).toContain("mayhem::CompareTyped(std::string_view{in.mode}, mayhem::CompareOp::Eq, std::string_view{\"hub\"})");
+    expect(cpp).toContain("enum class State : int { STOWED, INTAKING, default_ };");
+    expect(cpp).not.toMatch(/double stateTime =/);  // built in
+    expect(cpp).toContain("using Machine = mayhem::TypedMachine<Def>;");
+    const run = compile("typed", `#include "HEADER"
+#include <cstdio>
+#include <string>
+namespace gen = mayhem_generated;
+int main() {
+  gen::ShooterMode::Machine shooter;
+  gen::IntakeMode::Machine intake;
+  using Shot = gen::ShooterMode::State;
+  using Intake = gen::IntakeMode::State;
+  std::string trace;
+  auto& in = shooter.In();
+  in.enabled = true; in.inAllianceZone = true; in.shootHeld = true;
+  trace += std::to_string(shooter.Settle(.02)) + std::string(shooter.StateName()) + " ";
+  in.shootHeld = false;  // A released inside the alliance zone: SHOOTING, OFF, then REV in one loop
+  trace += std::to_string(shooter.Settle(.02)) + std::string(shooter.StateName()) + (shooter.Is(Shot::REV) ? "! " : "? ");
+  in.stopAll = true;  // one-loop request: OFF, then (stopAll used up) the zone check revs again
+  trace += std::to_string(shooter.Settle(.02)) + std::string(shooter.StateName()) + (in.stopAll ? "1 " : "0 ");
+  trace += std::to_string(shooter.Settle(.02)) + std::string(shooter.StateName()) + " ";
+  intake.In().enabled = true;
+  intake.In().intakePressed = true;  // X: on once, not on and off again
+  trace += std::to_string(intake.Settle(.02)) + std::string(intake.StateName()) + " ";
+  trace += std::to_string(intake.Settle(.02)) + std::string(intake.StateName()) + " ";
+  intake.In().intakePressed = true;
+  trace += std::to_string(intake.Settle(.02)) + std::string(intake.StateName()) + " ";
+  intake.In().intakePressed = true; intake.Settle(.02);
+  trace += std::to_string(intake.Settle(2.1)) + std::string(gen::IntakeMode::Machine::Name(intake.Current()));
+  std::printf("%s %d\\n", trace.c_str(), intake.Is(Intake::default_));
+}`, cpp);
+    expect(run.stderr).toBe("");
+    expect(execFileSync(resolve(dir, "typed"), { encoding: "utf8" }).trim()).toBe("1SHOOTING 2REV! 2REV0 0REV 1INTAKING 0INTAKING 1STOWED 1default 1");
+    // The same loop in the editor's settle (states page, simulation).
+    const [shooterManifest] = modeMachines();
+    expect(settleMachine(shooterManifest, "SHOOTING", { enabled: true, inAllianceZone: true, shootHeld: false, stopAll: false, "shot.distance": 3, mode: "hub" }))
+      .toEqual({ state: "REV", path: ["SHOOTING", "OFF", "REV"], settled: true });
+  });
+
+  it("turns a misspelled input or state into a compile error", () => {
+    const p = load();
+    (p.extensions as any).machines = modeMachines();
+    const cpp = exportCpp(p);
+    const body = (line: string) => `#include "HEADER"
+int main() { mayhem_generated::ShooterMode::Machine m; ${line} return 0; }`;
+    expect(compile("ok", body("m.In().shootHeld = true; (void)m.Is(mayhem_generated::ShooterMode::State::REV);"), cpp).status).toBe(0);
+    const input = compile("badInput", body("m.In().shootHled = true;"), cpp);
+    expect(input.status).not.toBe(0);
+    expect(input.stderr).toMatch(/shootHled/);
+    const state = compile("badState", body("(void)m.Is(mayhem_generated::ShooterMode::State::SHOTING);"), cpp);
+    expect(state.status).not.toBe(0);
+    expect(state.stderr).toMatch(/SHOTING/);
+  });
+
+  it("validates event inputs and settles events in the editor like mayhem::StateMachine::Settle", () => {
+    const [, intake] = modeMachines();
+    expect(() => parseMachineManifest({ ...intake, inputs: [{ ...intake.inputs[1], event: "yes" }, intake.inputs[0], intake.inputs[2]] })).toThrow(/Invalid machine input/);
+    const pressed = { enabled: true, intakePressed: true, stateTime: 0 };
+    expect(settleMachine(intake, "STOWED", pressed)).toEqual({ state: "INTAKING", path: ["STOWED", "INTAKING"], settled: true });
+    // Without the event flag the press is seen again and toggles straight back off.
+    const level = { ...intake, inputs: intake.inputs.map((i) => ({ ...i, event: undefined })) };
+    expect(settleMachine(level, "STOWED", pressed, 3)).toEqual({ state: "INTAKING", path: ["STOWED", "INTAKING", "STOWED", "INTAKING"], settled: false });
   });
 });

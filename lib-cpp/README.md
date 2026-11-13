@@ -1,6 +1,6 @@
 # Mayhem C++ tools (development)
 
-Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.6.2). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
+Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.7.0). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
 
 ## Installing in a WPILib robot project
 
@@ -27,9 +27,9 @@ Use the pieces you need:
 | Header | Purpose |
 | --- | --- |
 | `pose_controller.hpp` | Standalone live-pose controller; no framework, IO, network, or per-tick allocation |
-| `signals.hpp` | Typed fail-closed guard inputs (`SignalValue`, `Compare`, `Not`/`All`/`Any`, `SignalSource`) and `ManifestView` |
+| `signals.hpp` | Typed fail-closed guard inputs (`SignalValue`, `Compare`, `CompareTyped`, `Not`/`All`/`Any`, `SignalSource`), `MachineInput` and `ManifestView` |
 | `auto_runner.hpp` | Optional graph executor with typed guards, arbitrary action callbacks, concurrent actions, cancellation, watchdogs, goal telemetry, and optional observation |
-| `state_machine.hpp` | `StateMachine`: runs an exported `mayhem-machine` graph (typed guards, priority, built-in `stateTime`, optional observer) |
+| `state_machine.hpp` | `StateMachine`: runs an exported `mayhem-machine` graph (typed guards, priority, built-in `stateTime`, `Settle` with one-shot events, clocked ticks, optional observer and input logging); `TypedMachine<Def>` for the generated typed API |
 | `alliance.hpp` | `AllianceRoutine`: flipped/mirrored copies of a blue-origin routine (poses, aim points, rotation markers, start) |
 | `state_observer.hpp` | Optional observation interface for any robot state machine |
 | `pose_driver.hpp` | `PoseDriver`: drive to a goal with a watchdog from any loop (`Start(now)`, `Update(now)`, `Cancel()`); no framework |
@@ -110,7 +110,8 @@ Generate a header with `node scripts/mayhem.mjs cpp project.mayhem.json --out sr
 | `routine_<i>::name`, `::routine`, `::startPose`, `::info` | Chooser label, `RoutineView`, start pose (routine override or robot default), `RoutineInfo{name, routine, startPose}` |
 | `routines` | `std::array<RoutineInfo, N>` of every routine in project order; `mayhem::FindRoutine(routines, nameOrId)` |
 | `autonomous::manifest` | `ManifestView` of one `Autonomous` mayhem-machine manifest covering every routine (see below) |
-| `machine_<i>::machine`, `::manifest`, `::id`; alias `<MachineId>::` | Each `extensions.machines` graph as a `MachineView` with its embedded manifest (see Mechanism state machines) |
+| `machine_<i>::machine`, `::manifest`, `::id`, `::inputs`; alias `<MachineId>::` | Each `extensions.machines` graph as a `MachineView` with its embedded manifest and declared inputs (see Mechanism state machines) |
+| `<MachineId>::State`, `::Inputs`, `::Def`, `::Machine` | Typed API: `enum class State`, `struct Inputs` (one field per declared input), and `Machine` = `mayhem::TypedMachine<Def>` |
 | `machines` | `std::array<MachineView, M>` of every machine |
 
 Manifests are embedded as canonical JSON (sorted keys) split into ~2 KB literals, because MSVC rejects string literals over 64 KB; `manifest.Text()` returns the joined `std::string` (allocates; call at startup). The exporter validates every machine with the same rules as the editor and fails on an invalid or duplicate one.
@@ -165,7 +166,38 @@ runner.Attach(observer, mayhem_generated::autonomous::manifest,
 
 ## Mechanism state machines
 
-`node scripts/mayhem.mjs cpp` exports every `extensions.machines` graph as a `mayhem::MachineView` (`mayhem_generated::machine_<i>::machine`, plus a namespace alias named after the machine ID when it is a valid C++ identifier, e.g. `mayhem_generated::Superstructure::machine`, and the `mayhem_generated::machines` array). Run one with `mayhem::StateMachine` (C++17, `state_machine.hpp`):
+`node scripts/mayhem.mjs cpp` exports every `extensions.machines` graph as a `mayhem::MachineView` (`mayhem_generated::machine_<i>::machine`, plus a namespace alias named after the machine ID when it is a valid C++ identifier, e.g. `mayhem_generated::Superstructure::machine`, and the `mayhem_generated::machines` array), and a typed API next to it.
+
+### Typed machines (0.7.0)
+
+```cpp
+#include "MayhemProject.h"  // generated
+
+mayhem_generated::IntakeMode::Machine intake;                 // TypedMachine<Def>; not copyable
+using Intake = mayhem_generated::IntakeMode::State;          // enum class: STOWED, INTAKING, ...
+
+// Startup: the clock times Settle() and stamps observations; InputLogging::On logs every input.
+intake.Attach(observer, [] { return frc::Timer::GetFPGATimestamp().value(); }, mayhem::InputLogging::On);
+
+// Every loop:
+auto& in = intake.In();                                       // struct Inputs, one field per input
+in.enabled = frc::DriverStation::IsEnabled();
+in.intakePressed = controller.GetXButtonPressed();           // "event": true, reset after this loop
+in.jitterHeld = controller.GetYButton();
+intake.Settle();                                              // or Settle(dt), Tick(dt), Tick()
+if (intake.Is(Intake::INTAKING)) rollers.SetVoltage(8);
+```
+
+The exporter emits, per machine: `enum class State : int` (values in state declaration order, so `static_cast<int>(state)` is the `StateIndex()`), `struct Inputs` (one field per declared input with the manifest type, `bool`/`double`/`std::string`, and initial value; `stateTime` is built in and not a field), `struct Def` (the `MachineView`, typed guards that read `Inputs` directly with `mayhem::CompareTyped`, `Signal(inputs, key)` for observers and `ClearEvents`), and `using Machine = mayhem::TypedMachine<Def>`. A misspelled input or state is a compile error. Names: characters other than letters, digits and `_` become `_` (`intake.requested` → `intake_requested`), a name not starting with a letter gets a `k` prefix, keywords get a trailing `_`, and repeats get `_2`.
+
+| `TypedMachine<Def>` member | Meaning |
+| --- | --- |
+| `Inputs& In()` | This loop's inputs. Fields of `event` inputs are reset to their initial value after the first step of each `Tick`/`Settle`. |
+| `State Current()`, `bool Is(State)`, `static std::string_view Name(State)`, `std::string_view StateName()` | Current state as the enum; its manifest ID. |
+| `Tick(dt)`, `Tick()`, `Settle(dt, maxSteps)`, `Settle()`, `Settled()`, `Reset()`, `StateTime()`, `LastTransition()`, `Valid()`, `SetClock(clock)`, `Attach(...)`, `Detach()` | As `StateMachine`. |
+| `const StateMachine& Untyped()` | The string API over the same machine (`Signal(key)`, `View()`, `StateIndex()`). |
+
+### String API
 
 ```cpp
 #include <mayhem/state_machine.hpp>
@@ -176,7 +208,7 @@ mayhem::StateMachine intake(mayhem_generated::IntakeSequence::machine,
 intake.Attach(observer, [] { return frc::Timer::GetFPGATimestamp().value(); });
 
 // Every loop, after updating the inputs:
-intake.Tick(dt);                  // true if a transition was taken
+intake.Settle();                  // transitions taken this loop; Tick(dt) is a single step
 switch (intake.StateIndex()) { /* drive mechanisms from the state */ }
 ```
 
@@ -184,11 +216,17 @@ switch (intake.StateIndex()) { /* drive mechanisms from the state */ }
 | --- | --- |
 | `StateMachine(MachineView, const SignalSource&)` / `StateMachine(MachineView, std::function<SignalValue(std::string_view)>)` | Resolves states to indices and enters `initial`. Allocates. |
 | `bool Tick(double dt)` | Adds `dt` to `StateTime()`, evaluates the active state's outgoing guards in declaration order, takes at most one transition (which resets `StateTime()` to 0). Non-finite or negative `dt` does not advance time; guards still run. |
+| `int Settle(double dt, int maxSteps = kDefaultSettleSteps)` | Repeats the step within one loop until no transition fires, taking at most `maxSteps` (default 8) transitions. Only the first step adds `dt`; later steps read `event` inputs as their initial value. Returns the transitions taken. |
+| `bool Settled()` | False when the last `Settle` stopped at `maxSteps` (possibly a cycle). |
+| `bool Tick()`, `int Settle()` | The same with `dt` from the clock: the time since the previous clocked call, `SetClock` or `Reset` (0 without a clock). |
+| `void SetClock(Clock)` | Seconds for observer timestamps and clocked ticks. `Attach` with a non-null clock sets it too. |
 | `bool Reset()` | Re-enter `initial` with `StateTime() = 0`. |
 | `std::string_view State()`, `int StateIndex()`, `double StateTime()`, `std::string_view LastTransition()` | Current state, its index in the view's `states`, seconds in it, last transition taken. |
 | `bool Valid()` | False if `initial`, a transition endpoint, or an `except` state is not a declared state (or `except` is set without `from` `"*"`); then `State()` is empty and `Tick` does nothing. |
 | `SignalValue Signal(std::string_view)` | What guards see. |
-| `template <class O> void Attach(O& observer, Clock clock = nullptr)`, `Detach()` | Describe the embedded manifest and register every guard (input `"condition"`) when the observer supports it; report `Enter` (immediately, and on each entry), `Guard` (every evaluation), and `Transition`. |
+| `template <class O> void Attach(O& observer, Clock clock = nullptr, InputLogging inputs = InputLogging::Off)`, `Detach()` | Describe the embedded manifest and register every guard (input `"condition"`) when the observer supports it; report `Enter` (immediately, and on each entry), `Guard` (every evaluation), and `Transition`. With `InputLogging::On`, register every declared input (`RegisterInput`) and report its value (`Input`) on the first step of each `Tick`/`Settle`. |
+
+**One-shot events.** An input with `"event": true` in the manifest (`MachineInput::event`) is a press or a one-loop request. It counts for the first step of a loop only, so `Settle` cannot use the same press twice: from STOWED, an X press goes to INTAKING and stays there instead of toggling straight back. With the string API the robot still owns the value; `Settle` only hides it on its later steps. The typed API also resets the field after the first step, so code that sets it only on a press needs no clearing.
 
 A transition whose `from` is `"*"` (`mayhem::kAnyState`) is checked in every state except its target and the states in its optional `except` list (`MachineTransition::except`/`exceptCount`, emitted by the exporter), at its position in declaration order. A priority supervisor (each target reachable from every other state) is then one transition per target, in priority order. Observers receive the actual source state in `Transition(machine, id, from, to)`, never `"*"`.
 
@@ -225,9 +263,11 @@ Every field-frame value is transformed: each node's goal pose (x, y, heading), `
 
 ## Optional state observation
 
-Create one `WpiLogObserver` (`wpilib_log.hpp`) or `NtStateObserver` per machine. Call `Describe(manifestJson)` once during startup, and `RegisterGuard(transitionId, inputId)` for guards you want to expose before running loops. Use `Enter`, `Guard`, `Transition`, and `GoalProgress` alongside your existing implementation. `CombinedObserver` can forward the same observations to logs and NetworkTables.
+Create one `WpiLogObserver` (`wpilib_log.hpp`) or `NtStateObserver` per machine. Call `Describe(manifestJson)` once during startup, and `RegisterGuard(transitionId, inputId)` for guards you want to expose before running loops. Use `Enter`, `Guard`, `Transition`, and `GoalProgress` alongside your existing implementation. `CombinedObserver` can forward the same observations to logs and NetworkTables. `StateMachine::Attach` and `AutoRunner::Attach` make these calls for you.
 
-Log/publish actual input values using your normal WPILib channels, and reference those names in the manifest. Schema and observations do not control the machine. Keep allocations, schema construction, and registration outside the control loop. The observer APIs themselves do not start a NetworkTables server or DataLogManager.
+**Input logging.** `StateMachine::Attach(observer, clock, mayhem::InputLogging::On)` logs every declared manifest input each loop, so robot code does not keep its own list of input channels. It calls the `StateObserver` virtuals `RegisterInput(machine, const MachineInput&)` once per input during `Attach` and `Input(machine, key, value, timestamp)` on the first step of each `Tick`/`Settle` (both no-ops by default, so existing observers compile unchanged). `WpiLogObserver` writes a typed entry (boolean, double or string) at the input's manifest `channel`, or `Mayhem/States/<machine>/inputs/<key>` when it has none; several machines may share a channel. `NtStateObserver` publishes `/Mayhem/States/<machine>/inputs/<key>`. `CombinedObserver` forwards both. A composite observer of your own must forward `RegisterInput` and `Input` too. Logging is off by default so robots that already log their inputs do not log them twice.
+
+Schema and observations do not control the machine. Keep allocations, schema construction, and registration outside the control loop. The observer APIs themselves do not start a NetworkTables server or DataLogManager.
 
 ## Checks
 
@@ -237,4 +277,4 @@ cmake --build lib-cpp/build
 ctest --test-dir lib-cpp/build --output-on-failure
 ```
 
-Tests exercise `PoseDriver` (reached, watchdog, invalid input, `dt == 0`, cancel), arrival/settling, moving handoff, invalid data, limits, watchdog behavior, loop-overrun clamping, goal telemetry and observer output, typed conditions and priority in `StateMachine`, no allocation per tick (counted `operator new`), alliance transforms including a closed-loop red run that matches the flipped blue run, the generated example header (`examples/suite/competition.hpp`), and agreement with the browser controller. App tests (`app/tests/export-cpp.test.ts`, `cpp-vendor.test.ts`) cover the exporter, `--check`, vendoring, and the vendordep layout. Host timings are not roboRIO benchmarks. No physical robot validation has been completed for this new library.
+Tests exercise `PoseDriver` (reached, watchdog, invalid input, `dt == 0`, cancel), arrival/settling, moving handoff, invalid data, limits, watchdog behavior, loop-overrun clamping, goal telemetry and observer output, typed conditions and priority in `StateMachine`, `Settle` with one-shot events and clocked ticks, input logging, `TypedMachine`, no allocation per tick (counted `operator new`), alliance transforms including a closed-loop red run that matches the flipped blue run, the generated example header (`examples/suite/competition.hpp`), and agreement with the browser controller. App tests (`app/tests/export-cpp.test.ts`, `cpp-vendor.test.ts`) cover the exporter, `--check`, vendoring, and the vendordep layout. Host timings are not roboRIO benchmarks. No physical robot validation has been completed for this new library.

@@ -39,6 +39,7 @@ import {
   machineGraph,
   observedMachine,
   parseMachineManifest,
+  settleMachine,
   type MachineManifest,
 } from "../core/machines.ts";
 import type { Recording } from "../core/analysis.ts";
@@ -238,21 +239,14 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
     setCause(found ? { ...found, from: prior.active, to: active } : null);
   }); // runs after every render; compares with the previous render's state and inputs
   const stateName = (id: string) => graph.nodes.find((n) => n.id === id)?.name ?? id;
-  /** Follow true transitions from a state, like the robot would on its next loops. */
-  const settle = (from: string, values: Signals) => {
-    let state = from;
-    for (let hop = 0; hop < 12; hop++) {
-      const edge = graph.transitions.find((t) => leaves(t, state) && evaluate(t.condition, values));
-      if (!edge || edge.to === state) break;
-      state = edge.to;
-    }
-    return state;
-  };
   const setInput = (key: string, value: boolean | number | string) => {
     if (machine) {
       const next = { ...signals, [key]: value };
-      setManualInputs((v) => ({ ...v, [key]: value }));
-      const state = settle(active || machine.initial, next);
+      // One robot loop (mayhem::StateMachine::Settle): a press (event input) is used by the
+      // first step only and then reads as released again.
+      const { state } = settleMachine(machine, active || machine.initial, next);
+      const input = machine.inputs.find((i) => i.key === key);
+      setManualInputs((v) => ({ ...v, [key]: input?.event ? input.initial : value }));
       setSimState(state);
       setSelected(state);
     } else s.setSignals({ ...s.signals, [key]: value });
@@ -600,7 +594,16 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                         <DerivedFrom input={input} machine={scopeId} scope={inputScope} isKey={isKey} categoryOf={categoryOf} />
                       ) : null}
                     </span>
-                    {editable && input.type === "boolean" ? (
+                    {editable && machine && "event" in input && input.event && input.type === "boolean" ? (
+                      <button
+                        aria-label={`${input.name} (press once)`}
+                        title="One-shot event: true for one robot loop, then released"
+                        className="mx-bool"
+                        onClick={() => setInput(input.key, input.initial !== true)}
+                      >
+                        press
+                      </button>
+                    ) : editable && input.type === "boolean" ? (
                       <button
                         role="switch"
                         aria-checked={value === true}

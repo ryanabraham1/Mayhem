@@ -5,6 +5,8 @@
 #include <cassert>
 #include <iostream>
 #include <string>
+#include <type_traits>
+#include <variant>
 
 int main() {
   namespace gen = mayhem_generated;
@@ -33,6 +35,20 @@ int main() {
   requested = true; assert(intake.Tick(.02) && intake.State() == "Acquiring");
   hasPiece = true; assert(intake.Tick(.02) && intake.State() == "Holding");
   for (int i = 0; i < 10; ++i) assert(!intake.Tick(.02));
+  // The typed API over the same graph: State enum, Inputs struct, typed guards.
+  gen::Intake::Machine typed;
+  using State = gen::Intake::State;
+  static_assert(std::is_same_v<decltype(typed.In().intake_requested), bool>);
+  assert(typed.Is(State::Idle) && gen::Intake::Machine::Name(State::Holding) == "Holding");
+  typed.In().intake_requested = true;
+  assert(typed.Settle(.02) == 1 && typed.Current() == State::Acquiring);
+  typed.In().intake_hasPiece = true;
+  assert(typed.Settle(.02) == 1 && typed.Is(State::Holding));
+  assert(std::get<bool>(typed.Untyped().Signal("intake.hasPiece")));
+  // Declared inputs are exported for logging.
+  static_assert(gen::Intake::inputs.size() == 3);
+  assert(gen::Intake::machine.inputCount == 3 && gen::Intake::machine.inputs[0].key == "intake.requested" &&
+         gen::Intake::machine.inputs[0].type == mayhem::InputType::Boolean && !gen::Intake::machine.inputs[0].event);
   const auto text = gen::Intake::machine.manifest.Text();
   assert(text.rfind("{\"format\":\"mayhem-machine\",\"id\":\"Intake\"", 0) == 0 && text.back() == '}');
   // Field size feeds AllianceRoutine.

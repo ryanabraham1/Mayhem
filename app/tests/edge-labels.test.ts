@@ -193,7 +193,7 @@ describe('priority select ("selection": "priority")', () => {
     expect(() => parseMachineManifest({ ...exampleMachine, selection: "first" })).toThrow(/selection/);
     const p = parseProject(readFileSync(new URL("../../examples/suite/competition.mayhem.json", import.meta.url), "utf8"));
     (p.extensions as any).machines = [machine];
-    expect(exportCpp(p)).toMatch(/transitions\.size\(\),manifest,true\};/);
+    expect(exportCpp(p)).toMatch(/transitions\.size\(\),manifest,true,inputs\.data\(\),inputs\.size\(\)\};/);
     const info = { name: (k: string) => ({ home: "Home requested (B)", enabled: "Robot enabled" })[k] ?? k, unit: (k: string) => (k === "stateTime" ? "s" : undefined), category: () => "operator" as const };
     expect(plainText(all(sig("enabled"), any(sig("home"), not(sig("cancel")))), info)).toBe("Robot enabled and (Home requested (B) or not cancel)");
     expect(plainText(sig("stateTime", 2.5, "gt"), info)).toBe("stateTime over 2.5 s");

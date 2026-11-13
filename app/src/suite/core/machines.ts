@@ -6,7 +6,7 @@ import type {
   Transition,
 } from "./model.ts";
 import { valueAt, type Recording } from "./analysis.ts";
-import { ANY_STATE, inputSourceProblem } from "./model.ts";
+import { ANY_STATE, checkedIn, evaluate, inputSourceProblem } from "./model.ts";
 export interface MachineManifest {
   format: "mayhem-machine";
   version: 1;
@@ -77,7 +77,8 @@ export function parseMachineManifest(value: unknown): MachineManifest {
       !["boolean", "number", "string"].includes(s.type) ||
       typeof s.initial !== s.type ||
       (typeof s.initial === "number" && !Number.isFinite(s.initial)) ||
-      (s.channel !== undefined && !text(s.channel))
+      (s.channel !== undefined && !text(s.channel)) ||
+      (s.event !== undefined && typeof s.event !== "boolean")
     )
       throw new Error("Invalid machine input.");
     inputs.set(s.key, s.type);
@@ -164,6 +165,7 @@ export function observedMachine(
       (c) =>
         c.name.replace(/^\//, "") ===
           (input.channel ?? input.key).replace(/^\//, "") ||
+        c.name.replace(/^\//, "") === `Mayhem/States/${machine.id}/inputs/${input.key}` ||
         c.name.endsWith(`/Mayhem/States/${machine.id}/inputs/${input.key}`),
     );
     const value = valueAt(channel, time);
@@ -171,6 +173,33 @@ export function observedMachine(
       signals[input.key] = value;
   }
   return { state: typeof state === "string" ? state : undefined, signals };
+}
+/** Bound on transitions per settle, as `mayhem::kDefaultSettleSteps`. */
+export const DEFAULT_SETTLE_STEPS = 8;
+/**
+ * One robot loop of `mayhem::StateMachine::Settle`: take transitions until none fires (at most
+ * `maxSteps`). Event inputs are visible to the first step only and read as their initial value
+ * afterwards. Returns the final state and every state passed through.
+ */
+export function settleMachine(
+  machine: MachineManifest,
+  from: string,
+  signals: Signals,
+  maxSteps = DEFAULT_SETTLE_STEPS,
+): { state: string; path: string[]; settled: boolean } {
+  const priority = machine.selection === "priority";
+  const cleared: Signals = { ...signals };
+  for (const input of machine.inputs) if (input.event) cleared[input.key] = input.initial;
+  let state = from;
+  const path = [from];
+  for (let step = 0; step < maxSteps; step++) {
+    const values = step === 0 ? signals : cleared;
+    const edge = machine.transitions.find((t) => checkedIn(t, state, priority) && evaluate(t.condition, values));
+    if (!edge || edge.to === state) return { state, path, settled: true };
+    state = edge.to;
+    path.push(state);
+  }
+  return { state, path, settled: false };
 }
 export const exampleMachine: MachineManifest = {
   format: "mayhem-machine",

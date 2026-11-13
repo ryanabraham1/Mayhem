@@ -110,11 +110,36 @@ Use the official exporter; do not maintain a second one in the robot repo. `cpp 
 
 In robot code (details and signatures in `lib-cpp/README.md`):
 
-- Mechanism graphs: `mayhem::StateMachine(machine, signalCallback)`, `Tick(dt)` each loop, read `State()` / `StateIndex()`. Guards are typed and fail closed; declaration order is priority; `stateTime` is built in. Do not emulate a machine with an AutoRunner routine of fake custom nodes.
+- Mechanism graphs: use the typed machine `mayhem_generated::<Machine>::Machine` (below): set its `In()` fields, `Settle()` once per loop, and test `Is(State::X)` / `Current()`. The string API (`mayhem::StateMachine(machine, signalCallback)`, `Tick(dt)`, `State()`) still works. Guards are typed and fail closed; declaration order is priority; `stateTime` is built in. Do not emulate a machine with an AutoRunner routine of fake custom nodes.
 - Autos: `mayhem::AllianceRoutine(routines[i], fieldLength, fieldWidth)` then `Apply(FieldTransform::Flip)` for red (covers goal poses, PointAt aim points, rotation markers and the start pose). Do not flip nodes by hand.
 - Driving to a live-pose goal: `mayhem::PoseDriver` (`pose_driver.hpp`, framework-free): `Start(now)` once, then `Update(now)` each loop returns `Running`/`Reached`/`Failed`; `Cancel()` stops it. It wraps `PoseController` with a watchdog and writes one zero velocity when it ends. Command-based robots can use `mayhem::DriveToPose` (`wpilib.hpp`, needs wpilibNewCommands), which is the same driver as a command. Log observation without the command framework: `mayhem::WpiLogObserver` from `wpilib_log.hpp` (needs only `wpi/DataLog.h`). A robot without wpilibNewCommands must not include `wpilib.hpp`; every other header compiles without frc2.
 - Install the headers with the MayhemCpp vendordep (`https://ryanabraham1.github.io/Mayhem/MayhemCpp.json`) or `node scripts/mayhem.mjs vendor <robot dir>` (copies every header in `lib-cpp/include/mayhem` and writes a SHA-256 snapshot; `--check` for CI). Headers are only compiled when included, so vendoring `wpilib.hpp` into a command-free robot is harmless. Do not hand-copy headers or keep your own hash file.
 - `AutoRunner` clamps a loop overrun (`dt > RunnerOptions::maxDt`, default 0.1 s) instead of failing the routine; watchdogs use real time. Read goal errors from `LastResult()` / `ActiveGoal()` instead of recomputing them, or `Attach(observer, autonomous::manifest, clock)` to emit Enter/Guard/Transition/GoalProgress.
+
+### Typed machines, events and settling (C++ library 0.7.0)
+
+For every `extensions.machines` graph, `cpp` also emits a typed API in the machine's namespace: `enum class State` (one value per state, in declaration order), `struct Inputs` (one field per declared input with its manifest type and initial value: `bool`, `double` or `std::string`; `stateTime` is built in), guards that read the struct directly, and `using Machine = mayhem::TypedMachine<Def>`. A misspelled input or state is a compile error, not a guard that silently fails closed. Input keys and state IDs become C++ names by replacing other characters with `_` (`intake.requested` → `intake_requested`); a name that does not start with a letter gets a `k` prefix, a keyword gets a trailing `_`, and the field comment shows the original key.
+
+```cpp
+mayhem_generated::ShooterMode::Machine shooter;                    // member; not copyable
+using Shooter = mayhem_generated::ShooterMode::State;
+shooter.Attach(observer, [] { return frc::Timer::GetFPGATimestamp().value(); },
+               mayhem::InputLogging::On);                          // startup: clock + input logging
+
+auto& in = shooter.In();                                          // every loop
+in.enabled = frc::DriverStation::IsEnabled();
+in.shootHeld = controller.GetAButton();
+in.stopAll = stopRequested;                                       // event: reset after this loop
+shooter.Settle();                                                 // dt from the clock; or Settle(dt)
+if (shooter.Is(Shooter::SHOOTING)) { ... }
+switch (shooter.Current()) { case Shooter::OFF: ...; }
+```
+
+- **One-shot events.** Mark an input `"event": true` in the manifest (button presses, one-loop requests such as `intakePressed`, `autoIntake`, `stopAll`). It is visible to the first step of a loop only: a typed machine resets the field to its `initial` value after that step, and `StateMachine::Settle` reads it as `initial` on later steps. Inputs without the flag are levels.
+- **Settle to a fixpoint.** `Settle(dt, maxSteps = 8)` steps until no transition fires, all in one loop; time advances on the first step only. It returns the transitions taken, and `Settled()` is false if it stopped at `maxSteps` (a cycle). A released inside the alliance zone goes SHOOTING → OFF → REV in one `Settle`, and an X press toggles INTAKING on once instead of on and off again. `Tick(dt)` is still exactly one step. The States page's simulate mode settles the same way, and shows event inputs as **press** buttons.
+- **Clocked ticks.** After `SetClock(clock)`, or `Attach(observer, clock)` with a clock, `Tick()` and `Settle()` without a dt use the time since the previous clocked call (or since `SetClock`/`Reset`). Without a clock that dt is 0: guards run, `stateTime` does not advance.
+- **Automatic input logging.** `Attach(observer, clock, mayhem::InputLogging::On)` registers every declared input with the observer and reports its value on the first step of every `Tick`/`Settle` (off by default). `WpiLogObserver` writes a typed WPILOG entry at the input's manifest `channel` (or `Mayhem/States/<machine>/inputs/<key>`), and `NtStateObserver` publishes `/Mayhem/States/<machine>/inputs/<key>`, which the live viewer and log replay read. A custom observer implements `RegisterInput(machine, input)` and `Input(machine, key, value, timestamp)` (new `StateObserver` virtuals with no-op defaults; `CombinedObserver` forwards them). Declare `stateTime` as an input to log it too.
+- `Untyped()` returns the underlying `StateMachine` (`Signal(key)`, `View()`); `Machine::Name(State::X)` is the manifest ID for logs.
 
 ## Digging into logs
 
@@ -152,7 +177,7 @@ For a supervisor that picks one state from the current requests, set `"selection
 
 Every input (machine `inputs[]` and project `signals[]`) can carry an optional `category`: `"operator"` (driver or controller request), `"sensor"` (measured: encoders, beam breaks, flywheel at speed, pose), `"internal"` (code-derived: latched intent, zone flags, demands from another machine; the default when missing), `"timer"` (`stateTime`, also the default for that key), or `"auto"` (requested by the autonomous routine). Graph conditions mark each input with its category as a colored letter badge (O operator, S sensor, I internal, T timer, A auto), with a legend; the inputs panel groups by category; and when the active state changes (simulate, live, or log replay) the view says why, e.g. `Ready → Jittering because O jitterDemand` (the inputs of the taken edge that changed; a `stateTime` deadline blames the timer). An internal flag can list its sources with `derivedFrom: ["shoot", "intake"]` (keys of other inputs of the same machine, or of `signals[]` for a project signal). A source in another machine of the same project is an object, `derivedFrom: [{ "machine": "Superstructure", "key": "jitter" }]`; a dotted string such as `"Superstructure.jitter"` is always a same-machine key, because keys may contain dots. The inputs panel shows such a source as `from Superstructure · jitter` with that input's category badge, its hover names the source input and the categories at the root of the chain (e.g. `driven by operator input`), and a multi-hop chain that ends in a different category says `driven by O operator`. Both fields are validated (`validate` checks that the machine and key exist; a single imported or live-published manifest checks only the shape, since it cannot see the other machines) and round-trip into exported manifests; the C++ runtime does not read them.
 
-The defaults are `/Mayhem/States/<machine>/state` for state and the input's key for its channel. You can use custom `stateChannel` and per-input `channel` names. Supply actual inputs as well as the schema: a diagram cannot reconstruct unlogged decisions. Optional C++ observers publish state, transitions, guard results, and goal errors to NetworkTables or WPILOG. See `lib-cpp/README.md`.
+An input can also carry `"event": true`: a one-shot press or request that is true for one robot loop only (see "Typed machines, events and settling"). The defaults are `/Mayhem/States/<machine>/state` for state and the input's key for its channel. You can use custom `stateChannel` and per-input `channel` names. Supply actual inputs as well as the schema: a diagram cannot reconstruct unlogged decisions. Optional C++ observers publish state, transitions, guard results, and goal errors to NetworkTables or WPILOG. See `lib-cpp/README.md`.
 
 Use the live view to inspect actual values. Use recording playback to review prior transitions and values at the same cursor. Local input controls are for exploring a manifest; they do not change the robot.
 

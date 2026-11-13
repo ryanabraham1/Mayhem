@@ -3,7 +3,9 @@
 // Depends only on project content; `node scripts/mayhem.mjs cpp <project> --check <this file>` verifies it.
 #pragma once
 #include <array>
+#include <cstddef>
 #include <optional>
+#include <string>
 #include <string_view>
 #include "mayhem/auto_runner.hpp"
 #include "mayhem/state_machine.hpp"
@@ -64,11 +66,45 @@ inline constexpr std::array<mayhem::MachineTransition,3> transitions = {{
   {"captured","Acquiring","Holding",guard_1},
   {"release","Holding","Idle",guard_2},
 }};
+// Declared inputs: key, log channel (empty: Mayhem/States/<id>/inputs/<key>), type, one-shot event, initial value.
+inline constexpr std::array<mayhem::MachineInput,3> inputs = {{
+  {"intake.requested","",mayhem::InputType::Boolean,false,mayhem::SignalValue{false}},
+  {"intake.hasPiece","",mayhem::InputType::Boolean,false,mayhem::SignalValue{false}},
+  {"intake.release","",mayhem::InputType::Boolean,false,mayhem::SignalValue{false}},
+}};
 inline constexpr std::array<std::string_view,1> manifestParts = {{
   "{\"format\":\"mayhem-machine\",\"id\":\"Intake\",\"initial\":\"Idle\",\"inputs\":[{\"initial\":false,\"key\":\"intake.requested\",\"name\":\"Intake requested\",\"type\":\"boolean\"},{\"initial\":false,\"key\":\"intake.hasPiece\",\"name\":\"Piece detected\",\"type\":\"boolean\"},{\"initial\":false,\"key\":\"intake.release\",\"name\":\"Release requested\",\"type\":\"boolean\"}],\"name\":\"Intake state machine\",\"states\":[{\"description\":\"Wait for a request from the robot coordinator.\",\"id\":\"Idle\",\"name\":\"Idle\"},{\"description\":\"Run the intake until a piece is detected.\",\"id\":\"Acquiring\",\"name\":\"Acquiring\"},{\"description\":\"Hold the piece until the scoring request.\",\"id\":\"Holding\",\"name\":\"Holding\"}],\"transitions\":[{\"condition\":{\"key\":\"intake.requested\",\"kind\":\"signal\",\"op\":\"eq\",\"value\":true},\"from\":\"Idle\",\"id\":\"acquire\",\"to\":\"Acquiring\"},{\"condition\":{\"key\":\"intake.hasPiece\",\"kind\":\"signal\",\"op\":\"eq\",\"value\":true},\"from\":\"Acquiring\",\"id\":\"captured\",\"to\":\"Holding\"},{\"condition\":{\"key\":\"intake.release\",\"kind\":\"signal\",\"op\":\"eq\",\"value\":true},\"from\":\"Holding\",\"id\":\"release\",\"to\":\"Idle\"}],\"version\":1}",
 }};
 inline constexpr mayhem::ManifestView manifest{manifestParts.data(),manifestParts.size()};
-inline constexpr mayhem::MachineView machine{id,"Idle",states.data(),states.size(),transitions.data(),transitions.size(),manifest};
+inline constexpr mayhem::MachineView machine{id,"Idle",states.data(),states.size(),transitions.data(),transitions.size(),manifest,false,inputs.data(),inputs.size()};
+// Typed API: mayhem::TypedMachine<Def> (alias Machine). A misspelled state or input does not compile.
+enum class State : int { Idle, Acquiring, Holding };
+struct Inputs {
+  bool intake_requested = false; // "intake.requested" · Intake requested
+  bool intake_hasPiece = false; // "intake.hasPiece" · Piece detected
+  bool intake_release = false; // "intake.release" · Release requested
+};
+struct Def {
+  using State = mayhem_generated::machine_0::State; using Inputs = mayhem_generated::machine_0::Inputs;
+  static constexpr const mayhem::MachineView& view = machine;
+  static bool Guard([[maybe_unused]] const Inputs& in, std::size_t transition, [[maybe_unused]] double stateTime) {
+    switch (transition) {
+      case 0: return (mayhem::CompareTyped(in.intake_requested, mayhem::CompareOp::Eq, true)).value_or(false);
+      case 1: return (mayhem::CompareTyped(in.intake_hasPiece, mayhem::CompareOp::Eq, true)).value_or(false);
+      case 2: return (mayhem::CompareTyped(in.intake_release, mayhem::CompareOp::Eq, true)).value_or(false);
+      default: return false;
+    }
+  }
+  static mayhem::SignalValue Signal([[maybe_unused]] const Inputs& in, [[maybe_unused]] std::string_view key) {
+    if (key == "intake.requested") return mayhem::SignalValue{in.intake_requested};
+    if (key == "intake.hasPiece") return mayhem::SignalValue{in.intake_hasPiece};
+    if (key == "intake.release") return mayhem::SignalValue{in.intake_release};
+    return {};
+  }
+  static void ClearEvents([[maybe_unused]] Inputs& in) {
+  }
+};
+using Machine = mayhem::TypedMachine<Def>;
 }
 namespace Intake = machine_0;
 // Every extensions.machines graph in project order; run one with mayhem::StateMachine.

@@ -162,6 +162,12 @@ export interface SignalDefinition {
    * input in the same project, e.g. [{ machine: "Superstructure", key: "jitter" }].
    */
   derivedFrom?: InputRef[];
+  /**
+   * One-shot input (a button press, a one-loop request): true only for the first step of a
+   * loop. `mayhem::StateMachine::Settle` hides it on later steps and typed machines reset it to
+   * `initial` after that step, so a press toggles once.
+   */
+  event?: boolean;
 }
 /** A `derivedFrom` entry: an input key of the same machine (or project), or another machine's input. */
 export type InputRef = string | { machine: string; key: string };
@@ -405,6 +411,8 @@ export function validateProject(input: unknown): Issue[] {
         (s.unit !== undefined && typeof s.unit !== "string")
       )
         error(`signals.${i}`, "Signal labels and units must be text.");
+      if (s.event !== undefined && typeof s.event !== "boolean")
+        error(`signals.${i}.event`, "Expected true or false.");
       if (
         !["boolean", "number", "string"].includes(s.type) ||
         typeof s.initial !== s.type ||

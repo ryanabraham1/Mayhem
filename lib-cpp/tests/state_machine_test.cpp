@@ -5,6 +5,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <variant>
 #include <new>
 #include <string>
 #include <vector>
@@ -66,6 +67,32 @@ struct Counter final : mayhem::StateObserver {
   void Transition(std::string_view, std::string_view, std::string_view, std::string_view, double) override { ++transitions; }
   void GoalProgress(std::string_view, double, double, bool, double) override {}
 };
+  // A hand-written typed machine definition (the exporter generates the same shape).
+struct Def {
+    enum class State : int { IDLE, RUNNING };
+    struct Inputs { bool go = false; bool stop = false; double speed = 0; std::string mode = "auto"; };
+    static inline const mayhem::MachineState states[] = {{"IDLE"}, {"RUNNING"}};
+    static inline const mayhem::MachineTransition edges[] = {{"start", "IDLE", "RUNNING", nullptr}, {"halt", "RUNNING", "IDLE", nullptr}};
+    static inline const mayhem::MachineInput inputs[] = {
+      {"go", "", mayhem::InputType::Boolean, true, SignalValue{false}},
+      {"stop", "", mayhem::InputType::Boolean, false, SignalValue{false}},
+      {"speed", "", mayhem::InputType::Number, false, SignalValue{0.0}},
+      {"mode", "", mayhem::InputType::String, false, SignalValue{std::string_view{"auto"}}},
+    };
+    static inline const mayhem::MachineView view{"Typed", "IDLE", states, 2, edges, 2, {}, false, inputs, 4};
+    static bool Guard(const Inputs& in, std::size_t t, double stateTime) {
+      if (t == 0) return mayhem::All({mayhem::CompareTyped(in.go, CompareOp::Eq, true), mayhem::CompareTyped(std::string_view{in.mode}, CompareOp::Eq, std::string_view{"auto"})}).value_or(false);
+      return mayhem::Any({mayhem::CompareTyped(in.stop, CompareOp::Eq, true), mayhem::CompareTyped(in.speed, CompareOp::Gt, 5.0), mayhem::CompareTyped(stateTime, CompareOp::Gt, 1.0)}).value_or(false);
+    }
+    static SignalValue Signal(const Inputs& in, std::string_view key) {
+      if (key == "go") return in.go;
+      if (key == "stop") return in.stop;
+      if (key == "speed") return in.speed;
+      if (key == "mode") return std::string_view{in.mode};
+      return {};
+    }
+    static void ClearEvents(Inputs& in) { in.go = false; }
+  };
 }  // namespace
 
 int main() {
@@ -237,6 +264,132 @@ int main() {
     mayhem::StateMachine plain({"Super", "IDLE", states, 3, rows, 3}, in);
     in.values["home"] = true; in.values["shoot"] = true;
     assert(plain.Tick(.02) && plain.State() == "HOME" && plain.Tick(.02) && plain.State() == "SHOOT");
+  }
+  {
+    // Settle and one-shot events (string API): A released inside the zone goes SHOOTING -> OFF ->
+    // REV in one loop; an X press toggles INTAKING once, not on and off again.
+    static const mayhem::MachineState states[] = {{"OFF"}, {"REV"}, {"SHOOTING"}, {"INTAKING"}};
+    static const mayhem::MachineTransition edges[] = {
+      {"shoot", "OFF", "SHOOTING", [](const SignalSource& h) { return mayhem::Compare(h.Signal("shootHeld"), CompareOp::Eq, true).value_or(false); }},
+      {"released", "SHOOTING", "OFF", [](const SignalSource& h) { return mayhem::Compare(h.Signal("shootHeld"), CompareOp::Eq, false).value_or(false); }},
+      {"zone", "OFF", "REV", [](const SignalSource& h) { return mayhem::Compare(h.Signal("inZone"), CompareOp::Eq, true).value_or(false); }},
+      {"intakeOn", "OFF", "INTAKING", [](const SignalSource& h) { return mayhem::Compare(h.Signal("pressed"), CompareOp::Eq, true).value_or(false); }},
+      {"intakeOff", "INTAKING", "OFF", [](const SignalSource& h) { return mayhem::Compare(h.Signal("pressed"), CompareOp::Eq, true).value_or(false); }},
+      {"slow", "REV", "OFF", [](const SignalSource& h) { return mayhem::Compare(h.Signal("stateTime"), CompareOp::Gt, .5).value_or(false); }},
+    };
+    static const mayhem::MachineInput declared[] = {
+      {"shootHeld", "", mayhem::InputType::Boolean, false, SignalValue{false}},
+      {"inZone", "/RealOutputs/Zone", mayhem::InputType::Boolean, false, SignalValue{false}},
+      {"pressed", "", mayhem::InputType::Boolean, true, SignalValue{false}},
+      {"stateTime", "", mayhem::InputType::Number, false, SignalValue{0.0}},
+    };
+    const mayhem::MachineView view{"Shooter", "OFF", states, 4, edges, 6, {}, false, declared, 4};
+    Inputs in;
+    in.values = {{"shootHeld", true}, {"inZone", true}, {"pressed", false}};
+    mayhem::StateMachine m(view, in);
+    assert(m.Settle(.02) == 1 && m.State() == "SHOOTING" && m.Settled());
+    in.values["shootHeld"] = false;
+    assert(m.Settle(.02) == 2 && m.State() == "REV" && m.Settled() && m.StateTime() == 0);
+    // Time advances on the first step only.
+    assert(m.Settle(.3) == 0 && std::abs(m.StateTime() - .3) < 1e-12);
+    in.values["inZone"] = false;
+    assert(m.Settle(.3) == 1 && m.State() == "OFF" && m.StateTime() == 0);  // slow: 0.6 s > 0.5
+    // The event is hidden after the first step: OFF -> INTAKING, but not back to OFF.
+    in.values = {{"shootHeld", false}, {"inZone", false}, {"pressed", true}};
+    assert(m.Settle(.02) == 1 && m.State() == "INTAKING" && m.Settled());
+    // Robot code owns string-API values: still pressed next loop, so it toggles off once.
+    assert(m.Settle(.02) == 1 && m.State() == "OFF");
+    // A cycle stops at maxSteps and reports it.
+    assert(m.Settle(.02, 1) == 1 && m.State() == "INTAKING" && !m.Settled());
+    // Tick is one step and sees the event every time.
+    assert(m.Tick(.02) && m.State() == "OFF" && m.Tick(.02) && m.State() == "INTAKING");
+
+    // Clocked ticks: dt from the clock since SetClock / Reset / the previous clocked call.
+    static double now = 10;
+    in.values = {{"shootHeld", false}, {"inZone", true}, {"pressed", false}};
+    mayhem::StateMachine clocked(view, in);
+    clocked.SetClock([] { return now; });
+    now = 10.25; assert(clocked.Settle() == 1 && clocked.State() == "REV");
+    now = 10.5; assert(!clocked.Tick() && std::abs(clocked.StateTime() - .25) < 1e-12);
+    now = 10.8; assert(clocked.Tick() && clocked.State() == "OFF");  // 0.55 s in REV
+    mayhem::StateMachine unclocked(view, in);
+    assert(unclocked.Tick() && unclocked.State() == "REV" && !unclocked.Tick() && unclocked.StateTime() == 0);
+
+    // Input logging: off by default; with InputLogging::On every declared input is registered
+    // once and reported on the first step of each loop (not on Settle's later steps).
+    struct InputRecorder final : mayhem::StateObserver {
+      std::vector<std::string> registered, values;
+      void Enter(std::string_view, std::string_view, double) override {}
+      void Guard(std::string_view, std::string_view, std::string_view, bool, double) override {}
+      void Transition(std::string_view, std::string_view, std::string_view, std::string_view, double) override {}
+      void GoalProgress(std::string_view, double, double, bool, double) override {}
+      void RegisterInput(std::string_view machine, const mayhem::MachineInput& input) override {
+        registered.push_back(std::string(machine) + " " + std::string(input.key) + " " + std::string(input.channel) + (input.event ? " event" : ""));
+      }
+      void Input(std::string_view, std::string_view key, const SignalValue& value, double t) override {
+        std::string text = std::holds_alternative<bool>(value) ? (std::get<bool>(value) ? "1" : "0")
+                         : std::holds_alternative<double>(value) ? std::to_string(std::get<double>(value)).substr(0, 4) : "?";
+        values.push_back(std::string(key) + "=" + text + "@" + std::to_string(int(t)));
+      }
+    };
+    InputRecorder quietLog, inputLog;
+    in.values = {{"shootHeld", true}, {"inZone", true}, {"pressed", true}};
+    mayhem::StateMachine silent(view, in);
+    silent.Attach(quietLog);
+    silent.Settle(.02);
+    assert(quietLog.registered.empty() && quietLog.values.empty());
+    mayhem::StateMachine logged(view, in);
+    now = 7;
+    logged.Attach(inputLog, [] { return now; }, mayhem::InputLogging::On);
+    assert(inputLog.registered.size() == 4 && inputLog.registered[1] == "Shooter inZone /RealOutputs/Zone" &&
+           inputLog.registered[2] == "Shooter pressed  event");
+    now = 8; logged.Settle();
+    assert(inputLog.values.size() == 4 && inputLog.values[0] == "shootHeld=1@8" && inputLog.values[2] == "pressed=1@8" &&
+           inputLog.values[3] == "stateTime=1.00@8");
+    in.values["shootHeld"] = false;
+    logged.Settle(.02);  // SHOOTING -> OFF -> REV: still one report per input
+    assert(inputLog.values.size() == 8 && logged.State() == "REV" && inputLog.values[4] == "shootHeld=0@8");
+
+    // No allocation per Settle, with input logging on a non-allocating sink.
+    struct Quiet final : mayhem::StateObserver {
+      int inputs = 0;
+      void Enter(std::string_view, std::string_view, double) override {}
+      void Guard(std::string_view, std::string_view, std::string_view, bool, double) override {}
+      void Transition(std::string_view, std::string_view, std::string_view, std::string_view, double) override {}
+      void GoalProgress(std::string_view, double, double, bool, double) override {}
+      void Input(std::string_view, std::string_view, const SignalValue&, double) override { ++inputs; }
+    } sink;
+    bool held = false;
+    mayhem::StateMachine fast(view, [&](std::string_view key) -> SignalValue {
+      if (key == "shootHeld") return held;
+      if (key == "inZone") return true;
+      return false;
+    });
+    fast.Attach(sink, nullptr, mayhem::InputLogging::On);
+    const std::size_t before = allocations;
+    for (int i = 0; i < 1000; ++i) { held = (i / 10) % 2 == 0; fast.Settle(.02); }
+    assert(allocations == before && sink.inputs == 4000);
+  }
+  {
+    // TypedMachine over the hand-written Def above.
+    mayhem::TypedMachine<Def> m;
+    using S = Def::State;
+    assert(m.Valid() && m.Is(S::IDLE) && m.Current() == S::IDLE && m.StateName() == "IDLE");
+    m.In().go = true;
+    assert(m.Tick(.02) && m.Is(S::RUNNING) && !m.In().go);  // the event was used and reset
+    assert(std::get<bool>(m.Untyped().Signal("go")) == false && std::get<std::string_view>(m.Untyped().Signal("mode")) == "auto");
+    m.In().speed = std::numeric_limits<double>::quiet_NaN();  // non-finite fails closed
+    assert(!m.Settle(.5) && m.Is(S::RUNNING));
+    m.In().speed = 6; assert(m.Settle(.02) == 1 && m.Is(S::IDLE));
+    m.In().speed = 0; m.In().mode = "manual"; m.In().go = true;
+    assert(m.Settle(.02) == 0 && m.Is(S::IDLE) && !m.In().go);  // the press is gone even when unused
+    assert(mayhem::TypedMachine<Def>::Name(S::RUNNING) == "RUNNING");
+    m.In().mode = "auto"; m.In().go = true; m.Settle(.02);
+    assert(m.Settle(1.1) == 1 && m.Is(S::IDLE) && m.LastTransition() == "halt");  // stateTime is built in
+    Recorder rec;
+    m.Attach(rec, [] { return 1.0; });
+    m.Reset();
+    assert(m.Is(S::IDLE) && rec.log.back() == "enter Typed IDLE 1");
   }
   std::cout << "State machine checks passed\n";
 }

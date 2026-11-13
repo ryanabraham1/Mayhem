@@ -90,6 +90,26 @@ const CPP_KEYWORDS = new Set(
     "xor xor_eq std mayhem").split(" "),
 );
 const GENERATED_NAMES = new Set(["startPose", "fieldLength", "fieldWidth", "routines", "machines", "autonomous"]);
+// Standard C/C++ macros a generated name must not collide with.
+const CPP_MACROS = new Set(["NULL", "EOF", "INFINITY", "NAN", "errno", "assert", "stdin", "stdout", "stderr"]);
+
+/**
+ * C++ identifiers for manifest names (state IDs, input keys), in order: other characters become
+ * `_`, a name not starting with a letter gets a `k` prefix, keywords and macros get a trailing `_`,
+ * and repeats get `_2`, `_3`. `intake.requested` becomes `intake_requested`.
+ */
+export function cppIdentifiers(names: string[]): string[] {
+  const used = new Set<string>();
+  return names.map((name) => {
+    let id = name.replace(/[^A-Za-z0-9_]/g, "_").replace(/__+/g, "_");
+    if (!/^[A-Za-z]/.test(id)) id = "k" + id;
+    if (CPP_KEYWORDS.has(id) || CPP_MACROS.has(id)) id += "_";
+    let unique = id;
+    for (let k = 2; used.has(unique); k++) unique = `${id}_${k}`;
+    used.add(unique);
+    return unique;
+  });
+}
 
 /**
  * Header-only C++17 export for the optional Mayhem runtime. Output depends only on
@@ -144,6 +164,69 @@ export function exportCpp(project: SuiteProject): string {
     ];
   };
   const pose = (p: { x: number; y: number; heading: number }) => `{${p.x},${p.y},${p.heading}}`;
+  const op = (o: "eq" | "gt" | "lt") => `mayhem::CompareOp::${o === "eq" ? "Eq" : o === "gt" ? "Gt" : "Lt"}`;
+  const inputType = (t: string) => `mayhem::InputType::${t === "boolean" ? "Boolean" : t === "number" ? "Number" : "String"}`;
+  const literal = (value: boolean | number | string) =>
+    typeof value === "boolean" ? `${value}` : typeof value === "number" ? `double{${value}}` : `std::string_view{${quoted(value)}}`;
+  /** A machine's typed API: State enum, Inputs struct, and guards that read the struct. */
+  const typedMachine = (m: MachineManifest, ns: string): string[] => {
+    const states = cppIdentifiers(m.states.map((st) => st.id));
+    const declared = m.inputs.filter((i) => i.key !== "stateTime");
+    const fields = new Map(declared.map((i, k) => [i.key, { input: i, name: cppIdentifiers(declared.map((d) => d.key))[k] }]));
+    const typed = (c: Condition): string => {
+      if (c.kind === "always") return "std::optional<bool>{true}";
+      if (c.kind === "not") return `mayhem::Not(${typed(c.condition)})`;
+      if (c.kind !== "signal")
+        return `mayhem::${c.kind === "all" ? "All" : "Any"}({${c.conditions.map(typed).join(", ")}})`;
+      const field = fields.get(c.key);
+      const actual = !field ? "stateTime" : field.input.type === "string" ? `std::string_view{in.${field.name}}` : `in.${field.name}`;
+      return `mayhem::CompareTyped(${actual}, ${op(c.op)}, ${literal(c.value)})`;
+    };
+    const cppType = (t: string) => (t === "boolean" ? "bool" : t === "number" ? "double" : "std::string");
+    const initial = (v: boolean | number | string) => (typeof v === "string" ? quoted(v) : `${v}`);
+    const comment = (text: string) => text.replace(/[\r\n\u2028\u2029]+/g, " ").replace(/\*\//g, "* /");
+    return [
+      "// Typed API: mayhem::TypedMachine<Def> (alias Machine). A misspelled state or input does not compile.",
+      `enum class State : int { ${states.join(", ")} };`,
+      "struct Inputs {",
+      ...declared.map((i) => {
+        const f = fields.get(i.key)!;
+        const note = [
+          f.name !== i.key ? `"${i.key}"` : "",
+          i.name !== i.key ? i.name : "",
+          i.category ?? "",
+          i.event ? "event: reset after the first step of each loop" : "",
+        ].filter(Boolean).join(" · ");
+        return `  ${cppType(i.type)} ${f.name} = ${initial(i.initial)};${note ? ` // ${comment(note)}` : ""}`;
+      }),
+      "};",
+      "struct Def {",
+      `  using State = mayhem_generated::${ns}::State; using Inputs = mayhem_generated::${ns}::Inputs;`,
+      "  static constexpr const mayhem::MachineView& view = machine;",
+      "  static bool Guard([[maybe_unused]] const Inputs& in, std::size_t transition, [[maybe_unused]] double stateTime) {",
+      ...(m.transitions.length
+        ? [
+            "    switch (transition) {",
+            ...m.transitions.map((t, i) => `      case ${i}: return (${typed(t.condition)}).value_or(false);`),
+            "      default: return false;",
+            "    }",
+          ]
+        : ["    (void)transition; return false;"]),
+      "  }",
+      "  static mayhem::SignalValue Signal([[maybe_unused]] const Inputs& in, [[maybe_unused]] std::string_view key) {",
+      ...declared.map((i) => {
+        const f = fields.get(i.key)!;
+        return `    if (key == ${quoted(i.key)}) return mayhem::SignalValue{${i.type === "string" ? `std::string_view{in.${f.name}}` : `in.${f.name}`}};`;
+      }),
+      "    return {};",
+      "  }",
+      "  static void ClearEvents([[maybe_unused]] Inputs& in) {",
+      ...declared.filter((i) => i.event).map((i) => `    in.${fields.get(i.key)!.name} = ${initial(i.initial)};`),
+      "  }",
+      "};",
+      "using Machine = mayhem::TypedMachine<Def>;",
+    ];
+  };
 
   const machines = projectMachines(project);
   const autonomous = autonomousManifest(project);
@@ -153,7 +236,9 @@ export function exportCpp(project: SuiteProject): string {
     "// Depends only on project content; `node scripts/mayhem.mjs cpp <project> --check <this file>` verifies it.",
     "#pragma once",
     "#include <array>",
+    "#include <cstddef>",
     "#include <optional>",
+    "#include <string>",
     "#include <string_view>",
     '#include "mayhem/auto_runner.hpp"',
     '#include "mayhem/state_machine.hpp"',
@@ -242,8 +327,18 @@ export function exportCpp(project: SuiteProject): string {
             `{${quoted(t.id)},${quoted(t.from)},${quoted(t.to)},guard_${i}${t.except?.length ? `,except_${i}.data(),except_${i}.size()` : ""}}`,
         ),
       ),
+      "// Declared inputs: key, log channel (empty: Mayhem/States/<id>/inputs/<key>), type, one-shot event, initial value.",
+      ...declare(
+        "mayhem::MachineInput",
+        "inputs",
+        m.inputs.map(
+          (i) =>
+            `{${quoted(i.key)},${quoted(i.channel ?? "")},${inputType(i.type)},${!!i.event},mayhem::SignalValue{${literal(i.initial)}}}`,
+        ),
+      ),
       ...manifest(m),
-      `inline constexpr mayhem::MachineView machine{id,${quoted(m.initial)},states.data(),states.size(),transitions.data(),transitions.size(),manifest${m.selection === "priority" ? ",true" : ""}};`,
+      `inline constexpr mayhem::MachineView machine{id,${quoted(m.initial)},states.data(),states.size(),transitions.data(),transitions.size(),manifest,${m.selection === "priority"},${m.inputs.length ? "inputs.data(),inputs.size()" : "nullptr,0"}};`,
+      ...typedMachine(m, `machine_${mi}`),
       "}",
     );
     const alias = m.id;
