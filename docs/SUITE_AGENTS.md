@@ -295,6 +295,8 @@ Outcomes are compared on every machine's `Mayhem/States/<id>/state` log channel,
 
 ## Tasks
 
+The robot repo's `.claude/skills/mayhem-tasks` skill runs this workflow one step at a time (`/loop 10m /mayhem-tasks`). Every MCP tool is also available from the shell: `node scripts/mayhem.mjs tool <name> '<JSON>'`.
+
 People leave feedback in the app (Logs: comment at a moment; Changes: thumbs up/down on any finding, click a field spot; Sim proof: comment at a replay time; Tasks: pit notes and the post-match driver form). Each becomes `tools/mayhem/review/<id>.json` in the robot repo with its context (`anchor`: log name and `logPath`, seconds into it, code revision, field pose, scenario, match).
 
 1. `list_tasks`, then `get_task` for the context; open the log at `anchor.logPath` with the log tools.
@@ -307,7 +309,7 @@ The Changes page shows, for the revisions being reviewed, the feedback and appro
 
 ## What's on the robot
 
-The robot repo's build writes `src/main/deploy/mayhem-build.json` (`sha`, `branch`, `dirty`, `builtAt`, `builtBy`, `computer`; git-ignored; `MAYHEM_BUILD_SHA`/`MAYHEM_BUILD_BRANCH` override git for clean exports), GradleRIO deploys it, and the robot logs it once at boot as `/RealOutputs/Mayhem/Build`. Every log therefore names its commit: use it as the `before` of a behavior_diff when investigating a match. Never deploy with uncommitted changes; the app flags such deploys because nobody can rebuild them. Rollback (people only, in the app) builds a clean export of the known-good commit and runs GradleRIO `deploy`.
+The robot repo's build writes `src/main/deploy/mayhem-build.json` (`sha`, `branch`, `dirty`, `builtAt`, `builtBy`, `computer`; git-ignored; `MAYHEM_BUILD_SHA`/`MAYHEM_BUILD_BRANCH` override git for clean exports), GradleRIO deploys it, and the robot logs it once at boot as `/RealOutputs/Mayhem/Build`. Every log therefore names its commit: use it as the `before` of a behavior_diff when investigating a match. Never deploy with uncommitted changes; the app flags such deploys because nobody can rebuild them. `main` is the known-good version: the app compares what the robot runs with `main`, and "Put main back on the robot" (people only) builds a clean export of `main` and runs GradleRIO `deploy`. Work on `agent/<task id>` branches and open pull requests; never push to `main` yourself.
 
 ## Robot explainer
 

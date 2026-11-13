@@ -5,9 +5,9 @@ import { tasksInMessage } from "../core/review/tasks.ts";
 import { useLogLibrary } from "../logLibrary";
 import { desktop, invoke } from "../native";
 import { useRobot } from "../robot";
-import { requestCompare, useAuthor, useRobotRepo } from "../robotRepo";
+import { requestCompare, useRobotRepo } from "../robotRepo";
 import { useTasks } from "../tasks/feedback";
-import { Badge, Button, Panel, timeAgo } from "../ui";
+import { Badge, Button, Panel } from "../ui";
 
 /** deploy/mayhem-build.json, written by the robot code's build. */
 interface Stamp {
@@ -18,46 +18,25 @@ interface Stamp {
   builtBy: string;
   computer?: string;
 }
-interface Deploy extends Stamp {
-  seen: number;
-}
-interface Good {
+interface Commit {
   sha: string;
-  at: number;
-  by: string;
+  subject: string;
+  body: string;
 }
 
-const HISTORY_KEY = "mayhem.robot.deploys";
-const GOOD_KEY = "mayhem.robot.good";
-const load = <T,>(key: string, fallback: T): T => {
-  try {
-    const v = localStorage.getItem(key);
-    return v ? (JSON.parse(v) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-};
-const save = (key: string, value: unknown) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* history is a convenience */
-  }
-};
-
-/** What's deployed, what changed since the last known-good version, the latest log's health, and rollback. */
+/** What's deployed, how it differs from main, the latest log's health, and putting main back. */
 export function RobotNow({ openChanges }: { openChanges: () => void }) {
   const robot = useRobot();
   const lib = useLogLibrary();
   const tasks = useTasks();
   const [repo] = useRobotRepo();
-  const [author] = useAuthor();
   const [stamp, setStamp] = useState<Stamp>();
   const [checking, setChecking] = useState(false);
   const [problem, setProblem] = useState<string>();
-  const [history, setHistory] = useState<Deploy[]>(() => load(HISTORY_KEY, []));
-  const [good, setGood] = useState<Good | undefined>(() => load(GOOD_KEY, undefined));
-  const [commits, setCommits] = useState<{ sha: string; subject: string; body: string }[]>([]);
+  // main is the known-good version: what the robot runs is compared with it.
+  const [main, setMain] = useState<{ rev: string; sha: string }>();
+  const [ahead, setAhead] = useState<Commit[]>([]);
+  const [behind, setBehind] = useState<Commit[]>([]);
   const [deploying, setDeploying] = useState(false);
   const [deployLog, setDeployLog] = useState<string>();
 
@@ -66,14 +45,7 @@ export function RobotNow({ openChanges }: { openChanges: () => void }) {
     setChecking(true);
     setProblem(undefined);
     try {
-      const value = JSON.parse(await invoke<string>("robot_build_info", { host: robot.host })) as Stamp;
-      setStamp(value);
-      setHistory((h) => {
-        if (h[0]?.sha === value.sha && h[0]?.builtAt === value.builtAt) return h;
-        const next = [{ ...value, seen: Date.now() }, ...h].slice(0, 20);
-        save(HISTORY_KEY, next);
-        return next;
-      });
+      setStamp(JSON.parse(await invoke<string>("robot_build_info", { host: robot.host })) as Stamp);
     } catch (e) {
       setProblem(String(e));
     } finally {
@@ -86,27 +58,32 @@ export function RobotNow({ openChanges }: { openChanges: () => void }) {
     if (connected) void check();
   }, [connected, check]);
 
-  const deployed = stamp ?? history[0];
   useEffect(() => {
-    if (!desktop || !repo || !deployed?.sha || !good?.sha || good.sha === deployed.sha) return setCommits([]);
-    invoke<{ sha: string; subject: string; body: string }[]>("review_commits", { repo, before: good.sha, after: deployed.sha })
-      .then(setCommits)
-      .catch(() => setCommits([]));
-  }, [repo, deployed?.sha, good?.sha]);
+    if (!desktop || !repo) return setMain(undefined);
+    invoke<{ revisions: { rev: string; sha: string; kind: string }[] }>("review_repo", { repo })
+      .then((info) => {
+        const ref = info.revisions.find((r) => r.kind === "remote" && r.rev === "origin/main") ?? info.revisions.find((r) => r.kind === "branch" && r.rev === "main");
+        setMain(ref && { rev: ref.rev, sha: ref.sha });
+      })
+      .catch(() => setMain(undefined));
+  }, [repo, stamp]);
 
-  const markGood = () => {
-    if (!deployed?.sha) return;
-    const value = { sha: deployed.sha, at: Date.now(), by: author || "someone" };
-    setGood(value);
-    save(GOOD_KEY, value);
-  };
+  useEffect(() => {
+    if (!desktop || !repo || !stamp?.sha || !main || main.sha === stamp.sha) {
+      setAhead([]);
+      setBehind([]);
+      return;
+    }
+    invoke<Commit[]>("review_commits", { repo, before: main.sha, after: stamp.sha }).then(setAhead).catch(() => setAhead([]));
+    invoke<Commit[]>("review_commits", { repo, before: stamp.sha, after: main.sha }).then(setBehind).catch(() => setBehind([]));
+  }, [repo, stamp?.sha, main]);
 
-  const rollback = async () => {
-    if (!good || !repo) return;
+  const deployMain = async () => {
+    if (!main || !repo) return;
     const { ask } = await import("@tauri-apps/plugin-dialog");
     const ok = await ask(
-      `Build commit ${good.sha.slice(0, 7)} (marked good by ${good.by}, ${timeAgo(good.at)}) and deploy it to team ${robot.config.team}'s robot?\n\nThe robot must be connected and disabled. This replaces the code on the robot; nothing in the repository changes.`,
-      { title: "Roll back the robot", kind: "warning", okLabel: "Deploy last good", cancelLabel: "Cancel" },
+      `Build ${main.rev} (${main.sha.slice(0, 7)}) and deploy it to team ${robot.config.team}'s robot?\n\nThe robot must be connected and disabled. This replaces the code on the robot; nothing in the repository changes.`,
+      { title: "Put main back on the robot", kind: "warning", okLabel: "Deploy main", cancelLabel: "Cancel" },
     ).catch((e) => {
       setDeployLog(`Could not ask for confirmation: ${e}`);
       return false;
@@ -115,7 +92,7 @@ export function RobotNow({ openChanges }: { openChanges: () => void }) {
     setDeploying(true);
     setDeployLog(undefined);
     try {
-      setDeployLog(await invoke<string>("robot_deploy", { repo, rev: good.sha, team: robot.config.team }));
+      setDeployLog(await invoke<string>("robot_deploy", { repo, rev: main.sha, team: robot.config.team }));
       await check();
     } catch (e) {
       setDeployLog(String(e));
@@ -148,45 +125,44 @@ export function RobotNow({ openChanges }: { openChanges: () => void }) {
       }
     >
       {!desktop && <p className="mx-help">Reading the robot needs the desktop app.</p>}
-      {problem && !deployed && <p className="mx-help is-bad">{problem}</p>}
-      {deployed ? (
+      {stamp ? (
         <div className="mx-now-grid">
           <div className="mx-now-version">
             <span className="mx-help">Running</span>
             <strong>
-              <code>{deployed.sha ? deployed.sha.slice(0, 7) : "unknown commit"}</code> · {deployed.branch || "no branch"}
+              <code>{stamp.sha ? stamp.sha.slice(0, 7) : "unknown commit"}</code> · {stamp.branch || "no branch"}
             </strong>
             <small>
-              Built {new Date(deployed.builtAt).toLocaleString()} by {deployed.builtBy}
-              {deployed.computer ? ` on ${deployed.computer}` : ""}
-              {!stamp && " · last seen, robot not checked now"}
+              Built {new Date(stamp.builtAt).toLocaleString()} by {stamp.builtBy}
+              {stamp.computer ? ` on ${stamp.computer}` : ""}
             </small>
-            {good?.sha === deployed.sha ? (
+            {main && main.sha === stamp.sha && !stamp.dirty.length && (
               <Badge tone="good">
-                <BadgeCheck size={12} /> known good
+                <BadgeCheck size={12} /> same as {main.rev}
               </Badge>
-            ) : (
-              <Button size="sm" icon={BadgeCheck} onClick={markGood} disabled={!deployed.sha}>
-                Mark this version as good
-              </Button>
             )}
           </div>
-          {deployed.dirty.length > 0 && (
+          {stamp.dirty.length > 0 && (
             <div className="mx-callout is-bad">
               <TriangleAlert size={16} />
               <span>
-                Deployed with uncommitted changes, so nobody can rebuild exactly this version: {deployed.dirty.slice(0, 6).join(", ")}
-                {deployed.dirty.length > 6 ? ` and ${deployed.dirty.length - 6} more` : ""}.
+                Deployed with uncommitted changes, so nobody can rebuild exactly this version: {stamp.dirty.slice(0, 6).join(", ")}
+                {stamp.dirty.length > 6 ? ` and ${stamp.dirty.length - 6} more` : ""}.
               </span>
             </div>
           )}
-          <div>
-            <h3>{good ? `Changes since the last good version (${good.sha.slice(0, 7)})` : "Mark a version as good to track what changed since"}</h3>
-            {good && good.sha !== deployed.sha && (
-              <>
-                {commits.length ? (
+          {!repo ? (
+            <p className="mx-help">Choose the robot code folder (Changes or Tasks) to compare it with main.</p>
+          ) : !main ? (
+            <p className="mx-help">The robot repo has no main branch to compare with.</p>
+          ) : main.sha !== stamp.sha ? (
+            <div>
+              <h3>Different from {main.rev}</h3>
+              {ahead.length > 0 && (
+                <>
+                  <p className="mx-help">On the robot but not on {main.rev}:</p>
                   <ul className="mx-change-list">
-                    {commits.slice(0, 12).map((c) => (
+                    {ahead.slice(0, 12).map((c) => (
                       <li key={c.sha}>
                         <code>{c.sha.slice(0, 7)}</code> {c.subject}
                         {linked(c.sha, `${c.subject}\n${c.body}`).map((t) => (
@@ -197,33 +173,30 @@ export function RobotNow({ openChanges }: { openChanges: () => void }) {
                       </li>
                     ))}
                   </ul>
-                ) : (
-                  <p className="mx-help">{repo ? "No commits between them in the robot repo (or the deployed commit isn't in it)." : "Choose the robot code folder (Changes or Tasks) to list them."}</p>
-                )}
-                <div className="mx-now-actions">
-                  <Button
-                    size="sm"
-                    icon={GitCompare}
-                    disabled={!repo}
-                    onClick={() => {
-                      requestCompare(good.sha, deployed.sha);
-                      openChanges();
-                    }}
-                  >
-                    Review these changes
-                  </Button>
-                  <Button size="sm" variant="danger" icon={RotateCcw} disabled={!repo || deploying} onClick={() => void rollback()}>
-                    {deploying ? "Deploying…" : `Roll back to ${good.sha.slice(0, 7)}`}
-                  </Button>
-                </div>
-              </>
-            )}
-            {good?.sha === deployed.sha && <p className="mx-help">The robot runs the last known-good version.</p>}
-          </div>
+                </>
+              )}
+              {behind.length > 0 && <p className="mx-help">{behind.length} newer commit{behind.length === 1 ? " is" : "s are"} on {main.rev} but not on the robot.</p>}
+              <div className="mx-now-actions">
+                <Button
+                  size="sm"
+                  icon={GitCompare}
+                  onClick={() => {
+                    requestCompare(main.sha, stamp.sha);
+                    openChanges();
+                  }}
+                >
+                  What's different from {main.rev}
+                </Button>
+                <Button size="sm" variant="danger" icon={RotateCcw} disabled={deploying} onClick={() => void deployMain()}>
+                  {deploying ? "Deploying…" : `Put ${main.rev} back on the robot`}
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {deployLog && <pre className="mx-deploy-log">{deployLog}</pre>}
         </div>
       ) : (
-        !problem && <p className="mx-help">Connect to the robot and click Check robot.</p>
+        <p className={`mx-help ${problem ? "is-bad" : ""}`}>{problem ?? "Connect to the robot and click Check robot."}</p>
       )}
       <div className="mx-health">
         <h3>

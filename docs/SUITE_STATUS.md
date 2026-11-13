@@ -19,6 +19,12 @@ The suite is a working development foundation, not a finished replacement for ev
 
 [USER_GUIDE.md](USER_GUIDE.md) is the suite workflow guide: projects and file links, pose editing, preview modes, state inspection, log analysis, robot collection and agent handoff. Existing solver instructions are preserved in [CLASSIC_PLANNER.md](CLASSIC_PLANNER.md). The README, build instructions and VitePress site now route readers to the appropriate suite or classic workflow; classic screenshots are labeled. Documentation changes do not change the validation or release status recorded below.
 
+## main is the known-good version; agent skill (2026-11-13, v0.9.37)
+
+- On the robot now no longer keeps "known good" marks or a deploy history: what the robot runs is compared with the robot repo's `main` (`origin/main` when present), listing commits on the robot but not on main and how many newer main commits it lacks, with "What's different from main" (Changes) and "Put main back on the robot" (clean build of main, GradleRIO deploy, after confirmation).
+- `node scripts/mayhem.mjs tool <mcp tool> '<JSON>'` runs any MCP tool from the shell.
+- Robot repo: `.claude/skills/mayhem-tasks` works the task queue one step per run (investigate and propose a plan; after approval, implement on `agent/<task id>` in a closed sim loop, add the reproduction to scenarios.json, check nothing else moved, report, finish; open a PR once accepted). Run it on a loop with `/loop 10m /mayhem-tasks`.
+
 ## Robot explainer (2026-11-13, v0.9.36)
 
 - Overview → **How the robot works**: the robot map from the code; click a part for what it does (the team's words, editable), its state machines and states with descriptions, its driver controls, its devices (CAN ID, brake/coast, limits), its live state when the robot is connected, and the latest commits that touched its code.
@@ -27,10 +33,10 @@ The suite is a working development foundation, not a finished replacement for ev
 
 ## On the robot now (2026-11-13, v0.9.35)
 
-- Robot → **On the robot now** reads `deploy/mayhem-build.json` from the roboRIO over SFTP (commit, branch, uncommitted files, build time, who/where), keeps a deploy history, lets anyone mark the running version as known good, lists the commits since then (with the feedback they were for), links to Changes for them, and rolls back: a clean export of the known-good commit built and deployed with GradleRIO after a confirmation. The latest log's health (red flags, battery, flickering states) is shown under it.
+- Robot → **On the robot now** reads `deploy/mayhem-build.json` from the roboRIO over SFTP (commit, branch, uncommitted files, build time, who/where). (v0.9.35 compared it with a per-computer "known good" mark; since v0.9.37 it compares with `main`.) The latest log's health (red flags, battery, flickering states) is shown under it.
 - Robot repo (`mayhem/suite-integration`): the build writes the stamp (git-ignored) and the robot logs it at boot as `Mayhem/Build`, so every log, and feedback left on it, names its commit.
 - Comments on an auto step (Autonomous inspector) or a state/transition (State machines inspector) carry the routine, step and its target, or the machine, state and transition.
-- Not verified against a physical roboRIO: the stamp download and the rollback deploy (GradleRIO `deploy -PteamNumber`). Known-good marks and deploy history are per computer.
+- Not verified against a physical roboRIO: the stamp download and the rollback deploy (GradleRIO `deploy -PteamNumber`).
 
 ## Feedback → agent tasks, approvals, closed-loop log tools (2026-11-13, v0.9.34)
 

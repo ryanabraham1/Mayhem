@@ -87,10 +87,16 @@ export async function desktop(page: Page, repo: string) {
         branch: git("rev-parse", "--abbrev-ref", "HEAD"),
         head: git("rev-parse", "HEAD"),
         dirty: git("status", "--porcelain").split("\n").filter(Boolean).map((l) => l.slice(3)),
-        revisions: git("log", "-30", "--format=%H\t%s").split("\n").map((l) => {
-          const [sha, subject] = l.split("\t");
-          return { rev: sha, sha, label: subject, kind: "commit", date: "" };
-        }),
+        revisions: [
+          ...git("for-each-ref", "--format=%(refname:short)\t%(objectname)\t%(subject)", "refs/heads").split("\n").filter(Boolean).map((l) => {
+            const [rev, sha, label] = l.split("\t");
+            return { rev, sha, label, kind: "branch", date: "" };
+          }),
+          ...git("log", "-30", "--format=%H\t%s").split("\n").map((l) => {
+            const [sha, subject] = l.split("\t");
+            return { rev: sha, sha, label: subject, kind: "commit", date: "" };
+          }),
+        ],
       };
     if (cmd === "review_snapshot") return gitSnapshot(repo, args.rev);
     if (cmd === "review_items") {
