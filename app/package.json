@@ -1,7 +1,7 @@
 {
   "name": "mayhem-app",
   "private": true,
-  "version": "0.9.32",
+  "version": "0.9.34",
   "type": "module",
   "scripts": {
     "dev": "vite",
