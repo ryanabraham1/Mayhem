@@ -268,7 +268,7 @@ function Shell({
         {page === "autos" && <AutosPage s={s} />}
         {page === "states" && <StatesPage key={s.project.id} s={s} openAutos={() => setPage("autos")} />}
         {page === "logs" && <LogsPage notify={s.notify} openRobot={() => { setRobotTab("logs"); setPage("robot"); }} />}
-        {page === "robot" && <RobotPage s={s} />}
+        {page === "robot" && <RobotPage s={s} openChanges={() => setPage("changes")} />}
         {page === "changes" && <ChangesPage notify={s.notify} />}
         {page === "tasks" && <TasksPage s={s} go={setPage} />}
         {page === "settings" && (

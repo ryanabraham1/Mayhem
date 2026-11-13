@@ -57,7 +57,7 @@ export async function nodeRunner(repo) {
       if (rev !== WORKTREE && existsSync(exePath(src)) && (await readFile(stamp, "utf8").catch(() => "")) === hash(probe)) return { dir, cached: true };
       await exportRevision(root, rev, src);
       await writeFile(join(src, "src/test/cpp/MayhemReviewProbe.cpp"), probe);
-      const env = { ...process.env, ...((await javaHome()) ? { JAVA_HOME: await javaHome() } : {}) };
+      const env = { ...process.env, MAYHEM_BUILD_SHA: sha, MAYHEM_BUILD_BRANCH: "sim proof", ...((await javaHome()) ? { JAVA_HOME: await javaHome() } : {}) };
       const task = `installFrcUserProgramTest${platform[0]}ReleaseGoogleTestExe`;
       let log = "";
       for (const offline of [true, false]) {

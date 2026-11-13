@@ -305,6 +305,10 @@ People leave feedback in the app (Logs: comment at a moment; Changes: thumbs up/
 
 The Changes page shows, for the revisions being reviewed, the feedback and approved plan behind them ("Why this change"). Task files are plain JSON and written atomically; commit them with the code (or at least push them) so teammates and agents on other computers see them.
 
+## What's on the robot
+
+The robot repo's build writes `src/main/deploy/mayhem-build.json` (`sha`, `branch`, `dirty`, `builtAt`, `builtBy`, `computer`; git-ignored; `MAYHEM_BUILD_SHA`/`MAYHEM_BUILD_BRANCH` override git for clean exports), GradleRIO deploys it, and the robot logs it once at boot as `/RealOutputs/Mayhem/Build`. Every log therefore names its commit: use it as the `before` of a behavior_diff when investigating a match. Never deploy with uncommitted changes; the app flags such deploys because nobody can rebuild them. Rollback (people only, in the app) builds a clean export of the known-good commit and runs GradleRIO `deploy`.
+
 ## Digging into logs
 
 `analyze_log` returns a compact summary (add `channels`, `from`/`to` for per-channel stats, or `detail: "full"` for everything). To investigate, use the exploration tools; all take a WPILOG path (parsed once and cached) and return small ranked results:

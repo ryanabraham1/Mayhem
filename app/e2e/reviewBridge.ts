@@ -63,10 +63,24 @@ export function fixtureRepo() {
 }
 
 /** The desktop bridge, faked with the same git reader the CLI uses and real file writes. */
+/** A fake roboRIO for "On the robot now": its build stamp, and deploys recorded instead of run. */
+export const fakeRobot = { stamp: "" as string, deploys: [] as { rev: string; team: number }[] };
+
 export async function desktop(page: Page, repo: string) {
   const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" }).toString().trim();
   await page.exposeFunction("__mayhemInvoke", async (cmd: string, args: Record<string, any>) => {
     if (cmd === "plugin:dialog|open") return repo;
+    // ask/confirm: the clicked button's label (here always the OK one).
+    if (cmd === "plugin:dialog|message") return args.buttons?.OkCancelCustom?.[0] ?? args.buttons?.OkCustom ?? "Yes";
+    if (cmd === "robot_build_info") {
+      if (!fakeRobot.stamp) throw new Error("Robot SFTP failed: no route to host");
+      return fakeRobot.stamp;
+    }
+    if (cmd === "robot_deploy") {
+      fakeRobot.deploys.push({ rev: args.rev, team: args.team });
+      fakeRobot.stamp = JSON.stringify({ sha: git("rev-parse", args.rev), branch: "rollback", dirty: [], builtAt: new Date().toISOString(), builtBy: "mayhem" });
+      return "BUILD SUCCESSFUL\nDeployed to roborio-3256-frc.local";
+    }
     if (cmd === "review_repo")
       return {
         root: repo,

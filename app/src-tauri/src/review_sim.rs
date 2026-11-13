@@ -12,11 +12,11 @@ use std::{
 const WORKTREE: &str = "WORKTREE";
 const PROBE_PATH: &str = "src/test/cpp/MayhemReviewProbe.cpp";
 
-fn home() -> PathBuf {
+pub(crate) fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir)
 }
 
-fn git(repo: &str, args: &[&str]) -> Result<String, String> {
+pub(crate) fn git(repo: &str, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git").arg("-C").arg(repo).args(args).output().map_err(|e| format!("Could not run git: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
@@ -46,7 +46,7 @@ fn exe_path(src: &Path) -> PathBuf {
 }
 
 /// Copies the revision's files (tracked, or tracked plus new for the working tree) into `dest`.
-fn export(root: &str, rev: &str, dest: &Path) -> Result<(), String> {
+pub(crate) fn export(root: &str, rev: &str, dest: &Path) -> Result<(), String> {
     fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     if rev == WORKTREE {
         let listed = git(root, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"])?;
@@ -82,7 +82,7 @@ fn export(root: &str, rev: &str, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn java_home() -> Option<PathBuf> {
+pub(crate) fn java_home() -> Option<PathBuf> {
     if let Some(home) = std::env::var_os("JAVA_HOME") {
         return Some(PathBuf::from(home));
     }
@@ -125,7 +125,7 @@ pub async fn review_sim_prepare(repo: String, rev: String, probe: String) -> Res
         let mut built = false;
         for offline in [true, false] {
             let mut cmd = Command::new(gradlew);
-            cmd.current_dir(&src).arg(&task).arg("-q");
+            cmd.current_dir(&src).arg(&task).arg("-q").env("MAYHEM_BUILD_SHA", &sha).env("MAYHEM_BUILD_BRANCH", "sim proof");
             if offline {
                 cmd.arg("--offline");
             }

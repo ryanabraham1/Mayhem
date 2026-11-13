@@ -19,6 +19,13 @@ The suite is a working development foundation, not a finished replacement for ev
 
 [USER_GUIDE.md](USER_GUIDE.md) is the suite workflow guide: projects and file links, pose editing, preview modes, state inspection, log analysis, robot collection and agent handoff. Existing solver instructions are preserved in [CLASSIC_PLANNER.md](CLASSIC_PLANNER.md). The README, build instructions and VitePress site now route readers to the appropriate suite or classic workflow; classic screenshots are labeled. Documentation changes do not change the validation or release status recorded below.
 
+## On the robot now (2026-11-13, v0.9.35)
+
+- Robot → **On the robot now** reads `deploy/mayhem-build.json` from the roboRIO over SFTP (commit, branch, uncommitted files, build time, who/where), keeps a deploy history, lets anyone mark the running version as known good, lists the commits since then (with the feedback they were for), links to Changes for them, and rolls back: a clean export of the known-good commit built and deployed with GradleRIO after a confirmation. The latest log's health (red flags, battery, flickering states) is shown under it.
+- Robot repo (`mayhem/suite-integration`): the build writes the stamp (git-ignored) and the robot logs it at boot as `Mayhem/Build`, so every log, and feedback left on it, names its commit.
+- Comments on an auto step (Autonomous inspector) or a state/transition (State machines inspector) carry the routine, step and its target, or the machine, state and transition.
+- Not verified against a physical roboRIO: the stamp download and the rollback deploy (GradleRIO `deploy -PteamNumber`). Known-good marks and deploy history are per computer.
+
 ## Feedback → agent tasks, approvals, closed-loop log tools (2026-11-13, v0.9.34)
 
 - **Tasks** page (replaces Agents; agent setup is at its bottom): a board from New → Agent planning → Plan to approve → Agent working → Ready to check → Done, quick pit notes, a post-match driver form attached to a log, and a count on the Tasks tab when a plan or change waits for a person. Items are one JSON file each in the robot repo (`tools/mayhem/review/`).

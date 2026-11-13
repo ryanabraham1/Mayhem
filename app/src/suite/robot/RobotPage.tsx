@@ -7,6 +7,7 @@ import {
   HardDriveDownload,
   Plug,
   RefreshCw,
+  Rocket,
   SlidersHorizontal,
   Unplug,
 } from "lucide-react";
@@ -14,6 +15,7 @@ import { desktop } from "../native";
 import { robotAddresses, useRobot } from "../robot";
 import { useLogLibrary } from "../logLibrary";
 import { SignalsEditor } from "../SignalsEditor";
+import { RobotNow } from "./RobotNow";
 import { resolveConstraints } from "../core/model.ts";
 import type { SuiteState } from "../useSuiteProject";
 import {
@@ -329,9 +331,9 @@ function ViewerPanel() {
   );
 }
 
-export type RobotTab = "specs" | "connection" | "logs";
+export type RobotTab = "now" | "specs" | "connection" | "logs";
 const TAB_KEY = "mayhem.robot-tab.v1";
-const tabs = ["specs", "connection", "logs"] as const;
+const tabs = ["now", "specs", "connection", "logs"] as const;
 
 /** Remember which Robot tab to show next, e.g. before navigating there. */
 export function setRobotTab(tab: RobotTab) {
@@ -344,7 +346,7 @@ function savedTab(): RobotTab {
     const saved = localStorage.getItem(TAB_KEY) as RobotTab | null;
     if (saved && tabs.includes(saved)) return saved;
   } catch {}
-  return "specs";
+  return "now";
 }
 
 function LimitsPanel({ s }: { s: SuiteState }) {
@@ -414,7 +416,7 @@ function LimitsPanel({ s }: { s: SuiteState }) {
   );
 }
 
-export function RobotPage({ s }: { s: SuiteState }) {
+export function RobotPage({ s, openChanges }: { s: SuiteState; openChanges: () => void }) {
   const { project } = s;
   const [tab, setTabState] = useState(savedTab);
   const setTab = (next: RobotTab) => {
@@ -426,7 +428,9 @@ export function RobotPage({ s }: { s: SuiteState }) {
       <PageHeader
         title="Robot"
         subtitle={
-          tab === "specs"
+          tab === "now"
+            ? "What code the robot is running, what changed since the last good version, and how the latest log looks."
+            : tab === "specs"
             ? `${project.robot.name} · the size and limits every auto is planned with.`
             : tab === "connection"
               ? "Live values from the robot. Mayhem never commands it."
@@ -439,12 +443,14 @@ export function RobotPage({ s }: { s: SuiteState }) {
           value={tab}
           onChange={setTab}
           options={[
+            { value: "now", label: "On the robot now", icon: Rocket },
             { value: "specs", label: "Specs & limits", icon: SlidersHorizontal },
             { value: "connection", label: "Connection", icon: Cable },
             { value: "logs", label: "Log collection", icon: HardDriveDownload },
           ]}
         />
       </div>
+      {tab === "now" && <RobotNow openChanges={openChanges} />}
       {tab === "specs" && (
         <>
           <div className="mx-robot-grid">

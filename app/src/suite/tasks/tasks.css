@@ -246,3 +246,48 @@
   line-height: 18px;
   text-align: center;
 }
+.mx-now-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mx-now-version {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.mx-now-version strong {
+  font-size: 18px;
+}
+.mx-now-version small {
+  color: var(--mx-muted);
+}
+.mx-robot-now h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.mx-now-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.mx-deploy-log {
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: var(--mx-r-md);
+  background: var(--mx-surface-2);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.mx-health {
+  border-top: 1px solid var(--mx-line);
+  padding-top: 12px;
+}
+.mx-health p {
+  margin: 0 0 6px;
+}

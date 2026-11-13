@@ -27,7 +27,7 @@ import {
 import { currentBreakdown, isDeviceCurrentSignal, parsePowerMapping, type Finding } from "../core/analysis.ts";
 import { PoseReplay } from "../PoseReplay";
 import { FeedbackButton } from "../tasks/feedback";
-import { poseAt } from "../tasks/anchors";
+import { buildOf, poseAt } from "../tasks/anchors";
 import { desktop, invoke } from "../native";
 import { download, type StoredLog } from "../storage";
 import { useLogLibrary } from "../logLibrary";
@@ -564,7 +564,7 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
                     label="Comment here"
                     draft={() => ({
                       context: "Pinned to this moment of the log, so an agent can look at exactly what happened.",
-                      anchor: { log: log?.name ?? recording.name, ...(log?.nativePath ? { logPath: log.nativePath } : {}), time: Math.round(cursor * 100) / 100, ...(poseAt(recording, cursor) ? { pose: poseAt(recording, cursor) } : {}) },
+                      anchor: { log: log?.name ?? recording.name, ...(log?.nativePath ? { logPath: log.nativePath } : {}), time: Math.round(cursor * 100) / 100, ...(poseAt(recording, cursor) ? { pose: poseAt(recording, cursor) } : {}), ...(buildOf(recording) ? { revision: buildOf(recording) } : {}) },
                     })}
                   />
                 </div>

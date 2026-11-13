@@ -18,7 +18,7 @@ pub struct RemoteLog {
     path: String,
     size: u64,
 }
-fn valid_host(host: &str) -> bool {
+pub(crate) fn valid_host(host: &str) -> bool {
     !host.is_empty()
         && host.len() <= 253
         && !host.starts_with('-')
@@ -33,7 +33,7 @@ fn valid_remote(path: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"/._-".contains(&b))
 }
-fn batch(host: &str, commands: &str) -> Result<String, String> {
+pub(crate) fn batch(host: &str, commands: &str) -> Result<String, String> {
     if !valid_host(host) {
         return Err("Use a robot hostname or IPv4 address.".into());
     }
