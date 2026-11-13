@@ -534,6 +534,12 @@ class TalonFx {
     }, request_);
   }
 
+  // Shorted-winding (brake) current for a back-EMF current emf/R, within the stator limit.
+  double BrakeCurrent(double emfCurrent) const {
+    const double i = -emfCurrent;
+    return cfg_.statorLimitEnable ? std::clamp(i, -cfg_.statorLimit, cfg_.statorLimit) : i;
+  }
+
   // Voltage after the stator limit at rotor speed w (rad/s), for a commanded voltage v.
   double StatorLimited(double v, double w, bool* limited) const {
     if (!cfg_.statorLimitEnable) return v;
@@ -555,8 +561,9 @@ class TalonFx {
     limited_ = false;
     mode_ = d.mode;
     if (d.mode == Mode::Coast || d.mode == Mode::Brake) {
-      volts_ = 0;
-      current_ = d.mode == Mode::Brake ? -emf / m.R() : 0;
+      current_ = d.mode == Mode::Brake ? BrakeCurrent(emf / m.R()) : 0;
+      limited_ = d.mode == Mode::Brake && std::abs(current_ * m.R() + emf) > 1e-12;
+      volts_ = d.mode == Mode::Brake ? emf + current_ * m.R() : 0;  // ~0 unless the limit acts
       lowerTimer_ = lowered_ ? lowerTimer_ : 0;
       Report();
       return;
@@ -599,6 +606,11 @@ class TalonFx {
         limited_ = true;
       }
     }
+    // The stator limit is enforced last and in both signs: |stator current| <= statorLimit even
+    // when the request (or a sagging bus) sits far below the back-EMF (regenerative current).
+    // This can need a terminal voltage above the bus when the back-EMF exceeds it; the emulator
+    // applies it anyway (Phoenix limits |stator|), so treat bus-overspeed regen as approximate.
+    v = StatorLimited(v, w, &limited_);
     if (d.mode == Mode::Current) limited_ = true;  // current loop: no back-EMF damping
     volts_ = v;
     current_ = (v - emf) / m.R();
@@ -616,11 +628,12 @@ class TalonFx {
     const double w = rotorVelRps * 2 * kPi;
     double i;
     if (mode_ == Mode::Coast) i = 0;
-    else if (mode_ == Mode::Brake) i = -w / m.Kv() / m.R();
+    else if (mode_ == Mode::Brake) i = BrakeCurrent(w / m.Kv() / m.R());
     else if (mode_ == Mode::Current) {
       // Current loop holds current until the bus runs out.
       const double v = std::clamp(volts_ + (w - rotorVel_ * 2 * kPi) / m.Kv(), -bus_, bus_);
       i = (v - w / m.Kv()) / m.R();
+      if (cfg_.statorLimitEnable) i = std::clamp(i, -cfg_.statorLimit, cfg_.statorLimit);
     } else {
       const double v = StatorLimited(volts_, w, nullptr);
       i = (v - w / m.Kv()) / m.R();

@@ -5,6 +5,8 @@
 #include "mayhem/sim/talonfx.hpp"
 #include "sim_check.hpp"
 
+#include <vector>
+
 using namespace mayhem::sim;
 
 namespace {
@@ -231,7 +233,8 @@ void NeutralAndFollowers() {
 
 void BatteryAndStops() {
   Battery battery;
-  SIM_NEAR(battery.Step(100), 12.6 - 102 * 0.023, 1e-9, "battery sag at 100 A (+2 A base load)");
+  battery.Step(100);
+  SIM_NEAR(battery.Voltage(), 12.6 - 102 * 0.023, 1e-9, "battery sag at 100 A (+2 A base load)");
   SIM_CHECK(!battery.Brownout(), "no brownout at 100 A");
   battery.Step(300);
   SIM_CHECK(battery.Brownout(), "brownout below 6.75 V: %.2f", battery.Voltage());
@@ -262,6 +265,95 @@ void BatteryAndStops() {
 
 }  // namespace
 
+// Regenerative current is stator-limited too (|stator| <= limit), including brake mode and a
+// sagging bus far below the back-EMF.
+void RegenStatorLimit() {
+  TalonFxConfig cfg;
+  cfg.statorLimit = 80;
+  cfg.supplyLimitEnable = false;
+  const double fast = 90;  // rotor rot/s, ~90% of free speed
+  struct Case { const char* name; ControlRequest request; double bus; TalonFxConfig::Neutral neutral; };
+  const Case cases[] = {
+      {"VoltageOut 0 V at speed", VoltageOut{0}, 12, TalonFxConfig::Neutral::Coast},
+      {"VoltageOut 12 V on a 3.7 V bus", VoltageOut{12}, 3.7, TalonFxConfig::Neutral::Coast},
+      {"VelocityVoltage slowing down", VelocityVoltage{10, 0, 0, 0}, 12, TalonFxConfig::Neutral::Coast},
+      {"brake mode at speed", NeutralOut{}, 12, TalonFxConfig::Neutral::Brake},
+      {"TorqueCurrentFOC 0 A on a 3.7 V bus", TorqueCurrentFOC{0}, 3.7, TalonFxConfig::Neutral::Coast},
+  };
+  for (const auto& c : cases) {
+    TalonFxConfig k = cfg;
+    k.neutral = c.neutral;
+    k.slots[0].kP = 2;
+    TalonFx talon(DcMotor::KrakenX60(), k);
+    talon.SetControl(c.request);
+    talon.Step(kDt, c.bus, 0, fast);
+    const double between = talon.TorqueAt(fast) / DcMotor::KrakenX60().Kt();
+    std::printf("%s: stator %.1f A, torque current %.1f A\n", c.name, talon.StatorCurrent(), talon.TorqueCurrent());
+    SIM_CHECK(std::abs(talon.StatorCurrent()) <= 80 + 1e-9 && std::abs(talon.TorqueCurrent()) <= 80 + 1e-9, "%s limited", c.name);
+    SIM_CHECK(std::abs(between) <= 80 + 2.5, "%s limited between updates (%.1f A)", c.name, between);
+  }
+}
+
+// A 4-motor flywheel and a 2-motor roller spinning up together on the battery: the bus must not
+// oscillate step to step (v0.9.24 robot integration saw 12.5 <-> 3.7 V with an unfiltered bus).
+struct CouplingRun { double minBus = 1e9, flywheelRps = 0; int reversals = 0; };
+CouplingRun SpinUp(double busTau) {
+  Battery battery;
+  battery.SetBusTimeConstant(busTau);
+  TalonFxConfig fly;
+  fly.supplyLimitEnable = false;
+  fly.slots[0].kP = 0.5;
+  fly.slots[0].kV = 0.12;
+  TalonFxConfig roll;
+  roll.supplyLimitEnable = false;
+  std::vector<TalonFx> flywheelMotors(4, TalonFx::KrakenX60(fly)), rollerMotors(2, TalonFx::KrakenX60(roll));
+  for (auto& m : flywheelMotors) m.SetControl(VelocityVoltage{90});
+  for (auto& m : rollerMotors) m.SetControl(VoltageOut{12});
+  Flywheel flywheel{0.004, 1, 0, 0};
+  Roller roller{0.0005, 1, 0.05};
+  CouplingRun r;
+  double prev = battery.BusVoltage(), prevDelta = 0;
+  for (int i = 0; i < 2000; ++i) {
+    const double bus = battery.BusVoltage();
+    double tf = 0, df = 0, tr = 0, dr = 0, current = 0;
+    for (auto& m : flywheelMotors) {
+      tf += m.Step(kDt, bus, flywheel.RotorPosition(), flywheel.RotorVelocity());
+      df += m.RotorDamping();
+      current += m.SupplyCurrent();
+    }
+    for (auto& m : rollerMotors) {
+      tr += m.Step(kDt, bus, roller.RotorPosition(), roller.RotorVelocity());
+      dr += m.RotorDamping();
+      current += m.SupplyCurrent();
+    }
+    flywheel.Step(kDt, tf, df);
+    roller.Step(kDt, tr, dr);
+    battery.Step(current, kDt);
+    const double v = battery.BusVoltage(), delta = v - prev;
+    if (i > 5 && std::abs(delta) > 0.3 && std::abs(prevDelta) > 0.3 && delta * prevDelta < 0) ++r.reversals;
+    prevDelta = delta;
+    prev = v;
+    r.minBus = std::min(r.minBus, v);
+  }
+  r.flywheelRps = flywheel.Velocity() / (2 * kPi);
+  return r;
+}
+
+void BatteryCoupling() {
+  for (double tau : {0.005, 0.003, 0.0}) {
+    const auto r = SpinUp(tau);
+    std::printf("6-motor spin-up, bus tau %.0f ms: min bus %.2f V, %d step-to-step reversals, flywheel %.1f rps\n",
+                tau * 1000, r.minBus, r.reversals, r.flywheelRps);
+    if (tau > 0) {
+      // Default 5 ms: none. 3 ms (the robot integration's choice): at most a transient.
+      SIM_CHECK(r.reversals <= (tau >= 0.005 ? 0 : 3), "no sustained bus oscillation at tau %.0f ms (%d)", tau * 1000, r.reversals);
+      SIM_NEAR(r.flywheelRps, 90, 1.5, "flywheel reaches its target");
+    } else {
+      SIM_CHECK(r.reversals > 10, "the unfiltered bus does oscillate (the test reproduces the bug): %d", r.reversals);
+    }
+  }
+}
+
 int main() {
   MotorCurves();
   FocCurve();
@@ -271,5 +363,7 @@ int main() {
   CurrentLimits();
   NeutralAndFollowers();
   BatteryAndStops();
+  RegenStatorLimit();
+  BatteryCoupling();
   return SimResult("sim_devices");
 }

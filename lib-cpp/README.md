@@ -1,6 +1,6 @@
 # Mayhem C++ tools (development)
 
-Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.6.1). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
+Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.6.2). The Java MayhemLib vendordep does not include it; use the MayhemCpp vendordep or the vendoring command below.
 
 ## Installing in a WPILib robot project
 

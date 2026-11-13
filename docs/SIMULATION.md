@@ -58,7 +58,7 @@ Per 1 ms (20 per robot loop), in this order:
 #include <mayhem/sim/swerve_requests.hpp>
 
 using namespace mayhem::sim;
-const double bus = battery.Voltage();
+const double bus = battery.BusVoltage();  // filtered bus, see below
 // 1. Mechanisms: device update, then plant.
 double tau = shooterTalon.Step(0.001, bus, flywheel.RotorPosition(), flywheel.RotorVelocity());
 flywheel.Step(0.001, tau, shooterTalon.RotorDamping());
@@ -67,9 +67,25 @@ CollideRobots(robot, opponent);
 robot.Step(0.001, bus, &terrain, &obstacles);
 // 3. Game pieces (their reaction forces reach the robots' next Step).
 pieces.Step(0.001, &terrain, &obstacles);
-// 4. Battery from every device's supply current.
+// 4. Battery from every device's signed supply current (regeneration is negative and counts).
 battery.Step(robot.TotalSupplyCurrent() + shooterTalon.SupplyCurrent() + ..., 0.001);
 ```
+
+Hand devices `battery.BusVoltage()`, not `Voltage()`. The devices see the bus from the previous
+step, and a motor whose output is clamped to the bus draws more current when the bus drops; with
+several such motors that explicit loop has a gain above 1, so an unfiltered bus swings between
+~12 V and ~4 V every millisecond (it trapped a 4-motor shooter at half speed). `BusVoltage()` is
+the terminal voltage low-passed with a 5 ms time constant (wiring inductance and controller bus
+capacitance), which keeps the loop stable; `SetBusTimeConstant(seconds)` changes it, 0 disables
+it. `Voltage()` stays the unfiltered terminal voltage.
+
+Season code must also do what the roboRIO and Driver Station do, since the engine does not:
+- **Brownout:** when `battery.Brownout()` (or your own threshold, `RobotController` defaults to
+  6.75 V) is true, the roboRIO disables motor outputs: set every device to `NeutralOut` (or
+  feed WPILib's brownout state from the sim) until the voltage recovers.
+- **Disabled:** when the Driver Station is disabled, every motor goes neutral. Phoenix does this
+  on the real device; in the sim, set each `TalonFx` to `NeutralOut` (honouring its neutral
+  mode) whenever `frc::DriverStation::IsDisabled()`.
 
 Between robot loops advance WPILib's clock by 20 ms with `SteppedTime` (`wpilib_sim.hpp`).
 
@@ -226,8 +242,10 @@ Matches Phoenix 6 (26.x) documentation and source where available:
   closed-loop-error sign; the slot selected per request.
 - Voltage requests clamp to `PeakForward/ReverseVoltage` and the bus; duty cycle to the peak
   duty cycles; torque current to the peak torque currents.
-- Stator limit: the voltage is clamped to back-EMF +/- limit x R, re-applied between device
-  updates (the current loop is faster than 1 kHz). Supply limit: solved exactly from
+- Stator limit: the voltage is clamped to back-EMF +/- limit x R, in both signs (regenerative
+  current and brake mode too), after the bus clamp, and re-applied between device updates (the
+  current loop is faster than 1 kHz). When the back-EMF exceeds the bus the required voltage is
+  above the bus; the emulator applies it anyway, so overspeed regeneration is approximate. Supply limit: solved exactly from
   `I_supply = V (V - EMF) / (R V_bus)`; drops to `SupplyCurrentLowerLimit` after
   `SupplyCurrentLowerTime` at the limit. Defaults equal Phoenix's factory defaults (120 A stator,
   70/40 A for 1 s supply).
@@ -287,15 +305,20 @@ hundreds of MB, millions of vertices, thousands of nodes) into an AdvantageScope
 asset folder:
 
 ```sh
-uv run scripts/sim/cad-to-advantagescope.py robot.glb robot-asset.json --list        # part paths
+uv run scripts/sim/cad-to-advantagescope.py robot.glb robot-asset.json --list   # every instance
 uv run scripts/sim/cad-to-advantagescope.py robot.glb robot-asset.json --out assets/
 ```
 
 The JSON config names the CAD axes for robot forward and up (Onshape exports are often Z-up;
 check the preview), the origin (or "auto": the x-y centre of the drivetrain parts, floor at the
-lowest point), regexes of node paths to drop (fasteners, bearings, spacers) and the articulated
+lowest point of the `originMatch` parts), regexes of node paths to drop (fasteners, bearings,
+spacers), `dropBelowFloor` (drop part instances whose top is below a height, e.g. unmated parts
+left at an assembly origin under the robot) and `dropOutside` (a robot-frame box; instances
+whose centre is outside it are dropped, except parts of a component, which may extend), and the articulated
 components, each with node-path regexes and a joint (`revolute` axis + origin, or `prismatic`
-axis). The script's docstring documents every field. Output: `Robot_<Name>/config.json`,
+axis). The script's docstring documents every field. `--list` prints every part instance (node index,
+robot-frame box centre, z range, whether and why it is dropped), so strays that share a path with
+real parts can be found by position. Output: `Robot_<Name>/config.json`,
 `model.glb`, `model_<i>.glb` (flat-shaded, CAD colours kept, robot frame, total size within
 `targetMB`, default 15 MB), plus `Robot_<Name>.preview.png` (side and top views coloured by
 component, with the origin and joint axes) and `Robot_<Name>.joints.json`. Copy the folder into

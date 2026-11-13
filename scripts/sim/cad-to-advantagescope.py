@@ -27,6 +27,10 @@ Config (JSON):
   "units": 1.0,                 # CAD units -> metres (Onshape GLB is already metres)
   "drop": ["(?i)screw|bolt|nut|washer|bearing|spacer|rivet|standoff"],
   "dropSmallerThan": 0.0,       # drop parts whose bounding-box diagonal is below this (m)
+  "dropBelowFloor": -0.005,     # drop part instances whose top is below this height (m, robot frame)
+  "dropOutside": {"min": [-0.6, -0.6, -0.05], "max": [0.6, 0.6, 1.5]},
+                                # drop part instances whose box centre is outside this robot-frame
+                                # box (strays); parts matched by a component are exempt
   "targetMB": 15,             # total budget for all .glb files; met by uniform vertex clustering
   "quadric": false,             # also run quadric decimation first (sharper, but can fold thin parts)
   "components": [
@@ -37,7 +41,9 @@ Config (JSON):
   ]
 }
 
-Regexes match a part's full node path ("00.Main/0200_Intake_Assembly/occurrence of Roller/...")
+Run --list to see every part instance (node index, path, robot-frame box centre and z range,
+whether it is dropped) to pick regexes and the dropOutside / dropBelowFloor limits. Regexes
+match a part's full node path ("00.Main/0200_Intake_Assembly/occurrence of Roller/...")
 so a subassembly name selects everything under it; the first matching component wins and
 unmatched parts go into the base model. Joint axes and origins are in the robot frame (metres).
 
@@ -55,6 +61,7 @@ import json
 import math
 import re
 import struct
+from collections import Counter
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -132,6 +139,7 @@ class Part:
     vertices: np.ndarray  # (n, 3) float64, CAD frame
     faces: np.ndarray     # (m, 3) int64
     color: tuple          # RGBA 0..1
+    instance: int = -1    # glTF node index: one node (instance) may be split into several colours
 
 
 def load_parts(path: Path) -> list[Part]:
@@ -182,7 +190,7 @@ def load_parts(path: Path) -> list[Part]:
                     base += len(pos)
                 v = np.concatenate(verts)
                 v = v @ world[:3, :3].T + world[:3, 3]
-                parts.append(Part(path_name, v, np.concatenate(tris), color))
+                parts.append(Part(path_name, v, np.concatenate(tris), color, index))
         for child in reversed(node.get("children", [])):
             stack.append((child, world, path_name))
     return parts
@@ -414,40 +422,80 @@ def main() -> None:
 
     print(f"reading {args.glb} ...", flush=True)
     parts = load_parts(args.glb)
-    if args.list:
-        for p in sorted({p.path for p in parts}):
-            print(p)
-        return
     rotation = robot_rotation(frame)
     for p in parts:
         p.vertices = (p.vertices * units) @ rotation.T
     total_in = sum(len(p.faces) for p in parts)
-    kept = [p for p in parts if not any(r.search(p.path) for r in drop)]
     small = float(config.get("dropSmallerThan", 0.0))
-    if small > 0:
-        kept = [p for p in kept if np.linalg.norm(p.vertices.max(axis=0) - p.vertices.min(axis=0)) >= small]
-    if not kept:
-        sys.exit("every part was dropped; check the drop regexes")
-    print(f"{len(parts)} parts, {total_in:,} triangles; kept {len(kept)} parts, {sum(len(p.faces) for p in kept):,} triangles")
 
-    # Robot origin (in rotated CAD coordinates, before translation).
-    allv = np.concatenate([p.vertices for p in kept])
+    def regex_dropped(p: Part) -> bool:
+        if any(r.search(p.path) for r in drop):
+            return True
+        return small > 0 and np.linalg.norm(p.vertices.max(axis=0) - p.vertices.min(axis=0)) < small
+
+    candidates = [p for p in parts if not regex_dropped(p)]
+    if not candidates:
+        sys.exit("every part was dropped; check the drop regexes")
+
+    # Robot origin (in rotated CAD coordinates, before translation). The automatic floor is the
+    # lowest point of the originMatch parts (the drivetrain's wheels) when given, so a stray part
+    # below the floor cannot move it.
     origin = frame.get("origin", "auto")
+    pattern = [re.compile(p) for p in frame.get("originMatch", [])]
+    sel = [p for p in candidates if any(r.search(p.path) for r in pattern)] if pattern else candidates
+    if not sel:
+        print("originMatch matched nothing; using every kept part", file=sys.stderr)
+        sel = candidates
+    sv = np.concatenate([p.vertices for p in sel])
     if origin == "auto":
-        pattern = [re.compile(p) for p in frame.get("originMatch", [])]
-        sel = [p for p in kept if any(r.search(p.path) for r in pattern)] if pattern else kept
-        if not sel:
-            print("originMatch matched nothing; using every kept part", file=sys.stderr)
-            sel = kept
-        sv = np.concatenate([p.vertices for p in sel])
         centre = (sv.min(axis=0) + sv.max(axis=0)) / 2
     else:
         centre = (np.array(origin, dtype=np.float64) * units) @ rotation.T
     floor = frame.get("floor", "auto")
-    floor_z = allv[:, 2].min() if floor == "auto" else AXES[frame.get("up", "+y")][1] * float(floor) * units
+    floor_z = sv[:, 2].min() if floor == "auto" else AXES[frame.get("up", "+y")][1] * float(floor) * units
     shift = np.array([centre[0], centre[1], floor_z])
-    for p in kept:
+    for p in parts:
         p.vertices = p.vertices - shift
+
+    # Per-instance boxes (an instance may be several colour parts) and the bounding-box filters.
+    boxes: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for p in parts:
+        lo, hi = p.vertices.min(axis=0), p.vertices.max(axis=0)
+        if p.instance in boxes:
+            lo, hi = np.minimum(lo, boxes[p.instance][0]), np.maximum(hi, boxes[p.instance][1])
+        boxes[p.instance] = (lo, hi)
+    in_component = lambda p: any(any(r.search(p.path) for r in ms) for ms in matchers)
+    below = config.get("dropBelowFloor")
+    outside = config.get("dropOutside")
+
+    def box_reason(p: Part) -> str:
+        lo, hi = boxes[p.instance]
+        if below is not None and hi[2] < float(below):
+            return "below floor"
+        if outside and not in_component(p):
+            c = (lo + hi) / 2
+            if np.any(c < np.array(outside["min"], dtype=float)) or np.any(c > np.array(outside["max"], dtype=float)):
+                return "outside"
+        return ""
+
+    if args.list:
+        seen = set()
+        print(f"{'node':>6}  {'centre x':>8} {'y':>7} {'z':>7}  {'z range':>15}  {'dropped':<11}  path")
+        for p in parts:
+            if p.instance in seen:
+                continue
+            seen.add(p.instance)
+            lo, hi = boxes[p.instance]
+            c = (lo + hi) / 2
+            reason = "regex/size" if regex_dropped(p) else box_reason(p)
+            print(f"{p.instance:>6}  {c[0]:8.3f} {c[1]:7.3f} {c[2]:7.3f}  {lo[2]:7.3f}..{hi[2]:<6.3f}  {reason or '-':<11}  {p.path}")
+        return
+    dropped_box = Counter(box_reason(p) for p in candidates)
+    kept = [p for p in candidates if not box_reason(p)]
+    if not kept:
+        sys.exit("every part was dropped; check dropOutside / dropBelowFloor")
+    print(f"{len(parts)} parts, {total_in:,} triangles; kept {len(kept)} parts, {sum(len(p.faces) for p in kept):,} triangles"
+          f" (box filters dropped {dropped_box.get('outside', 0)} outside, {dropped_box.get('below floor', 0)} below the floor)")
 
     # Group by (component, colour), weld for decimation.
     grouped: dict[tuple, list[Part]] = {}
