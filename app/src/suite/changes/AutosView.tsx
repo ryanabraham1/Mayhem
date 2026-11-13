@@ -1,0 +1,93 @@
+import { useState } from "react";
+import { Navigation } from "lucide-react";
+import { FieldArt } from "../../components/FieldArt";
+import type { Field as FieldModel } from "../../types";
+import field from "../core/rebuilt-2026.json";
+import type { DrivenPath, RoutineDiff } from "../core/review/autos.ts";
+import type { ReviewReport } from "../core/review/report.ts";
+import { Badge, EmptyState, Stat, type Tone } from "../ui";
+
+const TONE: Record<string, Tone> = { added: "good", removed: "bad", changed: "warn", same: "neutral" };
+const points = (p: DrivenPath) => p.poses.map((q) => `${q.x.toFixed(3)},${(field.width - q.y).toFixed(3)}`).join(" ");
+
+function Robot({ pose, className }: { pose: { x: number; y: number; heading: number }; className: string }) {
+  return (
+    <g className={className} transform={`translate(${pose.x},${field.width - pose.y}) rotate(${(-pose.heading * 180) / Math.PI})`}>
+      <rect x="-.42" y="-.42" width=".84" height=".84" rx=".06" />
+      <path d="M-.12,-.17 L.15,0 L-.12,.17" fill="none" />
+    </g>
+  );
+}
+
+function Overlay({ r }: { r: RoutineDiff }) {
+  return (
+    <svg className="mx-replay-field mx-auto-overlay" viewBox={`-.3 -.3 ${field.length + 0.6} ${field.width + 0.6}`} aria-label={`${r.name}: old and new paths`}>
+      <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
+        <FieldArt field={field as FieldModel} hideFuel />
+      </g>
+      {r.before && <polyline className="is-before" points={points(r.before)} />}
+      {r.after && <polyline className="is-after" points={points(r.after)} />}
+      {r.before && <Robot pose={r.before.end} className="mx-overlay-robot is-before" />}
+      {r.after && <Robot pose={r.after.end} className="mx-overlay-robot is-after" />}
+    </svg>
+  );
+}
+
+const stat = (b?: number, a?: number, unit = "") =>
+  b === undefined ? `${a?.toFixed(1)}${unit}` : a === undefined ? `${b.toFixed(1)}${unit} → removed` : Math.abs(a - b) < 0.05 ? `${a.toFixed(1)}${unit}` : `${b.toFixed(1)} → ${a.toFixed(1)}${unit}`;
+
+export function AutosView({ report }: { report: ReviewReport }) {
+  const routines = [...report.routines].sort((a, b) => Number(a.kind === "same") - Number(b.kind === "same"));
+  const [picked, setPicked] = useState(routines[0]?.id);
+  const r = routines.find((x) => x.id === picked);
+  if (!routines.length)
+    return (
+      <EmptyState icon={Navigation} title="No autonomous routines">
+        Autos are read from the Mayhem project file at the root of the robot repo (<code>robot.mayhem.json</code>).
+      </EmptyState>
+    );
+  return (
+    <div className="mx-autos-diff">
+      <nav className="mx-rail" aria-label="Routines">
+        {routines.map((x) => (
+          <button key={x.id} type="button" className={x.id === picked ? "is-active" : ""} onClick={() => setPicked(x.id)}>
+            <span>{x.name}</span>
+            {x.kind !== "same" && <Badge tone={TONE[x.kind]}>{x.kind}</Badge>}
+          </button>
+        ))}
+      </nav>
+      {r && (
+        <div className="mx-autos-main">
+          <div className="mx-legend" aria-label="Legend">
+            <span className="is-before">Before</span>
+            <span className="is-after">After</span>
+          </div>
+          <Overlay r={r} />
+          <div className="mx-stats">
+            <Stat label="Time" value={stat(r.before?.time, r.after?.time, " s")} />
+            <Stat label="Distance" value={stat(r.before?.distance, r.after?.distance, " m")} />
+            <Stat
+              label="Path preview"
+              value={r.after ? (r.after.status === "completed" ? "Finishes" : r.after.status === "failed" ? "Fails" : "Doesn't finish") : "—"}
+              tone={r.after?.status === "completed" ? "good" : "bad"}
+            />
+            {r.startMoved !== undefined && <Stat label="Start moved" value={r.startMoved.toFixed(2)} unit="m" tone="warn" />}
+          </div>
+          {r.steps.length > 0 ? (
+            <ul className="mx-change-list">
+              {r.steps.map((s) => (
+                <li key={s.id} className={`is-${s.kind}`}>
+                  <Badge tone={TONE[s.kind]}>{s.kind}</Badge> <strong>{s.name}</strong>
+                  {s.details.length > 0 && <span className="mx-before-after"> · {s.details.join(" · ")}</span>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mx-help">{r.kind === "same" ? "No changes to this routine." : "No step changes: robot or path limits changed."}</p>
+          )}
+          <p className="mx-help">Paths are driven by Mayhem's path preview, the same follower the robot runs. Before/after replays in the robot's physics sim come with sim proof.</p>
+        </div>
+      )}
+    </div>
+  );
+}

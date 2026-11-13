@@ -19,6 +19,13 @@ The suite is a working development foundation, not a finished replacement for ev
 
 [USER_GUIDE.md](USER_GUIDE.md) is the suite workflow guide: projects and file links, pose editing, preview modes, state inspection, log analysis, robot collection and agent handoff. Existing solver instructions are preserved in [CLASSIC_PLANNER.md](CLASSIC_PLANNER.md). The README, build instructions and VitePress site now route readers to the appropriate suite or classic workflow; classic screenshots are labeled. Documentation changes do not change the validation or release status recorded below.
 
+## Behavior review: Changes page (2026-11-13, v0.9.32)
+
+- New **Changes** page compares two versions of the robot repo (branches, tags, commits, or uncommitted files) and shows what changes on the robot: driver controls (button → outcome from the state machines), state machines (one graph, added/changed/removed highlighted), values with units (constants, lookup tables, motor configurations), hardware on a top-view robot map (CAN IDs, direction, brake/coast, current limits, gear ratios, encoder offsets, duplicate CAN IDs), and autos (old and new path driven in the preview, drawn on the field). A red/yellow/green label summarizes it. Read from code, never from agent summaries (`app/src/suite/core/review/`).
+- People can edit CAN IDs, limits, brake/coast, directions, ratios and other plain values from Hardware/Values; only that literal is rewritten in the working copy, with shared-value and CAN conflict warnings first.
+- Agents: `behavior_diff` MCP tool and `mayhem.mjs review` CLI. The Agents page is now **Tasks**; the task board comes in a later milestone.
+- Not yet: pressing every button in the robot's own simulation, the per-motor configuration readout from simulation, and before/after physics replays (milestone 2). Real robot repo: all 311 editable values in `mayhem/suite-integration` locate exactly; only shapes listed in SUITE_AGENTS.md are read.
+
 ## UI rehaul and team 3256 simulation (2026-11-11, current working tree)
 
 - The whole suite UI was rebuilt: a top navigation bar (Overview, Autonomous, State machines, Logs, Robot, Agents, Settings) replaces the per-page layouts, with a new light/dark design system in `app/src/suite/suite.css` and shared primitives in `ui.tsx`. The 2,263-line `SuiteApp.tsx` was split into `useSuiteProject.ts` (project state, history, file link, preview) and one folder per page.

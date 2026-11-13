@@ -99,8 +99,8 @@ export function AgentsPage({ s }: { s: SuiteState }) {
   return (
     <div className="mx-page-scroll">
       <PageHeader
-        title="Agents"
-        subtitle="Agents write the autos and robot code. Mayhem gives them tools and shows you exactly what they changed."
+        title="Tasks"
+        subtitle="Agents write the autos and robot code. Connect them here; the Changes page shows what each change does to the robot."
       />
       <div className="mx-agent-grid">
         <Panel title="Share this project with an agent" icon={FileText}>

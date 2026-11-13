@@ -36,6 +36,8 @@ import { parseWPILog } from "../app/src/suite/core/wpilog.ts";
 import { vendorCpp } from "./cpp-vendor.mjs";
 const { applyMachineSpecs, machineFromSpec, specFromMachine, routineFromMtraj } = await import("../app/src/suite/core/authoring.ts");
 import { execFile } from "node:child_process";
+const { buildReport, WORKTREE } = await import("../app/src/suite/core/review/report.ts");
+const { gitSnapshot } = await import("./review-git.mjs");
 const tools = [
   {
     name: "apply_machine_spec",
@@ -173,6 +175,21 @@ const tools = [
         actions: { type: "object", additionalProperties: { type: "string", enum: ["running", "succeeded", "failed"] } },
       },
       required: ["path"],
+    },
+  },
+  {
+    name: "behavior_diff",
+    description:
+      "Compare the behavior of two revisions of a robot repo the way the team reviews it (docs/SUITE_AGENTS.md, Behavior review): hardware (CAN IDs, motor direction, brake/coast, current limits, gear ratios), constants with units, state machines (tools/mayhem/machines.json) including driver-control changes, and autonomous paths (the root *.mayhem.json) driven in the path preview. Returns a risk level: red = safety-related hardware/settings change; yellow = controls, machines or other values changed; green = only auto paths changed and every changed path completes. Run it on your own change before asking a human to review. `before` defaults to HEAD, `after` to the working tree (\"WORKTREE\").",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", description: "Robot repository directory." },
+        before: { type: "string", description: "Git revision (default HEAD)." },
+        after: { type: "string", description: "Git revision, or WORKTREE for uncommitted files (default)." },
+        detail: { type: "string", enum: ["summary", "full"], description: "summary (default): level, findings, errors. full: the whole report (devices, settings, machines, paths)." },
+      },
+      required: ["repo"],
     },
   },
   {
@@ -317,7 +334,16 @@ async function updateProject(path, args, change) {
   const saved = await execute("save_project", { path, project, expectedRevision: current.revision });
   return { ...saved, ...result };
 }
+export async function behaviorDiff(args) {
+  if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
+  const repo = resolve(args.repo);
+  const report = buildReport(await gitSnapshot(repo, args.before ?? "HEAD"), await gitSnapshot(repo, args.after ?? WORKTREE));
+  if (args.detail === "full") return report;
+  const { level, findings, errors, before, after } = report;
+  return { before, after, level, findings, errors };
+}
 export async function execute(name, args) {
+  if (name === "behavior_diff") return behaviorDiff(args);
   if (name === "validate_project")
     return { issues: validateProject(args.project) };
   if (name === "inspect_live_robot") {
@@ -702,6 +728,20 @@ async function main() {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
+  if (command === "review") {
+    // review <repo> [before] [after] [--json]
+    const rest = process.argv.slice(4);
+    const full = rest.includes("--json");
+    const [before, after] = rest.filter((a) => a !== "--json");
+    const result = await behaviorDiff({ repo: path, before, after, detail: full ? "full" : "summary" });
+    if (full) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(`${result.before.label}\n  → ${result.after.label}\nRisk: ${result.level}`);
+      for (const f of result.findings) console.log(`  [${f.level}] ${f.area}: ${f.text}`);
+      for (const e of result.errors) console.log(`  error: ${e}`);
+    }
+    return;
+  }
   if (command === "example") {
     console.log(JSON.stringify(sampleProject, null, 2));
     return;
@@ -718,7 +758,7 @@ async function main() {
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | open <file> | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | review <robot repo> [before] [after] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | open <file> | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")

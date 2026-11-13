@@ -39,6 +39,7 @@ node scripts/mayhem.mjs machine apply robot.mayhem.json tools/mayhem/machines.js
 node scripts/mayhem.mjs machine spec robot.mayhem.json ShooterMode
 node scripts/mayhem.mjs route import-mtraj robot.mayhem.json tools/mayhem/routes.json --dry-run
 node scripts/mayhem.mjs analyze run.wpilog
+node scripts/mayhem.mjs review ../FRC_Offseason_2026 main WORKTREE
 node scripts/mayhem.mjs live roborio-3256-frc.local '{"topics":["/Robot/BatteryVoltage"],"durationMs":1000}'
 ```
 
@@ -72,7 +73,7 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 }
 ```
 
-Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
 
 ## Authoring machines and routines
 
@@ -252,6 +253,16 @@ runner.SetClock([] { return frc::Timer::GetFPGATimestamp().value(); });   // or 
 - `RobotHooks` still works: `AutoRunner(routine, hooks)` sends everything that is not bound to the hooks, so you can migrate one ID at a time (bindings win). Guards receive your hooks object unless you bind signals.
 - `Tick(pose, measured)` without a dt uses the clock; without a clock it fails the routine rather than stall. `Tick(pose, measured, dt)` is unchanged.
 - A step with `onTimeout: "succeed"` (`AutoNode::onTimeout = TimeoutOutcome::Succeed`) ends as done when its `timeout` expires, so a fixed window such as the 3.5 s align-and-shoot is data in the project instead of a timer in `TickAction`. The action can still succeed sooner or fail. Simulation, validation and the editor treat it the same way.
+
+## Behavior review
+
+People on the team review what a change does to the robot, not the code. The desktop app's **Changes** page and the `behavior_diff` tool (CLI: `node scripts/mayhem.mjs review <robot repo> [before] [after] [--json]`) compare two revisions (`before` defaults to `HEAD`, `after` to the uncommitted working tree, `WORKTREE`). Everything is read deterministically from the files, never from an agent's description:
+
+- **Hardware and values** from `src/main/include/**/*.h`: `constexpr`/`const` constants at namespace or class scope and CTRE configuration chains (`.WithCurrentLimits(CurrentLimitsConfigs{}.WithStatorCurrentLimit(80_A))`), with units from literals (`80_A`, `4.3_tps`), unit types, `[unit]` in the doc comment or the name (`…Seconds`). Derived values are evaluated and report the input that changed them. A CAN ID constant (`kLeftMotorId`, `kMotorIds = {44, // top left …}`) names a device; a configuration applies to the devices its name matches (`RightMotorConfigs` → right motor, `MotorConfigs` → every motor of that subsystem; `auto c = RightMotorConfigs();` inherits). Values in a `sim` namespace or named `kSim…` are simulation-only and not reviewed.
+- **State machines and driver controls** from `tools/mayhem/machines.json`: states, transitions (matched by from/to, including priority order) and inputs. Changes that involve an `operator` input are driver-control changes; the team rule is that the same driver inputs give the same outcomes.
+- **Autos** from the root `*.mayhem.json`: step changes, and each routine driven in the path preview before and after.
+
+Risk: **red** = a CAN ID, motor direction, brake/coast, current limit, travel limit, gear ratio or calibration offset changed, a device was added/removed, or two devices of the same type now share a CAN ID; **yellow** = controls, machines or other values changed, or a changed auto no longer finishes; **green** = only auto paths changed and every changed path finishes. Run `behavior_diff` on your change before asking for review, and keep these shapes (named constants, one configuration function per motor group, transitions in machines.json) so the review can read your code. People can also edit a value from the page; that rewrites only that literal in the working tree, so expect such edits in `git status`.
 
 ## Digging into logs
 

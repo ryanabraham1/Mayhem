@@ -163,7 +163,10 @@ export function StateGraph({
   selectedEdge,
   selectEdge,
   inputs = [],
+  marks,
 }: {
+  /** Review highlighting: state and transition ids marked added, removed or changed. */
+  marks?: { states: Record<string, string>; edges: Record<string, string> };
   /** The machine's inputs (or project signals), for category glyphs on conditions. */
   inputs?: InputSource[];
   signalLabel?: (key: string) => string;
@@ -436,7 +439,7 @@ export function StateGraph({
           <li key={g.key}>
             <button
               type="button"
-              className={`mx-any-row ${groupLive(g) ? "is-live" : ""} ${g.transitions.some((t) => t.id === selectedEdge) ? "is-picked" : ""}`}
+              className={`mx-any-row ${g.transitions.map((t) => marks?.edges[t.id]).find(Boolean) ? `is-diff-${g.transitions.map((t) => marks?.edges[t.id]).find(Boolean)}` : ""} ${groupLive(g) ? "is-live" : ""} ${g.transitions.some((t) => t.id === selectedEdge) ? "is-picked" : ""}`}
               onClick={() => pickGroup(g)}
             >
               <span className="mx-any-target">→ {stateName(g.to)}</span>
@@ -519,7 +522,7 @@ export function StateGraph({
             return (
               <g
                 key={key}
-                className={`mx-edge ${live ? "is-live" : ""} ${fromActive ? "is-from-active" : ""} ${picked ? "is-picked" : ""} ${near ? "is-near" : "is-far"}`}
+                className={`mx-edge ${marks?.edges[t.id] ? `is-diff-${marks.edges[t.id]}` : ""} ${live ? "is-live" : ""} ${fromActive ? "is-from-active" : ""} ${picked ? "is-picked" : ""} ${near ? "is-near" : "is-far"}`}
               >
                 <path d={smoothPath(geo.points)} fill="none" markerEnd={`url(#${live ? "mx-arrow-live" : "mx-arrow"})`}>
                   <title>{title}</title>
@@ -567,7 +570,7 @@ export function StateGraph({
             <button
               key={node.id}
               aria-current={active === node.id ? "step" : undefined}
-              className={`mx-state is-${machine ? "machine" : node.kind} ${selected === node.id ? "is-selected" : ""} ${active === node.id ? "is-active" : ""} ${graph.initial === node.id ? "is-initial" : ""}`}
+              className={`mx-state is-${machine ? "machine" : node.kind} ${marks?.states[node.id] ? `is-diff-${marks.states[node.id]}` : ""} ${selected === node.id ? "is-selected" : ""} ${active === node.id ? "is-active" : ""} ${graph.initial === node.id ? "is-initial" : ""}`}
               style={{ left: p.x, top: p.y, width: nodeSize.w, height: nodeSize.h }}
               title={[node.name, node.source, node.description].filter(Boolean).join("\n")}
               onClick={() => select(node.id)}

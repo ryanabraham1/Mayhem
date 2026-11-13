@@ -2,8 +2,9 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import {
   Activity,
   ArrowUpCircle,
-  Bot,
   ChevronsUpDown,
+  ClipboardCheck,
+  GitCompare,
   GitBranch,
   LayoutDashboard,
   Moon,
@@ -23,6 +24,7 @@ import { StatesPage } from "./states/StatesPage";
 import { LogsPage } from "./logs/LogsPage";
 import { RobotPage, setRobotTab } from "./robot/RobotPage";
 import { AgentsPage } from "./agents/AgentsPage";
+import { ChangesPage } from "./changes/ChangesPage";
 import { OverviewPage } from "./overview/OverviewPage";
 import { SettingsPage, type ThemeChoice } from "./settings/SettingsPage";
 import { desktop } from "./native";
@@ -36,19 +38,21 @@ let updateChecksStarted = false;
 
 export type Page =
   | "overview"
+  | "changes"
+  | "tasks"
   | "autos"
   | "states"
   | "logs"
   | "robot"
-  | "agents"
   | "settings";
 const navigation = [
   { id: "overview", name: "Overview", icon: LayoutDashboard },
+  { id: "changes", name: "Changes", icon: GitCompare },
+  { id: "tasks", name: "Tasks", icon: ClipboardCheck },
   { id: "autos", name: "Autonomous", icon: Navigation },
   { id: "states", name: "State machines", icon: GitBranch },
   { id: "logs", name: "Logs", icon: Activity },
   { id: "robot", name: "Robot", icon: Cpu },
-  { id: "agents", name: "Agents", icon: Bot },
 ] as const;
 const PAGE_KEY = "mayhem.page.v1";
 const THEME_KEY = "mayhem.theme";
@@ -124,7 +128,7 @@ function Shell({
   dark: boolean;
 }) {
   const [page, setPageState] = useState<Page>(() =>
-    load<Page>(PAGE_KEY, ["overview", "autos", "states", "logs", "robot", "agents", "settings"], "overview"),
+    load<Page>(PAGE_KEY, ["overview", "changes", "tasks", "autos", "states", "logs", "robot", "settings"], "overview"),
   );
   const [projectPicker, setProjectPicker] = useState(false);
   const [legacy, setLegacy] = useState(false);
@@ -257,7 +261,8 @@ function Shell({
         {page === "states" && <StatesPage key={s.project.id} s={s} openAutos={() => setPage("autos")} />}
         {page === "logs" && <LogsPage notify={s.notify} openRobot={() => { setRobotTab("logs"); setPage("robot"); }} />}
         {page === "robot" && <RobotPage s={s} />}
-        {page === "agents" && <AgentsPage key={s.project.id} s={s} />}
+        {page === "changes" && <ChangesPage notify={s.notify} />}
+        {page === "tasks" && <AgentsPage key={s.project.id} s={s} />}
         {page === "settings" && (
           <SettingsPage
             theme={theme}
