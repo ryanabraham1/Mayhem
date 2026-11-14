@@ -15,13 +15,11 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
-  ThumbsDown,
-  ThumbsUp,
 } from "lucide-react";
-import { useTasks } from "../tasks/feedback";
 import { LEVEL_TEXT, WORKTREE, type Area, type Level, type ReviewReport } from "../core/review/report.ts";
 import { desktop } from "../native";
 import { chooseRepo as pickRepo, useAuthor } from "../robotRepo";
+import { setRobotTab } from "../robot/RobotPage";
 import { summarizeProof } from "../core/review/simproof.ts";
 import { Badge, Button, EmptyState, FileButton, PageHeader, Segmented, type Tone } from "../ui";
 import { AutosView } from "./AutosView";
@@ -31,7 +29,9 @@ import { HardwareView } from "./HardwareView";
 import { MachinesView } from "./MachinesView";
 import { SettingsView } from "./SettingsView";
 import { SimProofView } from "./SimProofView";
-import { WhyPanel } from "./WhyPanel";
+import { CommitsPanel } from "./CommitsPanel";
+import { BranchRow, DeliveryLane, ProofLine } from "./ReviewParts";
+import { useCommitProof, useReviews } from "./reviewList";
 import { useReview, type Review } from "./useReview";
 import "./changes.css";
 
@@ -47,7 +47,7 @@ const TABS: { value: Tab; label: string; icon: typeof Cpu }[] = [
 ];
 const LEVEL_TONE: Record<Level, Tone> = { red: "bad", yellow: "warn", green: "good", none: "neutral" };
 
-function RevisionPicker({ review, side }: { review: Review; side: "before" | "after" }) {
+function RevisionPicker({ review, side, named }: { review: Review; side: "before" | "after"; named?: string }) {
   const value = side === "before" ? review.before : review.after;
   const set = side === "before" ? review.setBefore : review.setAfter;
   const info = review.info;
@@ -61,7 +61,7 @@ function RevisionPicker({ review, side }: { review: Review; side: "before" | "af
           This computer (not committed){info?.dirty.length ? ` · ${info.dirty.length} file${info.dirty.length === 1 ? "" : "s"} edited` : ""}
         </option>
         <option value="HEAD">Last commit{info ? ` on ${info.branch}` : ""}</option>
-        {!known && <option value={value}>{value}</option>}
+        {!known && <option value={value}>{named ?? (/^[0-9a-f]{40}$/.test(value) ? value.slice(0, 7) : value)}</option>}
         {(["branch", "remote", "tag", "commit"] as const).map((kind) =>
           group(kind).length ? (
             <optgroup key={kind} label={{ branch: "Branches", remote: "Branches on GitHub", tag: "Tags", commit: "Recent commits" }[kind]}>
@@ -79,9 +79,6 @@ function RevisionPicker({ review, side }: { review: Review; side: "before" | "af
 }
 
 function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void }) {
-  const { openFeedback } = useTasks();
-  const thumbs = (kind: "thumbs-up" | "thumbs-down", text: string) =>
-    openFeedback({ kind, title: kind === "thumbs-up" ? `Looks good: ${text.slice(0, 80)}` : `Not right: ${text.slice(0, 80)}`, context: "About this change in the robot code.", anchor: { behavior: text, revision: report.after.rev } });
   const count = (area: Area) => report.findings.filter((f) => f.area === area).length;
   const areas: { area: Area; title: string; icon: typeof Cpu; empty: string }[] = [
     { area: "controls", title: "Driver controls", icon: Gamepad2, empty: "Same buttons, same outcomes" },
@@ -118,14 +115,6 @@ function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void 
               <button type="button" className="mx-link" onClick={() => go(tabFor(f.area))}>
                 {f.text}
               </button>
-              <span className="mx-thumbs">
-                <button type="button" aria-label="Looks good" title="Looks good" onClick={() => thumbs("thumbs-up", f.text)}>
-                  <ThumbsUp size={13} />
-                </button>
-                <button type="button" aria-label="Not right" title="Not right: tell the agents" onClick={() => thumbs("thumbs-down", f.text)}>
-                  <ThumbsDown size={13} />
-                </button>
-              </span>
             </li>
           ))}
         </ul>
@@ -139,34 +128,48 @@ function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void 
   );
 }
 
-export function ChangesPage({ notify }: { notify: (message: string) => void }) {
+export function ChangesPage({ notify, go }: { notify: (message: string) => void; go: (page: "robot" | "logs") => void }) {
   const review = useReview();
-  const tasks = useTasks();
+  const reviews = useReviews();
   const [author] = useAuthor();
-  const [tab, setTab] = useState<Tab>(review.request?.sim ? "sim" : "summary");
+  const [tab, setTab] = useState<Tab>("summary");
   const [editing, setEditing] = useState<EditTarget>();
   const { report } = review;
 
-  // Sent here from a task to run its sim proof: start as soon as both versions are read.
-  const started = useRef(false);
-  useEffect(() => {
-    if (!review.request?.sim || started.current || !review.snapshots || review.loading) return;
-    started.current = true;
-    void review.sim.start();
-  }, [review.request, review.snapshots, review.loading, review.sim]);
-
-  // A proof that ran on a task's commit against the task's base is kept on the task, so whoever
-  // checks the change next sees this run's result.
+  // A proof that ran on a commit is kept on that commit, so whoever reviews it next sees this
+  // run's result.
   const kept = useRef<unknown>(undefined);
   const { proof, revs } = review.sim;
   useEffect(() => {
     if (!proof || !revs || kept.current === proof || revs.after === WORKTREE) return;
     kept.current = proof;
-    const summary = summarizeProof(proof, { by: author || "someone", before: revs.before });
-    for (const t of tasks.items)
-      if (t.base === revs.before && ["approved", "review", "done"].includes(t.status) && t.changes.some((c) => c.revision === revs.after))
-        void tasks.saveProof(t.id, revs.after, summary).catch((e) => notify(`The sim proof ran, but could not be saved on “${t.title}”: ${String(e)}`));
-  }, [proof, revs, author, tasks, notify]);
+    const summary = { ...summarizeProof(proof, { by: author || "someone", before: revs.before === WORKTREE ? undefined : revs.before }), at: new Date().toISOString() };
+    void reviews.saveProof(revs.after, summary).catch((e) => notify(`The sim proof ran, but its result could not be kept on the commit: ${String(e)}`));
+  }, [proof, revs, author, reviews, notify]);
+
+  // The two versions on screen, and the branch they are when they are one.
+  const beforeSha = review.snapshots?.before.rev;
+  const afterSha = review.snapshots && review.after !== WORKTREE ? review.snapshots.after.rev : undefined;
+  const everyBranch = [...reviews.toReview, ...reviews.merged, ...reviews.others];
+  const branch = everyBranch.find((b) => b.sha === afterSha && b.base === beforeSha);
+  const recorded = useCommitProof(afterSha, beforeSha === WORKTREE ? undefined : beforeSha);
+  // People say "main", whether it was read from this computer or from GitHub.
+  const mainName = "main";
+  const show = (b: { base: string; sha: string }) => {
+    review.setImported(undefined);
+    review.setBefore(b.base);
+    review.setAfter(b.sha);
+    setTab("summary");
+  };
+  const runProof = () => {
+    setTab("sim");
+    void review.sim.start();
+  };
+  const named = (sha: string) => {
+    const tip = everyBranch.find((b) => b.sha === sha);
+    const left = everyBranch.find((b) => b.base === sha);
+    return tip ? tip.name : left ? `where ${left.name} left ${mainName}` : undefined;
+  };
 
   const chooseRepo = () => pickRepo(review.setRepo);
   const importReport = async (file?: File) => {
@@ -199,76 +202,133 @@ export function ChangesPage({ notify }: { notify: (message: string) => void }) {
           </>
         }
       />
-      {desktop && review.repo && !review.imported && (
-        <div className="mx-rev-bar">
-          <RevisionPicker review={review} side="before" />
-          <ArrowRight size={16} aria-hidden="true" />
-          <RevisionPicker review={review} side="after" />
-          <Button size="sm" variant="ghost" icon={RefreshCw} onClick={() => void review.reload()} disabled={review.loading}>
-            {review.loading ? "Reading…" : "Reload"}
-          </Button>
-        </div>
-      )}
-      {review.imported && (
-        <p className="mx-help">
-          Showing a saved review: {review.imported.before.label} → {review.imported.after.label}.{" "}
-          {desktop && review.repo && (
-            <button type="button" className="mx-link" onClick={() => review.setImported(undefined)}>
-              Back to the live repo
-            </button>
-          )}
-        </p>
-      )}
-      {review.error && <p className="mx-help is-bad">{review.error}</p>}
-      {!report && review.repo && !review.error && desktop ? (
-        <p className="mx-help" role="status">
-          Reading the robot code…
-        </p>
-      ) : !report ? (
-        <EmptyState icon={GitCompare} title={desktop ? "Choose the robot code folder" : "Open a review file"}
-          action={desktop ? <Button variant="primary" icon={FolderGit2} onClick={() => void chooseRepo()}>Choose robot code folder</Button> : undefined}>
-          {desktop
-            ? "Pick the robot repository (for example FRC_Offseason_2026). Mayhem compares two versions of it and shows what changes on the robot."
-            : "In the browser, open a review made with: node scripts/mayhem.mjs review <robot repo> [before] [after] --json > review.json"}
-        </EmptyState>
-      ) : (
-        <>
-          <div className="mx-tab-row">
-          <Segmented
-            label="Review sections"
-            value={tab}
-            onChange={setTab}
-            options={TABS.map((t) => {
-              const n =
-                t.value === "summary"
-                  ? 0
-                  : t.value === "sim"
-                    ? (review.sim.proof?.results.filter((r) => r.failed || r.differences.length).length ?? 0)
-                    : report.findings.filter((f) => f.area === t.value).length;
-              return { value: t.value, icon: t.icon, label: n ? `${t.label} · ${n}` : t.label };
-            })}
-          />
-            <span className={`mx-risk-chip is-${report.level}`} role="status" title={`${report.before.label} → ${report.after.label}`}>
-              {report.level === "red" ? <ShieldAlert size={14} /> : <ShieldCheck size={14} />}
-              {LEVEL_TEXT[report.level]}
-            </span>
-          </div>
-          <div className="mx-review-body">
-            {tab === "summary" && (
-              <>
-                <WhyPanel review={review} />
-                <Summary report={report} go={setTab} />
-              </>
+      <div className={desktop && review.repo ? "mx-changes-layout" : undefined}>
+        {desktop && review.repo && (
+          <aside className="mx-branches" aria-label="Branches">
+            <section aria-label="To review">
+              <header>
+                <strong>To review</strong>
+                <Badge tone={reviews.toReview.length ? "warn" : "neutral"}>{reviews.toReview.length}</Badge>
+                <button type="button" className="mx-icon-btn" aria-label="Look for new commits" title="Look for new commits" disabled={reviews.loading} onClick={() => void reviews.reload()}>
+                  <RefreshCw size={14} />
+                </button>
+              </header>
+              {reviews.toReview.map((b) => (
+                <BranchRow key={b.name} branch={b} main={mainName} selected={branch?.name === b.name} open={() => show(b)} setAside={(aside) => reviews.setAside(b, aside)} />
+              ))}
+              {!reviews.toReview.length && (
+                <p className="mx-help">{reviews.main ? `Nothing is waiting. A branch shows up here when it has commits ${mainName} doesn't.` : "This folder has no main branch to review against."}</p>
+              )}
+              {reviews.error && <p className="mx-help is-bad">{reviews.error}</p>}
+            </section>
+            {reviews.merged.length > 0 && (
+              <section aria-label="Merged">
+                <header>
+                  <strong>Merged</strong>
+                  <Badge>{reviews.merged.length}</Badge>
+                </header>
+                {reviews.merged.map((b) => (
+                  <BranchRow key={b.name} branch={b} main={mainName} selected={branch?.name === b.name} open={() => show(b)} />
+                ))}
+              </section>
             )}
-            {tab === "controls" && <ControlsView report={report} />}
-            {tab === "machines" && <MachinesView report={report} />}
-            {tab === "settings" && <SettingsView report={report} review={review} editSetting={setEditing} />}
-            {tab === "hardware" && <HardwareView report={report} review={review} editSetting={setEditing} />}
-            {tab === "autos" && <AutosView report={report} />}
-            {tab === "sim" && <SimProofView report={report} review={review} />}
-          </div>
-        </>
-      )}
+            {reviews.others.length > 0 && (
+              <details>
+                <summary>
+                  Older or set aside <Badge>{reviews.others.length}</Badge>
+                </summary>
+                {reviews.others.map((b) => (
+                  <BranchRow key={b.name} branch={b} main={mainName} selected={branch?.name === b.name} open={() => show(b)} setAside={b.hidden ? (aside) => reviews.setAside(b, aside) : undefined} />
+                ))}
+              </details>
+            )}
+          </aside>
+        )}
+        <div className="mx-changes-body">
+          {desktop && review.repo && !review.imported && (
+            <div className="mx-rev-bar">
+              <RevisionPicker review={review} side="before" named={named(review.before)} />
+              <ArrowRight size={16} aria-hidden="true" />
+              <RevisionPicker review={review} side="after" named={named(review.after)} />
+              <Button size="sm" variant="ghost" icon={RefreshCw} onClick={() => void review.reload()} disabled={review.loading}>
+                {review.loading ? "Reading…" : "Reload"}
+              </Button>
+            </div>
+          )}
+          {review.imported && (
+            <p className="mx-help">
+              Showing a saved review: {review.imported.before.label} → {review.imported.after.label}.{" "}
+              {desktop && review.repo && (
+                <button type="button" className="mx-link" onClick={() => review.setImported(undefined)}>
+                  Back to the live repo
+                </button>
+              )}
+            </p>
+          )}
+          {review.error && <p className="mx-help is-bad">{review.error}</p>}
+          {!report && review.repo && !review.error && desktop ? (
+            <p className="mx-help" role="status">
+              Reading the robot code…
+            </p>
+          ) : !report ? (
+            <EmptyState icon={GitCompare} title={desktop ? "Choose the robot code folder" : "Open a review file"}
+              action={desktop ? <Button variant="primary" icon={FolderGit2} onClick={() => void chooseRepo()}>Choose robot code folder</Button> : undefined}>
+              {desktop
+                ? "Pick the robot repository (for example FRC_Offseason_2026). Mayhem compares two versions of it and shows what changes on the robot."
+                : "In the browser, open a review made with: node scripts/mayhem.mjs review <robot repo> [before] [after] --json > review.json"}
+            </EmptyState>
+          ) : (
+            <>
+              <div className="mx-tab-row">
+              <Segmented
+                label="Review sections"
+                value={tab}
+                onChange={setTab}
+                options={TABS.map((t) => {
+                  const n =
+                    t.value === "summary"
+                      ? 0
+                      : t.value === "sim"
+                        ? (review.sim.proof?.results.filter((r) => r.failed || r.differences.length).length ?? 0)
+                        : report.findings.filter((f) => f.area === t.value).length;
+                  return { value: t.value, icon: t.icon, label: n ? `${t.label} · ${n}` : t.label };
+                })}
+              />
+                <span className={`mx-risk-chip is-${report.level}`} role="status" title={`${report.before.label} → ${report.after.label}`}>
+                  {report.level === "red" ? <ShieldAlert size={14} /> : <ShieldCheck size={14} />}
+                  {LEVEL_TEXT[report.level]}
+                </span>
+              </div>
+              <div className="mx-review-body">
+                {tab === "summary" && (
+                  <>
+                    {branch && (
+                      <DeliveryLane
+                        branch={branch}
+                        main={mainName}
+                        openRobot={() => {
+                          setRobotTab("now");
+                          go("robot");
+                        }}
+                        openLogs={() => go("logs")}
+                      />
+                    )}
+                    {afterSha && !review.imported && <ProofLine proof={recorded} base={beforeSha === WORKTREE ? undefined : beforeSha} run={desktop ? runProof : undefined} />}
+                    <Summary report={report} go={setTab} />
+                    <CommitsPanel review={review} />
+                  </>
+                )}
+                {tab === "controls" && <ControlsView report={report} />}
+                {tab === "machines" && <MachinesView report={report} />}
+                {tab === "settings" && <SettingsView report={report} review={review} editSetting={setEditing} />}
+                {tab === "hardware" && <HardwareView report={report} review={review} editSetting={setEditing} />}
+                {tab === "autos" && <AutosView report={report} />}
+                {tab === "sim" && <SimProofView report={report} review={review} />}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
       {editing && <EditSetting review={review} target={editing} close={() => setEditing(undefined)} />}
     </div>
   );

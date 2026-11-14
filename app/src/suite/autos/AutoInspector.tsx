@@ -1,7 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Check, Circle, Copy, MessageSquarePlus, Plus, Trash2, X } from "lucide-react";
-import { useTasks } from "../tasks/feedback";
-import { stepTask } from "../tasks/anchors";
+import { Check, Circle, Copy, Plus, Trash2, X } from "lucide-react";
 import {
   DEFAULT_GOAL,
   resolveConstraints,
@@ -226,7 +224,6 @@ export function AutoInspector({
   close: () => void;
 }) {
   const [tab, setTab] = useState<"pose" | "constraints" | "advanced">("pose");
-  const { openFeedback } = useTasks();
   if (s.selected === "@start") return <StartInspector s={s} close={close} />;
   const { node, routine, project } = s;
   const goal = node.goal;
@@ -271,14 +268,6 @@ export function AutoInspector({
               onClick={() => s.addGoal("select", undefined, node.id)}
             />
           )}
-          <IconButton
-            label="Comment on this step"
-            title="Comment on this step: it becomes a task for the agents, pinned to this step"
-            icon={MessageSquarePlus}
-            onClick={() =>
-              openFeedback(stepTask(routine.name, node, s.projectPath))
-            }
-          />
           {node.kind !== "finish" && (
             <IconButton
               label="Delete selected state"

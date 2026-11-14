@@ -85,7 +85,7 @@ test("simulates state inputs and keeps offline setup across all pages and themes
   for (const theme of ["dark", "light"] as const) {
     await page.getByRole("button", { name: `Switch to ${theme} mode` }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-    for (const name of ["Overview", "Autonomous", "State machines", "Logs", "Robot", "Changes", "Tasks", "Settings"]) {
+    for (const name of ["Overview", "Autonomous", "State machines", "Logs", "Robot", "Changes", "Settings"]) {
       await page.getByRole("button", { name, exact: true }).click();
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     }

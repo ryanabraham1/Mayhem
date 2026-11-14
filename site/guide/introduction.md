@@ -1,6 +1,6 @@
 # Introduction
 
-Mayhem is one desktop app for a robot's software. You build pose-based autos, watch state machines run, analyze match logs, see what code is on the robot, review what a code change actually does, and turn team feedback into tasks for coding agents.
+Mayhem is one desktop app for a robot's software. You build pose-based autos, watch state machines run, analyze match logs, see what code is on the robot, and review what a code change actually does before it goes on the robot, whether a coding agent or a teammate wrote it.
 
 ![Mayhem's Overview workspace](/img/suite/overview.jpg)
 
@@ -12,10 +12,10 @@ Mayhem works on the robot code repository you already have. It doesn't replace y
 | --- | --- | --- |
 | **The desktop app** | Your laptop | Every workspace in this guide. |
 | **`robot.mayhem.json`** | Root of the robot repo | The project: robot limits, autonomous routines and state machines. The app edits it; agents can too. |
-| **`tools/mayhem/`** | Robot repo | Driver-control machines, sim proof scenarios, team tasks and the robot explainer. See [the tools/mayhem folder](/reference/repo-files). |
+| **`tools/mayhem/`** | Robot repo | Driver-control machines, sim proof scenarios and the robot explainer. See [the tools/mayhem folder](/reference/repo-files). |
 | **The C++ library** | Robot code (`MayhemCpp` vendordep) | Runs the exported routines and state machines on the robot. See [Robot code](/robot-code/setup). |
 | **`MayhemProject.h`** | Robot code, generated | Your routines and machines as C++, exported from the project. |
-| **Agents (optional)** | Your laptop | Coding agents pick up tasks, propose a plan you approve, and change the code. See [Agents](/agents/). |
+| **Agents (optional)** | Your laptop | Coding agents change the code on a branch; you review each branch in Changes. See [Agents](/agents/). |
 
 ## Choose your path
 
@@ -27,14 +27,13 @@ Mayhem works on the robot code repository you already have. It doesn't replace y
 | Find your way around the app | [The app at a glance](/suite/overview) |
 | Get autos and state machines running on the robot | [Set up a robot repo](/robot-code/setup) |
 | Review a robot code change | [Changes](/suite/changes) |
-| Hand work to coding agents | [Connect an agent](/agents/) |
+| Work with coding agents | [Connect an agent](/agents/) |
 | Work on Mayhem itself | [Building and contributing](/reference/building) |
 
 ## The workspaces
 
-- **[Overview](/suite/overview):** routine thumbnails, latest logs, the match-ready checklist and a clickable map of how the robot works.
-- **[Changes](/suite/changes):** what a code change does to controls, state machines, values, hardware and autos, with a before/after sim proof.
-- **[Tasks](/suite/tasks):** feedback, pit notes and driver forms become agent tasks; approve plans and check changes.
+- **[Overview](/suite/overview):** changes waiting for review, routine thumbnails, latest logs, the match-ready checklist and a clickable map of how the robot works.
+- **[Changes](/suite/changes):** the branches waiting for review, and what each one does to controls, state machines, values, hardware and autos, with a before/after sim proof.
 - **[Autonomous](/suite/autonomous):** place goals, add actions and conditions, preview the path or the full routine.
 - **[State machines](/suite/state-machines):** graphs in simulation, live over NT4, or replayed from a log.
 - **[Logs](/suite/logs):** findings, power, signals and pose replay for every recording.

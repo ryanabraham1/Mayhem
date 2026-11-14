@@ -3,11 +3,10 @@ import {
   AlertOctagon,
   AlertTriangle,
   ArrowRight,
-  Bot,
   CheckCircle2,
   FileChartColumn,
   FolderGit2,
-  MessageSquare,
+  GitCompare,
   Plus,
 } from "lucide-react";
 import { FieldArt } from "../../components/FieldArt";
@@ -24,13 +23,12 @@ import { useLogLibrary } from "../logLibrary";
 import { useRobot } from "../robot";
 import type { SuiteState } from "../useSuiteProject";
 import { Badge, Button, Panel, timeAgo } from "../ui";
-import { STATUS_NAMES, agentActivity, type AgentActivity, type ReviewItem } from "../core/review/tasks.ts";
-import { chooseRepo, samePath, useRepoProject, useRobotRepo } from "../robotRepo";
-import { useDelivery } from "../tasks/delivery";
-import { useTasks } from "../tasks/feedback";
+import { BranchRow } from "../changes/ReviewParts";
+import { useReviews } from "../changes/reviewList";
+import { chooseRepo, requestCompare, samePath, useRepoProject, useRobotRepo } from "../robotRepo";
 import { Explainer } from "./Explainer";
 
-export type Destination = "autos" | "states" | "logs" | "robot" | "tasks" | "changes";
+export type Destination = "autos" | "states" | "logs" | "robot" | "changes";
 
 function MiniField({ project, routine }: { project: SuiteProject; routine: AutoRoutine }) {
   const { width, height } = project.field;
@@ -60,92 +58,60 @@ function MiniField({ project, routine }: { project: SuiteProject; routine: AutoR
   );
 }
 
-/** What the agents are doing with the team's feedback, leading with what waits for a person. */
-function AgentWork({ items, agents, go }: { items: ReviewItem[]; agents: AgentActivity[]; go: (d: Destination) => void }) {
-  const tasks = useTasks();
-  const [, setRepo] = useRobotRepo();
-  const waiting = items.filter((t) => t.status === "plan" || t.status === "review").sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
-  const withAgents = items.filter((t) => t.status === "claimed" || t.status === "approved").length;
-  const fresh = items.filter((t) => t.status === "open").length;
-  // Accepted is not the end: a change counts once it is merged and on the robot.
-  const delivery = [...useDelivery(items).values()];
-  const unmerged = delivery.filter((d) => d.inMain === false).length;
-  const undeployed = delivery.filter((d) => d.inMain && d.onRobot === false && !d.log).length;
-  const show = (id?: string) => {
-    tasks.setOpenTask(id);
-    go("tasks");
+/** What agents (or anyone) changed and is waiting for a person, and what was merged but isn't on the robot. */
+function ChangesToReview({ go }: { go: (d: Destination) => void }) {
+  const reviews = useReviews();
+  const [repo, setRepo] = useRobotRepo();
+  const main = "main";
+  const open = (b: { base: string; sha: string }) => {
+    requestCompare(b.base, b.sha);
+    go("changes");
   };
+  const waiting = reviews.merged.filter((b) => b.onRobot === false && !b.log);
   return (
     <Panel
-      title="Feedback and agents"
-      icon={Bot}
+      title="Changes to review"
+      icon={GitCompare}
       actions={
-        <Button size="sm" variant="ghost" icon={MessageSquare} onClick={() => tasks.openFeedback({})}>
-          Add feedback
-        </Button>
+        repo ? (
+          <Button size="sm" variant="ghost" onClick={() => go("changes")}>
+            All changes <ArrowRight size={14} />
+          </Button>
+        ) : undefined
       }
     >
-      {desktop && !tasks.repo ? (
+      {!desktop ? (
         <div className="mx-panel-empty">
-          <p>Choose the robot code folder. Feedback, agent plans and code changes live there.</p>
+          <p>Reviewing a branch of the robot code needs the desktop app. In the browser, Changes opens saved review files.</p>
+        </div>
+      ) : !repo ? (
+        <div className="mx-panel-empty">
+          <p>Choose the robot code folder. Branches that aren't in main yet show up here, with what they change on the robot.</p>
           <Button size="sm" variant="primary" icon={FolderGit2} onClick={() => void chooseRepo(setRepo)}>
             Choose robot code folder
           </Button>
         </div>
-      ) : !desktop ? (
-        <div className="mx-panel-empty">
-          <p>Feedback you add here saves as a file for the robot repo. The desktop app keeps the queue there and shows agent plans and changes.</p>
+      ) : reviews.toReview.length ? (
+        <div className="mx-work-list">
+          {reviews.toReview.slice(0, 4).map((b) => (
+            <BranchRow key={b.name} branch={b} main={main} open={() => open(b)} />
+          ))}
+          {reviews.toReview.length > 4 && (
+            <button type="button" className="mx-link" onClick={() => go("changes")}>
+              and {reviews.toReview.length - 4} more
+            </button>
+          )}
         </div>
       ) : (
-        <>
-          <div className="mx-work-stats">
-            <button type="button" className={waiting.length ? "is-warn" : ""} onClick={() => show(waiting[0]?.id)}>
-              <strong>{waiting.length}</strong>
-              <span>waiting for you</span>
-            </button>
-            <button type="button" onClick={() => show()}>
-              <strong>{withAgents}</strong>
-              <span>with agents</span>
-            </button>
-            <button type="button" onClick={() => show()}>
-              <strong>{fresh}</strong>
-              <span>new</span>
-            </button>
-          </div>
-          {waiting.length > 0 && (
-            <div className="mx-mini-logs mx-work-list">
-              {waiting.slice(0, 4).map((t) => (
-                <button key={t.id} type="button" onClick={() => show(t.id)}>
-                  <span>
-                    <strong>{t.title}</strong>
-                    <small>
-                      {t.agent ? `${t.agent} · ` : ""}
-                      {timeAgo(Date.parse(t.updatedAt))}
-                    </small>
-                  </span>
-                  <Badge tone="warn">{STATUS_NAMES[t.status]}</Badge>
-                </button>
-              ))}
-            </div>
-          )}
-          {(unmerged > 0 || undeployed > 0) && (
-            <button type="button" className="mx-link mx-work-pending" onClick={() => show()}>
-              {[
-                unmerged && `${unmerged} accepted change${unmerged === 1 ? " is" : "s are"} not merged yet`,
-                undeployed && `${undeployed} merged change${undeployed === 1 ? " is" : "s are"} not on the robot`,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </button>
-          )}
-          <p className="mx-help mx-work-agents">
-            {agents.length
-              ? agents.slice(0, 3).map((a) => `${a.agent} last active ${timeAgo(Date.parse(a.lastAt))}`).join(" · ")
-              : fresh
-                ? "No agent has picked anything up yet."
-                : "No feedback yet. Right-click anything in the app to make it an agent task."}
-          </p>
-        </>
+        <p className="mx-summary-line is-good">
+          <CheckCircle2 size={16} />
+          {reviews.main ? "Nothing is waiting for review" : "This folder has no main branch to review against"}
+        </p>
+      )}
+      {waiting.length > 0 && (
+        <button type="button" className="mx-link mx-work-pending" onClick={() => open(waiting[0])}>
+          {waiting.length} merged change{waiting.length === 1 ? " is" : "s are"} not on the robot
+        </button>
       )}
     </Panel>
   );
@@ -162,9 +128,7 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
   const status = robot.live.snapshot.status;
   const [, refreshExport] = useState(0);
   const exportState = cppExportState(project);
-  const tasks = useTasks();
   const [repo, setRepo] = useRobotRepo();
-  const agents = useMemo(() => agentActivity(tasks.items), [tasks.items]);
   // The robot repo has its own project file and this window shows a different project.
   const repoProject = useRepoProject(repo);
   const unlinked = repoProject && !samePath(s.projectPath, repoProject) ? repoProject : undefined;
@@ -180,10 +144,8 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
   const checklist = [
     ...(desktop
       ? [
-          { title: "Choose the robot code folder", detail: repo ? repo.split(/[\\/]/).pop()! : "Where feedback, agent plans and code changes live.",
+          { title: "Choose the robot code folder", detail: repo ? repo.split(/[\\/]/).pop()! : "The code agents change, and what Mayhem reviews.",
             done: !!repo, action: "Choose", run: () => void chooseRepo(setRepo) },
-          { title: "Put an agent on the queue", detail: agents.length ? `${agents[0].agent} last active ${timeAgo(Date.parse(agents[0].lastAt))}` : "It picks up feedback and proposes plans for you to approve.",
-            done: agents.length > 0, action: "Set up", run: () => go("tasks") },
         ]
       : []),
     { title: "Plan an autonomous routine", detail: "Create a valid routine that reaches a finish.",
@@ -262,7 +224,7 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
 
       <div className="mx-overview-grid">
         <div className="mx-col">
-          <AgentWork items={tasks.items} agents={agents} go={go} />
+          <ChangesToReview go={go} />
           <Panel
             title="Latest logs"
             icon={FileChartColumn}

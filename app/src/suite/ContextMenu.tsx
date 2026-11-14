@@ -28,63 +28,6 @@ interface OpenMenu {
   items: (MenuAction | "separator")[];
 }
 
-/**
- * What "Make this an agent task" is about. Menus with specific context (an auto step, a state,
- * a log) pass it; anything else is described from the page, panel and item under the pointer.
- */
-export interface TaskTarget {
-  /** Starts the task title, e.g. "Left Side · Pickup 2". */
-  title: string;
-  /** Feedback context (an `Anchor`); kept loose so this menu stays free of task code. */
-  anchor: Record<string, unknown>;
-  /** Shown in the task dialog above the text. */
-  context?: string;
-}
-
-let taskAction: ((target: TaskTarget) => MenuAction) | null = null;
-/** The task provider registers how a target becomes a menu item; returns the unregister. */
-export function registerTaskAction(action: (target: TaskTarget) => MenuAction) {
-  taskAction = action;
-  return () => {
-    if (taskAction === action) taskAction = null;
-  };
-}
-
-const short = (text: string | null | undefined, max = 80) => {
-  const t = text?.replace(/\s+/g, " ").trim();
-  return t ? (t.length > max ? `${t.slice(0, max - 1)}…` : t) : undefined;
-};
-
-/** Describes whatever was right-clicked: an element's `data-task` JSON, or its page, panel and label. */
-export function taskTargetAt(target: EventTarget | null | undefined, menuTitle?: string): TaskTarget {
-  const el = target instanceof Element ? target : null;
-  const tagged = el?.closest<HTMLElement>("[data-task]");
-  if (tagged) {
-    try {
-      return JSON.parse(tagged.dataset.task!) as TaskTarget;
-    } catch {
-      // Fall back to the generic description.
-    }
-  }
-  const page = short(document.querySelector('.mx-nav [aria-current="page"]')?.textContent) ?? el?.closest<HTMLElement>("[data-page]")?.dataset.page;
-  const panel = el?.closest("[role=dialog], section, .mx-card, .mx-panel, aside");
-  const section = short(panel?.querySelector("h1, h2, h3, h4, legend")?.textContent, 60);
-  let element = short(menuTitle);
-  for (let at: Element | null = el; at && !element && at !== panel; at = at.parentElement) {
-    element =
-      short(at.getAttribute("aria-label")) ??
-      short(at.getAttribute("title")) ??
-      (at.matches("button, a, li, tr, label, h1, h2, h3, h4, [role=button], [role=row]") ? short(at.textContent) : undefined);
-  }
-  if (!element && el && el !== panel) element = short(el.textContent);
-  const where = [page, section, element].filter(Boolean);
-  return {
-    title: where.length ? `${where.slice(-1)[0]}: ` : "",
-    anchor: { ...(page ? { page } : {}), ...(section && section !== element ? { section } : {}), ...(element ? { element } : {}) },
-    context: "Pinned to what you right-clicked. An agent sees the page and the item.",
-  };
-}
-
 let current: OpenMenu | null = null;
 const listeners = new Set<() => void>();
 const set = (next: OpenMenu | null) => {
@@ -96,20 +39,17 @@ export const closeContextMenu = () => set(null);
 
 /**
  * Show the app's context menu at the pointer. Falsy items are dropped so callers can write
- * `cond && {...}`; leading, trailing and doubled separators are trimmed. Every menu ends with
- * "Make this an agent task", about `task` when given, else about what was right-clicked.
+ * `cond && {...}`; leading, trailing and doubled separators are trimmed.
  */
 export function openContextMenu(
-  event: { clientX: number; clientY: number; target?: EventTarget | null; preventDefault(): void; stopPropagation(): void },
+  event: { clientX: number; clientY: number; preventDefault(): void; stopPropagation(): void },
   items: MenuItem[],
   title?: string,
-  task?: TaskTarget | false,
 ) {
   event.preventDefault();
   event.stopPropagation();
   const kept: OpenMenu["items"] = [];
-  const all = taskAction && task !== false ? [...items, "separator" as const, taskAction(task || taskTargetAt(event.target, title))] : items;
-  for (const item of all) {
+  for (const item of items) {
     if (!item) continue;
     if (item === "separator" && (!kept.length || kept.at(-1) === "separator")) continue;
     kept.push(item);
@@ -133,17 +73,17 @@ export async function copyText(text: string) {
 }
 
 /**
- * Right-clicks that land where Mayhem has no menu of its own offer "Make this an agent task"
- * instead of the webview's menu (Reload, Inspect Element…). Text fields and selected text keep
- * the native menu, where Cut/Copy/Paste are useful, and so does Shift.
+ * Right-clicks that land where Mayhem has no menu of its own show nothing, rather than the
+ * webview's menu (Reload, Inspect Element…). Text fields and selected text keep the native menu,
+ * where Cut/Copy/Paste are useful, and so does Shift.
  */
 function fallbackMenu(e: MouseEvent) {
   if (e.defaultPrevented || e.shiftKey) return;
   const target = e.target as HTMLElement | null;
   if (target?.closest("input, textarea, select, [contenteditable=''], [contenteditable=true]")) return;
   if (window.getSelection()?.toString()) return;
-  if (target?.closest(".mx-menu, .mx-feedback-dialog")) return void e.preventDefault();
-  openContextMenu(e, []);
+  e.preventDefault();
+  closeContextMenu();
 }
 
 /** Mount once near the app root. */

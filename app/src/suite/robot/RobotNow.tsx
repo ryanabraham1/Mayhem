@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BadgeCheck, GitCompare, HeartPulse, RefreshCw, RotateCcw, Rocket, TriangleAlert } from "lucide-react";
 import { findAnomalies } from "../core/logquery.ts";
-import { tasksInMessage } from "../core/review/tasks.ts";
 import { useLogLibrary } from "../logLibrary";
 import { desktop, invoke } from "../native";
 import { useRobot } from "../robot";
 import { requestCompare, useRobotRepo, useRobotStamp, type BuildStamp } from "../robotRepo";
-import { useTasks } from "../tasks/feedback";
 import { Badge, Button, Panel } from "../ui";
 
 type Stamp = BuildStamp;
@@ -20,7 +18,6 @@ interface Commit {
 export function RobotNow({ openChanges }: { openChanges: () => void }) {
   const robot = useRobot();
   const lib = useLogLibrary();
-  const tasks = useTasks();
   const [repo] = useRobotRepo();
   const [stamp, setStampState] = useState<Stamp>();
   // Remembered for the Tasks page: whether an accepted change has reached the robot.
@@ -110,8 +107,6 @@ export function RobotNow({ openChanges }: { openChanges: () => void }) {
     () => (health ? findAnomalies(health.recording, { limit: 50 }).anomalies.filter((a) => a.kind === "flapping") : []),
     [health],
   );
-  const linked = (sha: string, message: string) =>
-    tasks.items.filter((t) => tasksInMessage(message).includes(t.id) || t.changes.some((c) => c.revision === sha));
 
   return (
     <Panel
@@ -167,11 +162,6 @@ export function RobotNow({ openChanges }: { openChanges: () => void }) {
                     {ahead.slice(0, 12).map((c) => (
                       <li key={c.sha}>
                         <code>{c.sha.slice(0, 7)}</code> {c.subject}
-                        {linked(c.sha, `${c.subject}\n${c.body}`).map((t) => (
-                          <Badge key={t.id} tone="accent">
-                            for: {t.title}
-                          </Badge>
-                        ))}
                       </li>
                     ))}
                   </ul>

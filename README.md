@@ -1,20 +1,19 @@
 # Mayhem
 
-The place where people work with a robot whose code is written by coding agents. People say what the robot should do differently, by pointing at what it did; agents plan and change the code; people review the result by what the robot does, not by reading the diff. Around that loop: pose-based autonomous tools, state-machine inspection, and robot log playback/analysis.
+The place where people review a robot whose code is written by coding agents. You tell the agent what you want in its chat; it changes the code on a branch; you review the branch here by what the robot does, not by reading the diff. Around that: pose-based autonomous tools, state-machine inspection, and robot log playback/analysis.
 
 The new suite is in active development. The original time-optimal trajectory planner stays available from **Settings → Classic trajectory planner**. This checkout contains the overhaul; check the assets and notes of a published release before assuming it includes the suite.
 
 ## New suite (development)
 
-- **Overview:** what's waiting for you (agent plans to approve, changes to check), every routine as a field thumbnail, the latest logs with their red flags, and setup checks.
-- **Changes:** what a robot code change does, read from the code instead of the diff: driver controls, state machines, values, hardware, autos, any other code that changed, and a sim proof that runs both versions in the robot's own simulation.
-- **Tasks:** feedback from the team (right-click almost anything, pit notes, a post-match driver form) becomes tasks for coding agents. An agent proposes a plain-English plan, a person approves it, the agent changes the code, and a person checks the result by behavior.
+- **Overview:** the branches waiting for your review, every routine as a field thumbnail, the latest logs with their red flags, and setup checks.
+- **Changes:** every branch that isn't in `main` yet, and what each one does, read from the code instead of the diff: driver controls, state machines, values, hardware, autos, any other code that changed. Each shows the sim proof recorded on its newest commit (both versions run in the robot's own simulation), and after the merge whether it is on the robot and in a log.
 - **Autonomous:** pose-to-pose routines on the REBUILT field: click to place, drag goals and the start, heading knobs, moving handoffs, robot actions between steps, per-step limits, and a preview with a driven-path trail. Inspector edits arrival, heading policy, watchdogs, concurrent callbacks and branches.
 - **State machines:** a layered graph of autonomous routines or any robot state machine. Simulate by toggling inputs (the machine steps through its transitions), watch it live over NetworkTables, or replay a recorded log. "From any state" bindings collapse into chips so large superstructures stay readable.
 - **Logs:** a library of recordings with red-flag badges, a verdict and finding timeline per log, Health / Power / Signals / Field tabs, per-mechanism current ranking, and battery sag against the brownout line.
 - **Robot:** what code is on the robot now and how it differs from `main`, every value in the code (editable), team number, live connection, automatic log collection from the robot over Ethernet or from a folder (simulation output, USB sticks), team upload with retry, drive limits and robot inputs. Collection runs on every screen, not just Logs.
-- **Connecting agents** (bottom of Tasks): a copyable prompt that puts any coding agent on the task queue, a plain-text project brief, MCP and CLI setup, a live file link agents edit, C++ export, and the raw project document.
-- **Team sharing:** companion 3256-Tools web library/viewer source, private cloud uploads, and deployment instructions. Live at https://3256tools.vercel.app/logs, with actual hosted AdvantageScope Lite and selected-log handoff.
+- **Agents** (in Settings): a short instruction that makes any coding agent's work arrive ready to review, a plain-text project brief, MCP and CLI setup, a live file link agents edit, C++ export, and the raw project document.
+- **Team sharing:** companion 3256-Tools web library/viewer source, private cloud uploads, and deployment instructions. Live at https://www.warriorb.org/logs, with actual hosted AdvantageScope Lite and selected-log handoff.
 
 ```sh
 cd app

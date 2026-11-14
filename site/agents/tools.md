@@ -38,8 +38,7 @@ node scripts/mayhem.mjs analyze logs/FRC_20261113_071603.wpilog
 | --- | --- |
 | Projects | `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `open_in_app` |
 | Robot code | `export_cpp`, `vendor_cpp`, `apply_machine_spec`, `machine_spec` |
-| Review | `behavior_diff`, `run_scenarios` |
-| Tasks | `list_tasks`, `get_task`, `claim_task`, `propose_plan`, `report_progress`, `finish_task`, `release_task`, `add_feedback` |
+| Review | `behavior_diff`, `run_scenarios`, `list_changes` |
 | Logs | `analyze_log`, `list_log_channels`, `log_anomalies`, `log_what_changed`, `log_table`, `log_events`, `log_states` |
 | Live robot | `inspect_live_robot` (read-only) |
 

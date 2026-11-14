@@ -26,8 +26,8 @@ import {
   type StoredLog,
 } from "./storage";
 import { desktop, invoke, nativeRead } from "./native";
-import { forgetSources, loadSyncConfig, useLogSync } from "./logSync";
-import { buildOf } from "./tasks/anchors";
+import { forgetSources, loadSyncConfig, teamSite, useLogSync } from "./logSync";
+import { buildOf } from "./core/review/build.ts";
 
 export const MAX_LOG_BYTES = 250 * 1024 * 1024;
 type Parsed = { recording: Recording; analysis: Analysis };
@@ -164,7 +164,7 @@ function useLogLibraryState({
         uploadSite: options.queueSite ?? previous?.uploadSite,
         upload:
           previous?.upload === "uploaded" &&
-          (!options.queueSite || previous.uploadSite === options.queueSite)
+          (!options.queueSite || teamSite(previous.uploadSite ?? "") === options.queueSite)
             ? "uploaded"
             : options.queueSite
               ? "queued"

@@ -86,4 +86,4 @@ The preview is kinematic: it doesn't use PID gains, avoid obstacles or run your 
 
 ## Getting it on the robot
 
-The robot runs routines with Mayhem's C++ library. Export the C++ from **Tasks → Connect an agent → C++ library** (or the match-ready checklist on Overview), or generate it with `scripts/mayhem.mjs cpp`. Then bind your action and signal IDs in robot code and tune on the real robot; see [Running autos](/robot-code/autos). Exporting a header doesn't deploy anything.
+The robot runs routines with Mayhem's C++ library. Export the C++ from **Settings → Agents and the project file → C++ library** (or the match-ready checklist on Overview), or generate it with `scripts/mayhem.mjs cpp`. Then bind your action and signal IDs in robot code and tune on the real robot; see [Running autos](/robot-code/autos). Exporting a header doesn't deploy anything.

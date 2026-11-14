@@ -6,7 +6,7 @@ vi.mock("../src/suite/native", () => ({
   nativeRead: vi.fn(async () => new Uint8Array([1]).buffer),
 }));
 import { invoke } from "../src/suite/native";
-import { useLogSync, POLL_MS, SYNC_KEY, forgetSources } from "../src/suite/logSync";
+import { useLogSync, POLL_MS, SYNC_KEY, forgetSources, loadSyncConfig } from "../src/suite/logSync";
 import { LogActions, TeamCloud } from "../src/suite/logs/LogsPage";
 import type { StoredLog } from "../src/suite/storage";
 
@@ -32,6 +32,13 @@ beforeEach(() => {
   vi.mocked(invoke).mockReset();
 });
 afterEach(() => vi.useRealTimers());
+
+it("moves a team website saved under the old address to the new domain", () => {
+  localStorage.setItem(SYNC_KEY, JSON.stringify({ site: "https://3256tools.vercel.app/" }));
+  expect(loadSyncConfig().site).toBe("https://www.warriorb.org");
+  localStorage.setItem(SYNC_KEY, JSON.stringify({ site: "https://example.org" }));
+  expect(loadSyncConfig().site).toBe("https://example.org");
+});
 
 it("keeps polling through library updates and skips robot recordings already saved in prior sessions", async () => {
   localStorage.setItem(SYNC_KEY, JSON.stringify({ selected: [files[0].path], autoPull: true }));
@@ -228,7 +235,7 @@ it("saves a downloaded team recording into the library, already marked as upload
   });
   expect(updateLog).toHaveBeenCalledWith("a".repeat(64), expect.objectContaining({
     upload: "uploaded",
-    cloudUrl: `https://3256tools.vercel.app/logs?log=${"a".repeat(64)}`,
+    cloudUrl: `https://www.warriorb.org/logs?log=${"a".repeat(64)}`,
   }));
   expect(notify).toHaveBeenCalledWith("Saved a.wpilog to the library.");
   expect(view.result.current.saving).toEqual([]);

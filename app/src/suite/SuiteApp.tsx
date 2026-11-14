@@ -3,7 +3,6 @@ import {
   Activity,
   ArrowUpCircle,
   ChevronsUpDown,
-  ClipboardCheck,
   GitCompare,
   GitBranch,
   LayoutDashboard,
@@ -24,8 +23,7 @@ import { AutosPage } from "./autos/AutosPage";
 import { StatesPage } from "./states/StatesPage";
 import { LogsPage } from "./logs/LogsPage";
 import { RobotPage, setRobotTab } from "./robot/RobotPage";
-import { TasksPage } from "./tasks/TasksPage";
-import { FeedbackProvider, useTasks } from "./tasks/feedback";
+import { ReviewProvider, useReviews } from "./changes/reviewList";
 import { ChangesPage } from "./changes/ChangesPage";
 import { OverviewPage } from "./overview/OverviewPage";
 import { SettingsPage, type ThemeChoice } from "./settings/SettingsPage";
@@ -41,7 +39,6 @@ let updateChecksStarted = false;
 export type Page =
   | "overview"
   | "changes"
-  | "tasks"
   | "autos"
   | "states"
   | "logs"
@@ -50,7 +47,6 @@ export type Page =
 const navigation = [
   { id: "overview", name: "Overview", icon: LayoutDashboard },
   { id: "changes", name: "Changes", icon: GitCompare },
-  { id: "tasks", name: "Tasks", icon: ClipboardCheck },
   { id: "autos", name: "Autonomous", icon: Navigation },
   { id: "states", name: "State machines", icon: GitBranch },
   { id: "logs", name: "Logs", icon: Activity },
@@ -98,10 +94,10 @@ function UpdateNotice() {
   );
 }
 
-/** Plans to approve and changes to check, on the Tasks tab. */
+/** Branches waiting for review, on the Changes tab. */
 function WaitingCount() {
-  const n = useTasks().items.filter((t) => t.status === "plan" || t.status === "review").length;
-  return n ? <i className="mx-nav-count" aria-label={`${n} waiting for you`}>{n}</i> : null;
+  const n = useReviews().toReview.length;
+  return n ? <i className="mx-nav-count" aria-label={`${n} to review`}>{n}</i> : null;
 }
 
 function SidebarRobot({ go }: { go: () => void }) {
@@ -136,7 +132,7 @@ function Shell({
   dark: boolean;
 }) {
   const [page, setPageState] = useState<Page>(() =>
-    load<Page>(PAGE_KEY, ["overview", "changes", "tasks", "autos", "states", "logs", "robot", "settings"], "overview"),
+    load<Page>(PAGE_KEY, ["overview", "changes", "autos", "states", "logs", "robot", "settings"], "overview"),
   );
   const [projectPicker, setProjectPicker] = useState(false);
   const [legacy, setLegacy] = useState(false);
@@ -254,7 +250,7 @@ function Shell({
             >
               <Icon size={16} />
               <span>{name}</span>
-              {id === "tasks" && <WaitingCount />}
+              {id === "changes" && <WaitingCount />}
             </button>
           ))}
         </nav>
@@ -286,14 +282,14 @@ function Shell({
         {page === "states" && <StatesPage key={s.project.id} s={s} openAutos={() => setPage("autos")} />}
         {page === "logs" && <LogsPage notify={s.notify} openRobot={() => { setRobotTab("logs"); setPage("robot"); }} />}
         {page === "robot" && <RobotPage s={s} openChanges={() => setPage("changes")} />}
-        {page === "changes" && <ChangesPage notify={s.notify} />}
-        {page === "tasks" && <TasksPage s={s} go={setPage} />}
+        {page === "changes" && <ChangesPage notify={s.notify} go={setPage} />}
         {page === "settings" && (
           <SettingsPage
             theme={theme}
             setTheme={setTheme}
             openLegacy={() => setLegacy(true)}
             notify={s.notify}
+            s={s}
             version={appPackage.version}
           />
         )}
@@ -394,9 +390,9 @@ export default function SuiteApp() {
   return (
     <RobotProvider>
       <WithLogs s={s}>
-        <FeedbackProvider notify={s.notify}>
+        <ReviewProvider>
           <Shell s={s} theme={theme} setTheme={setTheme} dark={dark} />
-        </FeedbackProvider>
+        </ReviewProvider>
       </WithLogs>
     </RobotProvider>
   );

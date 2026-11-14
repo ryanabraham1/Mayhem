@@ -94,18 +94,15 @@ export function useRepoProject(repo: string): string | undefined {
 }
 
 const COMPARE_KEY = "mayhem.review.compare";
-/**
- * Asks the Changes page to compare these two revisions next time it opens; `sim: true` opens the
- * sim proof and starts it.
- */
-export function requestCompare(before: string, after: string, options: { sim?: boolean } = {}) {
+/** Asks the Changes page to compare these two revisions next time it opens. */
+export function requestCompare(before: string, after: string) {
   try {
-    sessionStorage.setItem(COMPARE_KEY, JSON.stringify({ before, after, ...options }));
+    sessionStorage.setItem(COMPARE_KEY, JSON.stringify({ before, after }));
   } catch {
     /* the Changes page then keeps its own choice */
   }
 }
-export function takeCompareRequest(): { before: string; after: string; sim?: boolean } | undefined {
+export function takeCompareRequest(): { before: string; after: string } | undefined {
   try {
     const value = sessionStorage.getItem(COMPARE_KEY);
     sessionStorage.removeItem(COMPARE_KEY);

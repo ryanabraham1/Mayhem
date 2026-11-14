@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Page } from "@playwright/test";
-import { gitSnapshot } from "../../scripts/review-git.mjs";
+import { gitSnapshot, reaches, readProofNotes, reviewBranches } from "../../scripts/review-git.mjs";
 import { nodeRunner } from "../../scripts/review-sim.mjs";
 
 const SHOOTER = `#pragma once
@@ -101,23 +101,14 @@ export async function desktop(page: Page, repo: string) {
         ],
       };
     if (cmd === "review_snapshot") return gitSnapshot(repo, args.rev);
-    if (cmd === "review_items") {
-      const dir = join(repo, "tools/mayhem/review");
-      try {
-        return readdirSync(dir).filter((n) => n.endsWith(".json")).map((n) => ({ id: n.slice(0, -5), text: readFileSync(join(dir, n), "utf8") }));
-      } catch {
-        return [];
-      }
+    if (cmd === "review_branches") {
+      const found = await reviewBranches(repo);
+      return { main: found.main ?? null, branches: found.branches };
     }
-    if (cmd === "review_item_save") {
-      const path = join(repo, "tools/mayhem/review", `${args.id}.json`);
-      let current: string | null = null;
-      try {
-        current = readFileSync(path, "utf8");
-      } catch {}
-      if (current !== (args.expected ?? null)) throw new Error("changed meanwhile");
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, args.text);
+    if (cmd === "review_reaches") return Promise.all((args.targets as string[]).map(async (t) => (await reaches(repo, args.base, args.tip, t)) ?? null));
+    if (cmd === "review_proofs") return readProofNotes(repo, args.commits);
+    if (cmd === "review_proof_save") {
+      execFileSync("git", ["-C", repo, "-c", "user.name=Mayhem", "-c", "user.email=mayhem@localhost", "notes", "--ref=refs/notes/mayhem-proof", "add", "-f", "-m", args.text, args.commitId], { stdio: "pipe" });
       return null;
     }
     if (cmd === "review_history") {

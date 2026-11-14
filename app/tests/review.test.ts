@@ -13,9 +13,9 @@ import { parseExplainer, robotParts } from "../src/suite/core/review/explainer";
 import { sampleProject } from "../src/suite/core/sample";
 import { machineFromSpec } from "../src/suite/core/authoring";
 import { checkExpectations, compareOutcomes, compileSteps, parseExpectation, scenarioSet, type Outcome } from "../src/suite/core/review/scenarios";
-import { execute, recordTaskProof } from "../../scripts/mayhem.mjs";
-import { readItem, saveItem } from "../../scripts/review-tasks.mjs";
-import { STALLED_HOURS, agentActivity, createItem, hoursWithAgent, includesTask, latestProof, move, parseFinding, parseItem, proofText, recordProof, serializeItem, taskBase, tasksInMessage } from "../src/suite/core/review/tasks";
+import { execute } from "../../scripts/mayhem.mjs";
+import { reaches, readProofNotes, recordProof } from "../../scripts/review-git.mjs";
+import { parseProofNote, proofFor, proofText, withProof } from "../src/suite/core/review/proofs";
 import { summarizeProof } from "../src/suite/core/review/simproof";
 
 const SHOOTER = `// Copyright header that is not a doc comment.
@@ -345,79 +345,14 @@ describe("generated robot code", () => {
   });
 });
 
-describe("feedback and tasks", () => {
-  it("turns feedback into tasks with context, and only allows sensible moves", () => {
-    const now = new Date("2026-11-13T18:00:00Z");
-    const item = createItem({ author: "Maya", kind: "thumbs-down", text: "Shooter keeps spinning after I let go of A. Happened twice.", anchor: { log: "Q14.wpilog", time: 42.5 } }, now);
-    expect(item).toMatchObject({ status: "open", title: "Shooter keeps spinning after I let go of A", anchor: { log: "Q14.wpilog", time: 42.5 } });
-    expect(createItem({ author: "Maya", kind: "thumbs-up", text: "" }, now).status).toBe("noted");
-    expect(() => move(item, "approve", "Maya")).toThrow(/Can't approve/);
-    const claimed = move(item, "claim", "claude-1", {}, now);
-    expect(() => move(claimed, "plan", "claude-1", { plan: " " })).toThrow(/plan needs text/);
-    expect(() => move(claimed, "plan", "codex-2", { plan: "x" })).toThrow(/belongs to claude-1/);
-    const planned = move(claimed, "plan", "claude-1", { plan: "Stop the flywheel when A is released, even in the alliance zone." }, now);
-    const sentBack = move(planned, "reject", "Coach Lee", { note: "Keep it revving in the zone" }, now);
-    expect(sentBack).toMatchObject({ status: "claimed", planDecision: { approved: false, by: "Coach Lee", note: "Keep it revving in the zone" } });
-    const approved = move(move(sentBack, "plan", "claude-1", { plan: "Lower the idle speed in the zone." }), "approve", "Coach Lee");
-    expect(approved.status).toBe("approved");
-    expect(parseItem(serializeItem(approved))).toEqual(approved);
-    expect(tasksInMessage("Lower idle\n\nMayhem-Task: 20261113180000-ab12\nCo-Authored-By: x")).toEqual(["20261113180000-ab12"]);
-  });
-
-  it("needs a reason to send work back, and lets a person take a task back from an agent that stopped", () => {
-    const at = (iso: string) => new Date(iso);
-    const open = createItem({ author: "Maya", kind: "comment", text: "Slide stalls against the wall" }, at("2026-11-13T18:00:00Z"));
-    const claimed = move(open, "claim", "claude", {}, at("2026-11-13T18:05:00Z"));
-    const planned = move(claimed, "plan", "claude", { plan: "Retract when the current spikes." }, at("2026-11-13T18:10:00Z"));
-    expect(() => move(planned, "reject", "Maya")).toThrow(/what the plan should do differently/);
-    expect(() => move(planned, "reject", "Maya", { note: "  " })).toThrow(/differently/);
-    const working = move(planned, "approve", "Maya", {}, at("2026-11-13T18:20:00Z"));
-    const ready = move(move(working, "progress", "claude", { change: { revision: "abc1234", level: "yellow", findings: ["[yellow] Other robot code changed: Slide.cpp."] } }, at("2026-11-13T19:00:00Z")), "finish", "claude", {}, at("2026-11-13T19:01:00Z"));
-    expect(() => move(ready, "reopen", "Maya")).toThrow(/what is not right/);
-    const sentBack = move(ready, "reopen", "Maya", { note: "It retracts while intaking too" });
-    expect(sentBack).toMatchObject({ status: "open", agent: "claude" });
-    expect(sentBack.history.at(-1)!.what).toBe("reopened it: It retracts while intaking too");
-    // A finished or declined task reopens without a reason.
-    expect(move(move(ready, "accept", "Maya"), "reopen", "Maya").status).toBe("open");
-
-    // The agent stopped: after a day the task reads as stalled, and a person takes it back.
-    expect(hoursWithAgent(working, at("2026-11-13T19:20:00Z"))).toBeCloseTo(1);
-    expect(hoursWithAgent(working, at("2026-11-15T18:20:00Z"))!).toBeGreaterThan(STALLED_HOURS);
-    expect(hoursWithAgent(planned, at("2026-11-15T18:20:00Z"))).toBeUndefined(); // waiting on a person, not the agent
-    const takenBack = move(working, "reopen", "Maya");
-    expect(takenBack.agent).toBeUndefined();
-    expect(takenBack.history.at(-1)!.what).toBe("took it back from claude");
-    expect(move(takenBack, "claim", "codex-2").agent).toBe("codex-2");
-
-    // Who is on the queue, from the histories alone.
-    const other = move(createItem({ author: "Dev", kind: "comment", text: "X should toggle" }, at("2026-11-13T17:00:00Z")), "claim", "codex-2", {}, at("2026-11-13T17:30:00Z"));
-    expect(agentActivity([ready, other, open])).toEqual([
-      { agent: "claude", holding: 0, lastAt: "2026-11-13T19:01:00.000Z" },
-      { agent: "codex-2", holding: 1, lastAt: "2026-11-13T17:30:00.000Z" },
-    ]);
-    expect(agentActivity([open])).toEqual([]);
-    expect(parseFinding("[red] Feeder: Stator current limit 80 A → 60 A")).toEqual({ level: "red", text: "Feeder: Stator current limit 80 A → 60 A" });
-    expect(parseFinding("plain line")).toEqual({ text: "plain line" });
-  });
-
-  it("keeps a sim proof on the commit it ran on, and tells where an accepted change has got to", () => {
-    const at = (iso: string) => new Date(iso);
-    let task = move(createItem({ author: "Maya", kind: "comment", text: "Slide stalls" }, at("2026-11-13T18:00:00Z")), "claim", "claude", {}, at("2026-11-13T18:01:00Z"));
-    task.base = "base000";
-    task = move(move(task, "plan", "claude", { plan: "Retract on stall." }), "approve", "Maya");
-    task = move(task, "progress", "claude", { change: { revision: "aaa1111", level: "yellow" } }, at("2026-11-13T19:00:00Z"));
-    expect(latestProof(task)).toEqual({ revision: "aaa1111" });
-    expect(() => recordProof(task, "bbb2222", { by: "claude", ran: 1, failed: [], different: [] })).toThrow(/no reported commit bbb2222/);
-    const clean = recordProof(task, "aaa1111", { by: "claude", before: "base000", ran: 41, failed: [], different: [] }, at("2026-11-13T19:05:00Z"));
-    expect(clean.status).toBe("approved"); // evidence, not a decision
-    expect(latestProof(clean)!.proof).toMatchObject({ by: "claude", ran: 41, at: "2026-11-13T19:05:00.000Z" });
-    expect(proofText(clean.changes[0].proof!)).toBe("41 scenarios pass, same behavior");
-    expect(proofText({ at: "", by: "x", ran: 41, failed: [], different: ["tap X", "hold A"] })).toBe("41 scenarios pass, 2 behave differently");
-    expect(proofText({ at: "", by: "x", ran: 41, failed: [], different: ["tap X"] })).toBe("41 scenarios pass, 1 behaves differently");
-    expect(proofText({ at: "", by: "x", ran: 1, failed: ["Hold A shoots"], different: [] })).toBe("1 of 1 scenario failed");
-    // A newer commit has no proof until one is run on it.
-    const again = move(clean, "progress", "claude", { change: { revision: "ccc3333", level: "yellow" } });
-    expect(latestProof(again)).toEqual({ revision: "ccc3333" });
+describe("sim proofs kept on commits", () => {
+  const at = "2026-11-13T19:05:00.000Z";
+  it("keeps the newest run per compared version in a commit's note", () => {
+    const clean = { before: "base000", at, by: "claude", ran: 41, failed: [], different: [] };
+    expect(proofText(clean)).toBe("41 scenarios pass, same behavior");
+    expect(proofText({ ...clean, different: ["tap X", "hold A"] })).toBe("41 scenarios pass, 2 behave differently");
+    expect(proofText({ ...clean, different: ["tap X"] })).toBe("41 scenarios pass, 1 behaves differently");
+    expect(proofText({ ...clean, ran: 1, failed: ["Hold A shoots"] })).toBe("1 of 1 scenario failed");
     expect(summarizeProof({ results: [{ scenario: { name: "tap X" }, failed: false, differences: ["x"] }, { scenario: { name: "Depot" }, failed: true, differences: [] }] as never, passed: false, changed: 1 }, { by: "Maya", before: "base000", partial: true })).toEqual({
       before: "base000",
       by: "Maya",
@@ -427,20 +362,27 @@ describe("feedback and tasks", () => {
       partial: true,
     });
 
-    // Merged as-is, squash-merged (the message survives, the commit does not), or not there.
-    expect(taskBase(clean)).toBe("base000");
-    expect(taskBase({ ...clean, base: undefined })).toBe("aaa1111~1");
-    expect(includesTask(clean, [{ sha: "zzz", subject: "Other work" }, { sha: "aaa1111", subject: "Retract on stall" }])).toBe(true);
-    expect(includesTask(clean, [{ sha: "squash9", subject: "Retract on stall (#41)", body: `* Retract\n\nMayhem-Task: ${clean.id}` }])).toBe(true);
-    expect(includesTask(clean, [{ sha: "zzz", subject: "Other work", body: "Mayhem-Task: 20260101000000-zzzz" }])).toBe(false);
-    expect(includesTask(clean, [])).toBe(false);
+    expect(parseProofNote(undefined)).toEqual([]);
+    expect(parseProofNote("not json")).toEqual([]);
+    expect(parseProofNote(JSON.stringify({ format: "something-else", proofs: [clean] }))).toEqual([]);
+    const note = withProof(null, clean);
+    expect(parseProofNote(note)).toEqual([clean]);
+    // A later run against the same version replaces it; a run against another version is kept beside it.
+    const later = { ...clean, at: "2026-11-13T20:00:00.000Z", by: "Maya", failed: ["Depot Sweep"] };
+    const other = { ...clean, before: "main111", at: "2026-11-13T19:30:00.000Z" };
+    const both = parseProofNote(withProof(withProof(note, other), later));
+    expect(both.map((p) => [p.before, p.by])).toEqual([["base000", "Maya"], ["main111", "claude"]]);
+    // Reviewing against a base shows the run against that base, else the newest one there is.
+    expect(proofFor(both, "main111")!.by).toBe("claude");
+    expect(proofFor(both, "elsewhere")!.by).toBe("Maya");
+    expect(proofFor([], "base000")).toBeUndefined();
   });
 
-  it("runs the agent loop through the MCP tools, labels risk and auto-accepts path-only changes", async () => {
-    const repo = await mkdtemp(join(tmpdir(), "mayhem-tasks-"));
+  it("lists branches as changes, finds them in main however they were merged, and keeps proofs on their commits", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "mayhem-branches-"));
     try {
       const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" }).toString().trim();
-      git("init", "-q");
+      git("init", "-q", "-b", "main");
       git("config", "user.email", "test@example.com");
       git("config", "user.name", "Test");
       for (const [path, text] of Object.entries(files())) {
@@ -449,79 +391,55 @@ describe("feedback and tasks", () => {
       }
       git("add", ".");
       git("commit", "-qm", "robot");
-      const added = await execute("add_feedback", { repo, author: "Maya", kind: "thumbs-down", text: "Auto misses the first piece" });
-      expect((await execute("list_tasks", { repo })).tasks.map((t: { id: string }) => t.id)).toEqual([added.id]);
-      await execute("claim_task", { repo, id: added.id, agent: "claude-1" });
-      await execute("propose_plan", { repo, id: added.id, agent: "claude-1", plan: "Move the first pickup 30 cm left." });
-      await expect(execute("report_progress", { repo, id: added.id, agent: "claude-1", revision: "HEAD" })).rejects.toThrow(/Can't progress/);
-      // A person approves in the app (same file rules).
-      const { item, text } = await readItem(repo, added.id);
-      await saveItem(repo, move(item, "approve", "Coach Lee"), text);
-      const project = structuredClone(sampleProject);
-      project.routines[0].nodes.find((n) => n.kind === "pose")!.goal!.x += 0.3;
-      await writeFile(join(repo, "robot.mayhem.json"), JSON.stringify(project));
-      git("commit", "-qam", `Move pickup\n\nMayhem-Task: ${added.id}`);
-      const progressed = await execute("report_progress", { repo, id: added.id, agent: "claude-1", revision: "HEAD", summary: "moved pickup" });
-      expect(progressed.changes[0]).toMatchObject({ summary: "moved pickup", level: expect.stringMatching(/green|yellow/) });
-      const finished = await execute("finish_task", { repo, id: added.id, agent: "claude-1" });
-      expect(finished.status).toBe(progressed.changes[0].level === "green" ? "done" : "review");
-      // A safety change always waits for a person.
-      const second = await execute("add_feedback", { repo, author: "Maya", text: "Shooter browns out" });
-      await execute("claim_task", { repo, id: second.id, agent: "claude-1" });
-      await execute("propose_plan", { repo, id: second.id, agent: "claude-1", plan: "Lower the shooter current limit to 60 A." });
-      const r2 = await readItem(repo, second.id);
-      await saveItem(repo, move(r2.item, "approve", "Coach Lee"), r2.text);
-      await writeFile(join(repo, "src/main/include/subsystems/shooter/ShooterConstants.h"), SHOOTER.replace("80_A", "60_A"));
-      git("commit", "-qam", "Lower limit");
-      expect((await execute("report_progress", { repo, id: second.id, agent: "claude-1", revision: "HEAD" })).changes[0].level).toBe("red");
-      // Finished with no sim proof on the commit: allowed, but the agent is told and people will see it.
-      const unproven = await execute("finish_task", { repo, id: second.id, agent: "claude-1" });
-      expect(unproven.status).toBe("review");
-      expect(unproven.warning).toMatch(/No sim proof is recorded/);
-      expect((await readItem(repo, second.id)).item).not.toHaveProperty("warning");
-      // Logic the review can't read is never called "no behavior change": a person checks it.
-      const approvedTask = async (text: string) => {
-        const task = await execute("add_feedback", { repo, author: "Maya", text });
-        await execute("claim_task", { repo, id: task.id, agent: "claude-1" });
-        await execute("propose_plan", { repo, id: task.id, agent: "claude-1", plan: "Do it." });
-        const read = await readItem(repo, task.id);
-        await saveItem(repo, move(read.item, "approve", "Coach Lee"), read.text);
-        return task.id as string;
+      const start = git("rev-parse", "HEAD");
+      const commit = async (path: string, text: string, message: string) => {
+        await mkdir(join(repo, path, ".."), { recursive: true });
+        await writeFile(join(repo, path), text);
+        git("add", ".");
+        git("commit", "-qm", message);
+        return git("rev-parse", "HEAD");
       };
-      const fourthless = await approvedTask("Not started yet");
-      const third = await approvedTask("Intake should retract when the slide stalls");
-      await mkdir(join(repo, "src/main/cpp/subsystems"), { recursive: true });
-      await writeFile(join(repo, "src/main/cpp/subsystems/Superstructure.cpp"), "void Superstructure::Periodic() { Retract(); }\n");
-      git("add", ".");
-      git("commit", "-qm", "Retract on stall");
-      const logic = await execute("report_progress", { repo, id: third, agent: "claude-1", revision: "HEAD" });
-      expect(logic.changes[0]).toMatchObject({ level: "yellow", findings: [expect.stringMatching(/Other robot code changed: Superstructure\.cpp/)] });
-      // The tool that ran the simulation keeps its result on the commit; a proof of anything else is refused.
-      const ran = (failed: boolean, differences: string[] = []) => ({ scenario: { name: failed ? "Hold A shoots" : "tap X" }, failed, differences, checks: [], logs: {} });
-      const proof = { results: [ran(false), ran(false, ["Intake mode: STOWED → INTAKING"]), ran(true)], passed: false, changed: 1 };
-      expect(await recordTaskProof(repo, third, "WORKTREE", proof, { by: "claude-1" })).toMatchObject({ recorded: false, reason: expect.stringMatching(/only for a reported commit/) });
-      const kept = await recordTaskProof(repo, third, logic.changes[0].revision, proof, { by: "claude-1", before: logic.base });
-      expect(kept).toEqual({ recorded: true, summary: "1 of 3 scenarios failed" });
-      const proven = await execute("finish_task", { repo, id: third, agent: "claude-1" });
-      expect(proven.status).toBe("review");
-      expect(proven.warning).toBeUndefined();
-      expect(proven.changes[0].proof).toMatchObject({ by: "claude-1", before: logic.base, ran: 3, failed: ["Hold A shoots"], different: ["tap X"] });
-      expect(proven.history.map((h: { what: string }) => h.what)).toContain(`ran the sim proof on ${logic.changes[0].revision.slice(0, 7)}: 1 of 3 scenarios failed`);
-      // A task's proof needs a commit to run on.
-      await expect(execute("run_scenarios", { repo, task: fourthless })).rejects.toThrow(/no reported commit yet/);
-      // The same edit, not yet committed, shows up against the working tree too.
-      await writeFile(join(repo, "src/main/cpp/subsystems/Superstructure.cpp"), "void Superstructure::Periodic() {}\n");
-      expect((await execute("behavior_diff", { repo })).findings).toEqual([expect.objectContaining({ area: "code", level: "yellow" })]);
-      git("checkout", "-q", "--", ".");
-      // Nothing that reaches the robot changed (notes, a new scenario): accepted, and it says why.
-      const fourth = await approvedTask("Write down how the intake works");
-      await writeFile(join(repo, "NOTES.md"), "The intake retracts on a stall.\n");
-      git("add", ".");
-      git("commit", "-qm", "Notes");
-      expect((await execute("report_progress", { repo, id: fourth, agent: "claude-1", revision: "HEAD" })).changes[0].level).toBe("none");
-      const noted = await execute("finish_task", { repo, id: fourth, agent: "claude-1" });
-      expect(noted.status).toBe("done");
-      expect(noted.history.at(-1).what).toMatch(/no robot code changed/);
+      for (const name of ["agent/merge-me", "agent/squash-me", "agent/open"]) {
+        git("checkout", "-q", "-b", name, start);
+        await commit(`src/main/cpp/${name.slice(6)}.cpp`, "void A() {}\n", `${name} 1`);
+        await commit(`src/main/cpp/${name.slice(6)}.cpp`, "void A() { B(); }\n", `${name} 2`);
+      }
+      const open = git("rev-parse", "agent/open");
+      git("checkout", "-q", "main");
+      await commit("NOTES.md", "main moves on\n", "main moves on");
+      git("merge", "-q", "--no-ff", "agent/merge-me", "-m", "Merge agent/merge-me");
+      git("merge", "-q", "--squash", "agent/squash-me");
+      git("commit", "-qm", "squash-me (#2)");
+
+      const { main, branches } = await execute("list_changes", { repo });
+      expect(main).toMatchObject({ rev: "main", sha: git("rev-parse", "main") });
+      const by = (name: string) => branches.find((b: { name: string }) => b.name === name);
+      expect(branches.map((b: { name: string }) => b.name).sort()).toEqual(["agent/merge-me", "agent/open", "agent/squash-me"]);
+      for (const name of ["agent/merge-me", "agent/squash-me", "agent/open"]) expect(by(name)).toMatchObject({ base: start, ahead: 2 });
+      expect(by("agent/merge-me").merged).toBe(true);
+      expect(by("agent/squash-me").merged).toBe(true); // the patch is in main, the commits are not
+      expect(by("agent/open")).toMatchObject({ merged: false, sha: open, subject: "agent/open 2", author: "Test" });
+
+      // The same question for any commit: what the robot runs, what a log ran.
+      expect(await reaches(repo, start, open, "main")).toBe(false);
+      expect(await reaches(repo, start, open, open)).toBe(true);
+      expect(await reaches(repo, start, open, "0123456789012345678901234567890123456789")).toBeUndefined();
+
+      // `base` compares a branch with where it left main: main's own later commits are not its changes.
+      git("checkout", "-q", "agent/open");
+      const diff = await execute("behavior_diff", { repo, base: "main", after: "HEAD" });
+      expect(diff.before.rev).toBe(start);
+      expect(diff.findings).toEqual([expect.objectContaining({ area: "code", text: expect.stringMatching(/open\.cpp/) })]);
+      await expect(execute("behavior_diff", { repo, base: "main", before: "HEAD~1" })).rejects.toThrow(/not both/);
+
+      // A proof stays on the commit it ran on; a newer commit has none.
+      expect(await readProofNotes(repo, [open])).toEqual([null]);
+      const kept = await recordProof(repo, "HEAD", { before: start, at, by: "claude", ran: 40, failed: [], different: ["hold LT"] });
+      expect(kept).toEqual([{ before: start, at, by: "claude", ran: 40, failed: [], different: ["hold LT"] }]);
+      const newer = await commit("src/main/cpp/open.cpp", "void A() { C(); }\n", "agent/open 3");
+      expect(parseProofNote((await readProofNotes(repo, [open]))[0])).toHaveLength(1);
+      expect(await readProofNotes(repo, [newer])).toEqual([null]);
+      await expect(recordProof(repo, "no-such-branch", kept[0])).rejects.toThrow(/not a commit/);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

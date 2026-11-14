@@ -6,7 +6,7 @@ This walks through building an auto, previewing it, and getting it into robot co
 
 On **Overview**, click **Choose robot code folder** and pick your robot repository. If it has a `robot.mayhem.json`, Mayhem opens that project, linked to the file, so your edits save straight into the repo.
 
-No project yet? Click the project name in the top bar and create one, then save it into the repo later with **Tasks → Connect an agent → Save project file**.
+No project yet? Click the project name in the top bar and create one, then save it into the repo later with **Settings → Agents and the project file → Save project file**.
 
 ## 2. Tell Mayhem about the robot
 

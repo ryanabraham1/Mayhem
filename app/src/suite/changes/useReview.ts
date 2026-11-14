@@ -76,7 +76,7 @@ export function useReview() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [proof, setProof] = useState<SimProof>();
-  // The two versions the proof ran on (commits, or WORKTREE), to keep its result on a task.
+  // The two versions the proof ran on (commits, or WORKTREE), to keep its result on the commit.
   const [proofRevs, setProofRevs] = useState<{ before: string; after: string }>();
   const [simProgress, setSimProgress] = useState<{ text: string; done: number; total: number }>();
   const [simError, setSimError] = useState<string>();
@@ -178,8 +178,6 @@ export function useReview() {
 
   return {
     sim: { proof, revs: proofRevs, progress: simProgress, error: simError, errors: simErrors, start: startSim, set: setProof },
-    /** What another page asked this one to show (a task's change, with or without its sim proof). */
-    request,
     repo,
     setRepo,
     info,

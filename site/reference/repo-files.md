@@ -9,7 +9,6 @@ Everything Mayhem keeps in a robot repo. All of it is plain text, meant to be co
 | `src/main/include/mayhem/` | `vendor` | Vendored C++ headers, if you vendor instead of using the vendordep. |
 | `tools/mayhem/machines.json` | People, agents | [Machine specs](/robot-code/state-machines). Source of the driver-controls review. |
 | `tools/mayhem/scenarios.json` | People, agents | [Sim proof scenarios](/robot-code/scenarios). |
-| `tools/mayhem/review/<id>.json` | The app, agents | One file per [task](/agents/tasks). |
 | `tools/mayhem/explainer.json` | The app | Plain-language part descriptions for **Overview → How the robot works**. |
 | `tools/mayhem/export.sh` | You | Regenerates `MayhemProject.h`; `--check` for CI. |
 | `src/main/deploy/mayhem-build.json` | Your build | The [build stamp](/robot-code/logging#what-s-deployed). Git-ignored. |

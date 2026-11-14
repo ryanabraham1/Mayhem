@@ -37,14 +37,13 @@ import { vendorCpp } from "./cpp-vendor.mjs";
 const { applyMachineSpecs, machineFromSpec, specFromMachine, routineFromMtraj } = await import("../app/src/suite/core/authoring.ts");
 import { execFile } from "node:child_process";
 const { buildReport, WORKTREE } = await import("../app/src/suite/core/review/report.ts");
-const { gitSnapshot } = await import("./review-git.mjs");
+const { gitSnapshot, mainRef, recordProof, reviewBranches } = await import("./review-git.mjs");
 const { nodeRunner } = await import("./review-sim.mjs");
 const { scenarioSet, describeTrack } = await import("../app/src/suite/core/review/scenarios.ts");
 const { runSimProof, summarizeProof } = await import("../app/src/suite/core/review/simproof.ts");
 const { parseMachineSpecs } = await import("../app/src/suite/core/review/machines.ts");
 const { readProject } = await import("../app/src/suite/core/review/autos.ts");
-const { createItem, move, proofText, recordProof, taskBase, STATUS_NAMES } = await import("../app/src/suite/core/review/tasks.ts");
-const { listItems, readItem, saveItem } = await import("./review-tasks.mjs");
+const { proofText } = await import("../app/src/suite/core/review/proofs.ts");
 const tools = [
   {
     name: "apply_machine_spec",
@@ -187,13 +186,14 @@ const tools = [
   {
     name: "behavior_diff",
     description:
-      "Compare the behavior of two revisions of a robot repo the way the team reviews it (docs/SUITE_AGENTS.md, Behavior review): hardware (CAN IDs, motor direction, brake/coast, current limits, gear ratios), constants with units, state machines (tools/mayhem/machines.json) including driver-control changes, and autonomous paths (the root *.mayhem.json) driven in the path preview. Returns a risk level: red = safety-related hardware/settings change; yellow = controls, machines or other values changed, other robot code changed that the review can't read (it lists the files; people judge those by the sim proof), or a team sim proof scenario was removed or loosened; green = only auto paths changed and every changed path completes. Run it on your own change before asking a human to review. `before` defaults to HEAD, `after` to the working tree (\"WORKTREE\").",
+      "Compare the behavior of two revisions of a robot repo the way the team reviews it (docs/SUITE_AGENTS.md, Behavior review): hardware (CAN IDs, motor direction, brake/coast, current limits, gear ratios), constants with units, state machines (tools/mayhem/machines.json) including driver-control changes, and autonomous paths (the root *.mayhem.json) driven in the path preview. Returns a risk level: red = safety-related hardware/settings change; yellow = controls, machines or other values changed, other robot code changed that the review can't read (it lists the files; people judge those by the sim proof), or a team sim proof scenario was removed or loosened; green = only auto paths changed and every changed path completes. Run it on your own change before asking a human to review: `base: \"main\"` compares with the commit your branch left main at, which is what the person sees in the app. `before` defaults to HEAD, `after` to the working tree (\"WORKTREE\").",
     inputSchema: {
       type: "object",
       properties: {
         repo: { type: "string", description: "Robot repository directory." },
         before: { type: "string", description: "Git revision (default HEAD)." },
         after: { type: "string", description: "Git revision, or WORKTREE for uncommitted files (default)." },
+        base: { type: "string", description: "Instead of `before`: a branch (usually \"main\"). Compares `after` with the commit where it left that branch, i.e. what this branch changes." },
         detail: { type: "string", enum: ["summary", "full"], description: "summary (default): level, findings, errors. full: the whole report (devices, settings, machines, paths)." },
       },
       required: ["repo"],
@@ -202,15 +202,15 @@ const tools = [
   {
     name: "run_scenarios",
     description:
-      "Sim proof (docs/SUITE_AGENTS.md, Sim proof): build a revision of the robot repo with Mayhem's probe test and run scenarios through the robot's own simulation: every controller button tapped and held from teleop, every auto in the root *.mayhem.json, and the team's tools/mayhem/scenarios.json (plain steps such as \"hold A 2\" and expectations such as \"Shooter mode is SHOOTING by 1.5 s\"). With `before`, each scenario also runs on that revision and differences in what the robot does (machine states, drive mode, auto result) are reported; the team rule is that the same driver inputs give the same outcomes. Takes about a minute per revision the first time (cached per commit). Needs the robot's Gradle/WPILib toolchain on this computer. With `task`, the result is recorded on that task's commit by this tool; do not describe a proof in a note instead, people trust the recorded one.",
+      "Sim proof (docs/SUITE_AGENTS.md, Sim proof): build a revision of the robot repo with Mayhem's probe test and run scenarios through the robot's own simulation: every controller button tapped and held from teleop, every auto in the root *.mayhem.json, and the team's tools/mayhem/scenarios.json (plain steps such as \"hold A 2\" and expectations such as \"Shooter mode is SHOOTING by 1.5 s\"). With `before`, each scenario also runs on that revision and differences in what the robot does (machine states, drive mode, auto result) are reported; the team rule is that the same driver inputs give the same outcomes. Takes about a minute per revision the first time (cached per commit). Needs the robot's Gradle/WPILib toolchain on this computer. When `after` is a commit, this tool records the result on that commit (a git note); the person reviewing the change in the Mayhem app sees that record, so run it on your committed work with `base: \"main\"` and every scenario (no names or groups) before saying a change is ready, and do not describe a proof in words instead.",
     inputSchema: {
       type: "object",
       properties: {
         repo: { type: "string", description: "Robot repository directory." },
-        after: { type: "string", description: "Revision to test (default WORKTREE, the uncommitted files; with `task`, its newest reported commit)." },
-        before: { type: "string", description: "Optional revision to compare against, e.g. HEAD or main (with `task`, its base)." },
-        task: { type: "string", description: "A task id: run the task's base against its newest reported commit and keep the result on the task, where the person checking the change sees it. Do this after report_progress and before finish_task, with no names or groups so it is the whole proof." },
-        agent: { type: "string", description: "Your name, recorded with a task's proof." },
+        after: { type: "string", description: "Revision to test (default WORKTREE, the uncommitted files). A proof is recorded only for a commit, e.g. HEAD." },
+        before: { type: "string", description: "Optional revision to compare against, e.g. HEAD or main." },
+        base: { type: "string", description: "Instead of `before`: a branch (usually \"main\"). Compares `after` with the commit where it left that branch, which is the comparison the app shows for a branch." },
+        by: { type: "string", description: "Your name, recorded with the proof (e.g. \"claude\")." },
         groups: { type: "array", items: { type: "string", enum: ["button", "auto", "custom"] }, description: "Which scenarios (default all)." },
         names: { type: "array", items: { type: "string" }, description: "Only scenarios whose name contains one of these (case-insensitive), e.g. [\"Hold A\", \"Outpost\"]." },
         scenarios: {
@@ -223,59 +223,10 @@ const tools = [
     },
   },
   {
-    name: "list_tasks",
+    name: "list_changes",
     description:
-      "Feedback from the team turned into tasks (docs/SUITE_AGENTS.md, Tasks): one file each in the robot repo's tools/mayhem/review/. Returns id, title, kind, status, agent and anchor (log, time, revision, field pose, scenario). `status` filters (default: everything not done/declined/noted). Pick an open task, claim it, then propose a plan and wait for a person to approve it before changing code.",
-    inputSchema: { type: "object", properties: { repo: { type: "string" }, status: { type: "array", items: { type: "string", enum: ["noted", "open", "claimed", "plan", "approved", "review", "done", "declined"] } } }, required: ["repo"] },
-  },
-  {
-    name: "get_task",
-    description: "One task with its full context: the feedback text, driver form answers, anchor (log name/path and seconds into it, code revision, field pose, sim scenario), plan, decision, commits with their behavior risk, and history.",
-    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" } }, required: ["repo", "id"] },
-  },
-  {
-    name: "claim_task",
-    description: "Take an open task. `agent` is your name (shown to people). Records the repo's current HEAD as the base the change is compared against.",
-    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" }, agent: { type: "string" } }, required: ["repo", "id", "agent"] },
-  },
-  {
-    name: "propose_plan",
-    description:
-      "Before changing code: describe in plain English, for people who don't read code, what will change on the robot and how they will be able to tell (which button, auto or value; what sim proof scenario covers it). The task waits in \"Plan to approve\" until a person approves it in the Mayhem app; poll get_task until status is \"approved\" (or back to \"claimed\" with a note asking for a different plan). Do not start coding before approval.",
-    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" }, agent: { type: "string" }, plan: { type: "string" } }, required: ["repo", "id", "agent", "plan"] },
-  },
-  {
-    name: "report_progress",
-    description:
-      "After committing work for an approved task, report the commit. Put a `Mayhem-Task: <id>` trailer in the commit message so the Changes page links the change to this feedback. Mayhem runs behavior_diff on the commit (against the task's base) and stores its risk level and findings on the task.",
-    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" }, agent: { type: "string" }, revision: { type: "string" }, summary: { type: "string" } }, required: ["repo", "id", "agent", "revision"] },
-  },
-  {
-    name: "finish_task",
-    description:
-      "Mark an approved task's work done. If every reported commit is green (only auto paths changed and every changed path finishes) or touched no robot code at all, it is accepted automatically; otherwise a person checks it (\"Ready to check\"). Any change to robot code the review can't read (logic in .cpp files, vendored libraries, deploy files) is yellow and always waits for a person, who judges it by the sim proof: run run_scenarios with `task` set to this task first, which records the result on the commit. The reply carries a `warning` when the newest commit has no complete proof.",
-    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" }, agent: { type: "string" }, note: { type: "string" } }, required: ["repo", "id", "agent"] },
-  },
-  {
-    name: "release_task",
-    description: "Give a claimed task back (open again), e.g. when it needs something you can't do. Say why in `note`.",
-    inputSchema: { type: "object", properties: { repo: { type: "string" }, id: { type: "string" }, agent: { type: "string" }, note: { type: "string" } }, required: ["repo", "id", "agent"] },
-  },
-  {
-    name: "add_feedback",
-    description: "Record feedback someone gave you (e.g. a driver in chat) as a task, with whatever anchor you know.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        repo: { type: "string" },
-        author: { type: "string", description: "The person who gave the feedback." },
-        kind: { type: "string", enum: ["comment", "thumbs-up", "thumbs-down", "field-point", "pit-note"] },
-        title: { type: "string" },
-        text: { type: "string" },
-        anchor: { type: "object" },
-      },
-      required: ["repo", "author", "text"],
-    },
+      "The robot repo's branches as the Mayhem app lists them for review (Changes page): each with the commit it left main at (`base`), how many commits it adds, and whether main already has it (merged, rebased or squashed). Use `base`..`sha` of your branch with behavior_diff and run_scenarios to see what the person reviewing it will see.",
+    inputSchema: { type: "object", properties: { repo: { type: "string", description: "Robot repository directory." } }, required: ["repo"] },
   },
   {
     name: "analyze_log",
@@ -425,37 +376,33 @@ async function updateProject(path, args, change) {
   const saved = await execute("save_project", { path, project, expectedRevision: current.revision });
   return { ...saved, ...result };
 }
+const commitOf = (repo, rev) =>
+  new Promise((done, fail) => execFile("git", ["-C", repo, "rev-parse", "--verify", `${rev}^{commit}`], (error, out) => (error ? fail(new Error(`${rev} is not a commit.`)) : done(out.trim()))));
+/**
+ * The version to compare with: `before` as given, or with `base` (a branch, usually "main") the
+ * commit where `after` left that branch, which is what a branch changes and what the app reviews.
+ */
+async function beforeOf(repo, args) {
+  if (!args.base) return args.before;
+  if (args.before) throw new Error("Give `before` or `base`, not both.");
+  const tip = !args.after || args.after === WORKTREE ? "HEAD" : args.after;
+  const from = args.base === "main" ? ((await mainRef(repo))?.rev ?? "main") : args.base;
+  return new Promise((done, fail) =>
+    execFile("git", ["-C", repo, "merge-base", from, tip], (error, out) => (error ? fail(new Error(`No common commit between ${from} and ${tip}.`)) : done(out.trim()))),
+  );
+}
 export async function behaviorDiff(args) {
   if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
   const repo = resolve(args.repo);
-  const report = buildReport(await gitSnapshot(repo, args.before ?? "HEAD"), await gitSnapshot(repo, args.after ?? WORKTREE));
+  const report = buildReport(await gitSnapshot(repo, (await beforeOf(repo, args)) ?? "HEAD"), await gitSnapshot(repo, args.after ?? WORKTREE));
   if (args.detail === "full") return report;
   const { level, findings, errors, before, after } = report;
   return { before, after, level, findings, errors };
 }
-/**
- * Keeps a finished proof on the task's commit `revision` (a full sha). The tool that ran the
- * simulation writes this, so people read the run's result rather than an agent's account of it.
- */
-export async function recordTaskProof(repo, id, revision, proof, meta) {
-  const { item, text } = await readItem(repo, id);
-  if (!item.changes.some((c) => c.revision === revision))
-    return { recorded: false, reason: `${revision === WORKTREE ? "Uncommitted files" : revision.slice(0, 7)} is not a commit reported on task ${id}; a proof is kept only for a reported commit (commit, report_progress, then run_scenarios with task).` };
-  const summary = summarizeProof(proof, meta);
-  await saveItem(repo, recordProof(item, revision, summary), text);
-  return { recorded: true, summary: proofText(summary) };
-}
 export async function runScenarios(args, progress) {
   if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
   const repo = resolve(args.repo);
-  // For a task: its base against its newest reported commit, and the result is kept on the task.
-  let task;
-  if (args.task) {
-    task = (await readItem(repo, args.task)).item;
-    const last = task.changes.at(-1);
-    if (!last) throw new Error(`Task ${task.id} has no reported commit yet. Commit, report_progress, then run its sim proof.`);
-    args = { ...args, after: args.after ?? last.revision, before: args.before ?? taskBase(task) };
-  }
+  args = { ...args, before: await beforeOf(repo, args) };
   const snapshot = await gitSnapshot(repo, args.after ?? WORKTREE);
   const machines = parseMachineSpecs(snapshot.files["tools/mayhem/machines.json"]).machines;
   const project = Object.keys(snapshot.files).find((p) => /^[^/]+\.mayhem\.json$/.test(p));
@@ -472,18 +419,26 @@ export async function runScenarios(args, progress) {
       (args.groups?.length || args.names?.length || !inline.size || inline.has(s.name)),
   );
   const proof = await runSimProof(await nodeRunner(repo), { before: args.before, after: args.after ?? WORKTREE }, chosen, machines, progress);
-  const recorded = task
-    ? await recordTaskProof(repo, task.id, snapshot.rev, proof, {
-        by: (typeof args.agent === "string" && args.agent.trim()) || task.agent || "an agent",
-        before: args.before,
+  // A run on a commit is kept on that commit, where the person reviewing it in the app reads it.
+  let recorded;
+  if (snapshot.rev !== WORKTREE) {
+    const before = args.before && args.before !== WORKTREE ? await commitOf(repo, args.before) : undefined;
+    const summary = {
+      ...summarizeProof(proof, {
+        by: (typeof args.by === "string" && args.by.trim()) || "an agent",
+        before,
         // Fewer than every button, auto and team scenario: evidence, but not the whole proof.
         partial: chosen.length < scenarios.length,
-      })
-    : undefined;
+      }),
+      at: new Date().toISOString(),
+    };
+    await recordProof(repo, snapshot.rev, summary);
+    recorded = { commit: snapshot.rev, summary: proofText(summary), ...(summary.partial ? { partial: true } : {}) };
+  }
   return {
     passed: proof.passed,
     changed: proof.changed,
-    ...(recorded ? { task: recorded } : {}),
+    ...(recorded ? { recorded } : { recorded: false, note: "Not recorded: these are uncommitted files. Commit, then run with after: \"HEAD\" for a proof the reviewer sees." }),
     errors,
     results: proof.results.map((r) => ({
       scenario: r.scenario.name,
@@ -500,52 +455,11 @@ export async function runScenarios(args, progress) {
     })),
   };
 }
-const summarize = (t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, statusText: STATUS_NAMES[t.status], author: t.author, ...(t.agent ? { agent: t.agent } : {}), anchor: t.anchor, createdAt: t.createdAt });
-export async function taskTool(name, args) {
-  if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
-  const repo = resolve(args.repo);
-  if (name === "list_tasks") {
-    const wanted = args.status?.length ? args.status : ["open", "claimed", "plan", "approved", "review"];
-    return { tasks: (await listItems(repo)).filter((t) => wanted.includes(t.status)).map(summarize) };
-  }
-  if (name === "add_feedback") return saveItem(repo, createItem({ author: args.author, kind: args.kind ?? "comment", title: args.title, text: args.text, anchor: args.anchor }), null);
-  const { item, text } = await readItem(repo, args.id);
-  if (name === "get_task") return item;
-  if (typeof args.agent !== "string" || !args.agent.trim()) throw new Error("Say who you are: agent.");
-  const agent = args.agent.trim();
-  let next;
-  if (name === "claim_task") {
-    next = move(item, "claim", agent);
-    next.base = (await new Promise((done, fail) => execFile("git", ["-C", repo, "rev-parse", "HEAD"], (e, out) => (e ? fail(e) : done(out.trim())))));
-  } else if (name === "propose_plan") next = move(item, "plan", agent, { plan: args.plan });
-  else if (name === "release_task") next = move(item, "release", agent, { note: args.note });
-  else if (name === "report_progress") {
-    const diff = await behaviorDiff({ repo, before: item.base ?? `${args.revision}~1`, after: args.revision });
-    next = move(item, "progress", agent, { change: { revision: diff.after.rev, summary: args.summary, level: diff.level, findings: diff.findings.map((f) => `[${f.level}] ${f.text}`) } });
-  } else if (name === "finish_task") {
-    if (!item.changes.length) throw new Error("Report at least one commit with report_progress first.");
-    const allGreen = item.changes.every((c) => c.level === "green" || c.level === "none");
-    next = move(item, "finish", agent, { note: args.note });
-    // Path-only changes that pass the preview need no person (team rule): accepted automatically.
-    // Any other robot code that changed, readable by the review or not, is yellow or red and waits.
-    if (allGreen)
-      next = move(next, "accept", "Mayhem", {
-        note: item.changes.some((c) => c.level === "green") ? "auto-OK: only auto paths changed and every changed path finishes" : "auto-OK: no robot code changed",
-      });
-    else {
-      // A person checks this change; without a whole proof on its newest commit they have only your word.
-      const last = item.changes.at(-1);
-      if (!last.proof || last.proof.partial)
-        return {
-          ...(await saveItem(repo, next, text)),
-          warning: `No ${last.proof ? "complete " : ""}sim proof is recorded for ${last.revision.slice(0, 7)}; the person checking will see that. Run run_scenarios with task: "${item.id}" (every scenario, no names or groups) to record one.`,
-        };
-    }
-  } else throw new Error(`Unknown task tool ${name}`);
-  return saveItem(repo, next, text);
-}
 export async function execute(name, args) {
-  if (["list_tasks", "get_task", "claim_task", "propose_plan", "report_progress", "finish_task", "release_task", "add_feedback"].includes(name)) return taskTool(name, args);
+  if (name === "list_changes") {
+    if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
+    return reviewBranches(resolve(args.repo));
+  }
   if (name === "behavior_diff") return behaviorDiff(args);
   if (name === "run_scenarios") return runScenarios(args);
   if (name === "validate_project")
@@ -803,7 +717,7 @@ async function main() {
             capabilities: { tools: {} },
             serverInfo: { name: "mayhem-suite", version: "0.1.0" },
             instructions:
-              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. See docs/SUITE_AGENTS.md.",
+              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. People review your robot code changes in the Mayhem app by behavior, per branch: work on a branch (never main), commit, then run behavior_diff and run_scenarios with base \"main\" and after \"HEAD\" before saying a change is ready; run_scenarios records the sim proof on the commit, which is what the reviewer reads. See docs/SUITE_AGENTS.md.",
           };
         else if (request.method === "tools/list") result = { tools };
         else if (request.method === "tools/call") {
@@ -948,13 +862,13 @@ async function main() {
     return;
   }
   if (command === "sim") {
-    // sim <repo> [after] [--before <rev>] [--only button,auto,custom] [--task <id> [--agent <name>]] [--json]
+    // sim <repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--by <name>] [--json]
     const rest = process.argv.slice(4);
     const args = { repo: path };
     for (let i = 0; i < rest.length; i++) {
       if (rest[i] === "--before") args.before = rest[++i];
-      else if (rest[i] === "--task") args.task = rest[++i];
-      else if (rest[i] === "--agent") args.agent = rest[++i];
+      else if (rest[i] === "--base") args.base = rest[++i];
+      else if (rest[i] === "--by") args.by = rest[++i];
       else if (rest[i] === "--only") args.groups = rest[++i].split(",");
       else if (rest[i] === "--json") args.json = true;
       else args.after = rest[i];
@@ -963,8 +877,8 @@ async function main() {
     process.stderr.write("\n");
     if (args.json) console.log(JSON.stringify(result, null, 2));
     else {
-      console.log(`${result.passed ? "PASSED" : "FAILED"}${args.before || args.task ? ` · ${result.changed} scenario(s) behave differently` : ""}`);
-      if (result.task) console.log(result.task.recorded ? `  recorded on task ${args.task}: ${result.task.summary}` : `  not recorded: ${result.task.reason}`);
+      console.log(`${result.passed ? "PASSED" : "FAILED"}${args.before || args.base ? ` · ${result.changed} scenario(s) behave differently` : ""}`);
+      console.log(result.recorded ? `  recorded on ${result.recorded.commit.slice(0, 7)}: ${result.recorded.summary}` : `  ${result.note}`);
       for (const r of result.results) {
         if (!r.failed && !r.differences) continue;
         console.log(`  ${r.failed ? "✗" : "≠"} ${r.scenario}`);
@@ -977,7 +891,7 @@ async function main() {
     return;
   }
   if (command === "tool") {
-    // tool <MCP tool name> '<JSON arguments>': any MCP tool from the shell (e.g. list_tasks).
+    // tool <MCP tool name> '<JSON arguments>': any MCP tool from the shell (e.g. list_changes).
     if (!tools.some((t) => t.name === path)) throw new Error(`Unknown tool ${path}. Tools: ${tools.map((t) => t.name).join(", ")}`);
     console.log(JSON.stringify(await execute(path, json ? JSON.parse(json) : {}), null, 2));
     return;
@@ -998,7 +912,7 @@ async function main() {
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev>] [--only button,auto,custom] [--task <id>] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | open <file> | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | open <file> | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")

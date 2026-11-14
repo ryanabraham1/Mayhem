@@ -4,9 +4,19 @@ Changes shows what a code change does to the robot, read straight from the code,
 
 ![The Changes summary](/img/suite/changes.jpg)
 
-## Pick what to compare
+## Branches to review
 
-In the desktop app, click **Choose robot code folder** and pick the robot repository. Then choose **Before** and **After**:
+In the desktop app, click **Choose robot code folder** and pick the robot repository. The list on the left is the review queue, read from git:
+
+- **To review**: every branch that isn't in `main` yet and was touched in the last three weeks. Each shows its newest commit, who made it, its risk, and whether a sim proof was run on it. Click one to review it: Mayhem compares the branch with the commit where it left `main`, so `main`'s own later commits don't show up as its changes. The **Changes** tab counts these.
+- **Merged**: branches `main` already has, whether merged, rebased or squashed, with how far each has got (in main, on the robot, in a log).
+- **Older or set aside**: stale branches, and ones you put away with the eye button. A branch you set aside comes back when it gets a new commit.
+
+Mayhem looks for new commits when its window comes to the front; the arrows button looks now.
+
+## Compare any two versions
+
+**Before** and **After** follow the branch you pick, and can be set by hand:
 
 - **This computer (not committed)**: your working copy, with how many files are edited.
 - **Last commit** on the current branch.
@@ -24,10 +34,12 @@ The chip next to the tabs gives the overall risk. Red means a safety change.
 
 ## Summary
 
-- **Why.** The tasks these commits were for (agents add a `Mayhem-Task: <id>` line to their commits), so you see the request next to the result.
+- **Where it is.** For a branch: its commits, whether it is in `main`, whether the robot runs it (as of the last **Check robot**), and the newest log recorded on it. All four are read from git, the robot and the logs.
+- **Sim proof.** The run recorded on exactly this commit: how many scenarios, which failed or behave differently, who ran it and when. It is written by whatever ran the simulation (an agent's `run_scenarios`, or this app), not typed in. With none recorded, **Run sim proof** runs it and keeps the result on the commit. A run made against a different version says so.
 - **Area cards.** Driver controls, state machines, values, hardware, autos, generated robot code and other code, each colored by its riskiest change. Click one to open its tab.
 - **Other code.** Mayhem reads controls, state machines, values, hardware and autos. Any other file that ends up on the robot (logic in `.cpp` files, vendored libraries, deploy files) is only compared: the card counts the files that changed and the finding names them. Such a change is never reported as "no behavior changes"; the sim proof is how you check it. A team scenario that was removed, or that checks less than before, is called out the same way.
-- **Findings.** Every change, marked **safety**, **review** or **ok**. Use the thumbs to send **Looks good** or **Not right** straight to [Tasks](/suite/tasks).
+- **Findings.** Every change, marked **safety**, **review** or **ok**.
+- **Commits.** The commits between the two versions.
 
 ## Tabs
 
@@ -52,7 +64,6 @@ Results are grouped into **Autos**, **Buttons** and **Team scenarios**, each mar
 
 - **Field** or **3D** view (3D uses the team's CAD robot), **Side by side** or **Overlay**.
 - Button results show lanes: shaded where the button is down, gray when idle.
-- Click a spot on the replay, or **Comment here**, to pin feedback to that place and moment.
 - **Record clip** makes a video you can download. It's kept only while the replay is open.
 
 A team scenario looks like this; [Sim proof scenarios](/robot-code/scenarios) lists every step and expectation:

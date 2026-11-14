@@ -6,7 +6,7 @@ Review the implementation in [PR #2](https://github.com/ryanabraham1/3256-Tools/
 
 Deployment requires the robot-log migration in that repository, the existing team authentication/service-role setup, and an optional `ROBOT_LOG_UPLOAD_TOKEN` for desktop uploads. The token is upload-only; team sign-in remains required for viewing files. Originals are stored in a private bucket. The browser uses short-lived signed downloads and verifies the file hash before parsing. The migration, private bucket, and upload token are configured in production. Native desktop upload, signed-in team download/playback, and upload-only token restrictions were verified with a labeled synthetic recording.
 
-Production runs at https://3256tools.vercel.app/logs. Setup used the actual team's project through the authenticated CLI. Full setup and validation instructions live in the companion repository's `docs/ROBOT_LOGS.md`.
+Production runs at https://www.warriorb.org/logs. Setup used the actual team's project through the authenticated CLI. Full setup and validation instructions live in the companion repository's `docs/ROBOT_LOGS.md`.
 
 The shared parser, graph decimation, and analysis sources can be synchronized from here:
 

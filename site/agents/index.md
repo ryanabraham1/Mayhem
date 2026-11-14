@@ -1,22 +1,18 @@
 # Connect an agent
 
-A coding agent (Claude Code, Codex or any agent that can run commands) can work your team's [task queue](/suite/tasks): read the feedback, investigate with the logs and the simulation, propose a plan in plain English, and change the robot code once a person approves. People stay in charge of two decisions: whether the plan is right, and whether the change is.
+A coding agent (Claude Code, Codex or any agent that can run commands) works in its own chat: you tell it what the robot should do differently, it changes the code. Mayhem is where you check what it did, by what the robot does rather than by reading the diff. People stay in charge of the decision that matters: whether a change goes into `main` and onto the robot.
 
-## Put an agent on the queue
+## Make its work show up ready to review
 
 1. In the app, choose the robot code folder.
-2. Open **Tasks → Connect an agent → Put an agent on the queue** and copy the prompt. It has this robot's folder filled in.
-3. Open your agent in a terminal **in the robot code folder** and paste it.
+2. Open **Settings → Agents and the project file → Tell your agent once** and copy the text. It has this robot's folder filled in.
+3. Paste it into your agent's chat, or into the robot repo's `CLAUDE.md` or `AGENTS.md`.
 
-The agent then picks up the next task, asks you in that terminal if something is unclear, proposes a plan, and waits for you. The line above the Tasks board names each agent on the queue and when it last did something.
-
-::: tip Keep it running
-If the robot repo has the `mayhem-tasks` skill (in `.claude/skills/`; it ships as `integrations/skills/mayhem-tasks` in the Mayhem tools), Claude Code can work the queue on a timer: `/loop 10m /mayhem-tasks`.
-:::
+From then on the agent works on a branch, checks its own change with Mayhem's tools, and records a sim proof on its commit. The branch appears under **Changes → To review** with its risk and that proof. See [How changes get reviewed](/agents/review).
 
 ## Give it Mayhem's tools (MCP)
 
-The agent works best with Mayhem's tools: reading tasks, analyzing logs, running the sim proof, diffing behavior. Add the Mayhem MCP server to your agent's configuration:
+The agent works best with Mayhem's tools: analyzing logs, running the sim proof, diffing behavior. Add the Mayhem MCP server to your agent's configuration:
 
 ```json
 {
@@ -29,11 +25,11 @@ The agent works best with Mayhem's tools: reading tasks, analyzing logs, running
 }
 ```
 
-Use the path to a Mayhem checkout or to the extracted `Mayhem-suite-tools` folder from a release. It needs Node 24 or later. **Tasks → Connect an agent → Connect over MCP** shows the same setup with your path filled in.
+Use the path to a Mayhem checkout or to the extracted `Mayhem-suite-tools` folder from a release. It needs Node 24 or later. **Settings → Agents and the project file → Connect over MCP** shows the same setup.
 
 Agents without MCP can call every tool from the shell: `node scripts/mayhem.mjs tool <name> '<JSON>'`. See [Command line and MCP tools](/agents/tools).
 
-## Other panels under Connect an agent
+## Other panels under Agents and the project file
 
 | Panel | Use |
 | --- | --- |

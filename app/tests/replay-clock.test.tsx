@@ -1,7 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { Replay } from "../src/suite/changes/SimProofView";
-import { FeedbackProvider } from "../src/suite/tasks/feedback";
 import type { ScenarioResult } from "../src/suite/core/review/simproof";
 
 afterEach(() => vi.useRealTimers());
@@ -18,11 +17,7 @@ it("plays the sim replay in real time", () => {
     failed: false,
     logs: {},
   };
-  render(
-    <FeedbackProvider notify={() => {}}>
-      <Replay result={result} />
-    </FeedbackProvider>,
-  );
+  render(<Replay result={result} />);
   fireEvent.click(screen.getByRole("button", { name: "Play" }));
   act(() => {
     vi.advanceTimersByTime(1000);

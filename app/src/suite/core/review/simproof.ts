@@ -5,7 +5,7 @@
 import type { Recording } from "../analysis.ts";
 import type { MachineManifest } from "../machines.ts";
 import { checkExpectations, compareOutcomes, outcomeOf, probeInput, type Check, type Outcome, type Physics, type Scenario } from "./scenarios.ts";
-import type { ProofSummary } from "./tasks.ts";
+import type { ProofSummary } from "./proofs.ts";
 
 export interface SimRunner {
   /** Build `rev` with the probe; returns the folder runs go in. */

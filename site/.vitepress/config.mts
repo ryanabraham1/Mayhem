@@ -9,7 +9,7 @@ const appVersion: string = JSON.parse(
 export default defineConfig({
   title: "Mayhem",
   description:
-    "One app for an FRC robot's software: autos, state machines, logs, code reviews and agent tasks.",
+    "One app for an FRC robot's software: autos, state machines, logs, and reviewing what a code change does.",
   // Served from https://ryanabraham1.github.io/Mayhem/ (the gh-pages branch also hosts the
   // vendordep maven repo and MayhemCpp.json at the same root).
   base: "/Mayhem/",
@@ -93,11 +93,8 @@ export default defineConfig({
           ],
         },
         {
-          text: "Review and agents",
-          items: [
-            { text: "Changes", link: "/suite/changes" },
-            { text: "Tasks", link: "/suite/tasks" },
-          ],
+          text: "Review",
+          items: [{ text: "Changes", link: "/suite/changes" }],
         },
       ],
       "/robot-code/": [
@@ -117,7 +114,7 @@ export default defineConfig({
           text: "Agents",
           items: [
             { text: "Connect an agent", link: "/agents/" },
-            { text: "How agents work tasks", link: "/agents/tasks" },
+            { text: "How changes get reviewed", link: "/agents/review" },
             { text: "Command line and MCP tools", link: "/agents/tools" },
           ],
         },

@@ -20,7 +20,7 @@ test("shows what's on the robot, how it differs from main, and puts main back", 
   fakeRobot.deploys.length = 0;
   await desktop(page, repo);
   await page.goto("/");
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("button", { name: /^Changes/ }).click();
   await page.getByRole("button", { name: "Choose robot code folder" }).first().click();
   await page.getByRole("button", { name: "Robot", exact: true }).click();
   await page.getByRole("button", { name: "On the robot now" }).click();
@@ -38,7 +38,7 @@ test("Robot → Values lists every value by kind and part, and edits it in place
   const repo = fixtureRepo();
   await desktop(page, repo);
   await page.goto("/");
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("button", { name: /^Changes/ }).click();
   await page.getByRole("button", { name: "Choose robot code folder" }).first().click();
   await page.getByRole("button", { name: "Robot", exact: true }).click();
   await page.getByRole("button", { name: "Values", exact: true }).click();

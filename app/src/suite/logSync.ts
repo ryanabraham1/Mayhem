@@ -33,11 +33,16 @@ export const syncDefaults: SyncConfig = {
   includeNew: false,
   nameContains: "",
   autoUpload: false,
-  site: "https://3256tools.vercel.app",
+  site: "https://www.warriorb.org",
   viewer: "",
   cloudPaused: false,
   rememberToken: true,
 };
+/** The team website moved; a site saved under its old address means the new one. */
+const MOVED_SITES: Record<string, string> = {
+  "https://3256tools.vercel.app": "https://www.warriorb.org",
+};
+export const teamSite = (site: string) => MOVED_SITES[site.trim().replace(/\/+$/, "")] ?? site;
 export function loadSyncConfig(): SyncConfig {
   try {
     const saved = JSON.parse(localStorage.getItem(SYNC_KEY) ?? "{}");
@@ -52,6 +57,7 @@ export function loadSyncConfig(): SyncConfig {
       } else if (typeof saved[key] === typeof syncDefaults[key])
         Object.assign(result, { [key]: saved[key] });
     }
+    result.site = teamSite(result.site);
     return result;
   } catch {
     return syncDefaults;
@@ -408,7 +414,7 @@ export function useLogSync({
       const log = logs.find(
         (log) =>
           log.nativePath &&
-          (!log.uploadSite || log.uploadSite === config.site) &&
+          (!log.uploadSite || teamSite(log.uploadSite) === config.site) &&
           (log.upload === "queued" || log.upload === "error") &&
           (log.retryAt ?? 0) <= Date.now(),
       );

@@ -5,7 +5,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
-import { execute } from "../../scripts/mayhem.mjs";
 import { desktop, fakeRobot } from "./reviewBridge";
 
 const out = process.env.MAYHEM_AUDIT;
@@ -80,22 +79,9 @@ for (const theme of ["light", "dark"] as const)
       await shot("sim-buttons");
       await page.getByRole("button", { name: /^Team scenarios/ }).click();
       await shot("sim-team");
-      // Tasks with a few items in different states.
-      const items = await execute("list_tasks", { repo, status: ["open", "claimed", "plan", "approved", "review", "done"] });
-      if (!items.tasks.length) await execute("add_feedback", { repo, author: "Maya", kind: "pit-note", text: "Left intake roller rubbing the frame" });
-      await page.getByRole("button", { name: /^Tasks/ }).click();
-      await shot("tasks");
-      await page.locator(".mx-task-card").first().click();
-      await shot("tasks-detail");
-      await page.getByRole("button", { name: "Close" }).click();
-      await page.getByRole("button", { name: "Driver form" }).click();
-      await shot("tasks-driver-form");
-      await page.getByRole("button", { name: "Cancel" }).click();
-      await page.getByRole("button", { name: "Add feedback" }).click();
-      await shot("tasks-feedback");
-      await page.getByRole("button", { name: "Cancel" }).click();
-      await page.getByText("Connect an agent").click();
-      await shot("tasks-agents");
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await page.getByRole("region", { name: "Agents and the project file" }).scrollIntoViewIfNeeded();
+      await shot("settings-agents");
       await page.getByRole("button", { name: "Robot", exact: true }).click();
       await page.getByRole("button", { name: "On the robot now" }).click();
       await page.getByRole("button", { name: "Check robot" }).click();

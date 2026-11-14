@@ -8,7 +8,7 @@ Projects use the `mayhem-suite` version 1 JSON format. In a robot repo the proje
 
 ### Live file link (desktop)
 
-**Tasks → Connect an agent → Save project file** writes the project into your robot repository and keeps it linked:
+**Settings → Agents and the project file → Save project file** writes the project into your robot repository and keeps it linked:
 
 - App edits save back to the file.
 - Edits made outside the app (by you or an agent) reload automatically, with a revision check.

@@ -34,7 +34,7 @@ The full API is in the [C++ library README](https://github.com/ryanabraham1/Mayh
 
 ## 2. Add the project file
 
-Save the project as `robot.mayhem.json` at the root of the repo: open the robot code folder in the app and use **Tasks → Connect an agent → Save project file**. The file stays linked, so app edits save back to it and edits made by agents or `git checkout` reload in the app.
+Save the project as `robot.mayhem.json` at the root of the repo: open the robot code folder in the app and use **Settings → Agents and the project file → Save project file**. The file stays linked, so app edits save back to it and edits made by agents or `git checkout` reload in the app.
 
 Commit it. The Changes page reads autos from it, and teammates who open the folder get the same project.
 

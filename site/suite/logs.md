@@ -14,7 +14,7 @@ Supported: WPILOG 1.0 scalars, numeric and boolean arrays, and common WPILib str
 
 ## The report
 
-The header has the verdict, findings linked to their times, and buttons to export the original or the report, open it in AdvantageScope, archive or delete. Click a finding to move the shared cursor there. **Comment here** turns the current moment into feedback for [Tasks](/suite/tasks).
+The header has the verdict, findings linked to their times, and buttons to export the original or the report, open it in AdvantageScope, archive or delete. Click a finding to move the shared cursor there.
 
 | Tab | Use |
 | --- | --- |

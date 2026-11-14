@@ -14,6 +14,6 @@ Pick an autonomous routine or a robot state-machine manifest from the list. Then
 
 Click a state to see its guards and outgoing transitions. Transitions that can fire **from any state** are shown as chips rather than lines, so the graph stays readable. Priority-select machines are drawn as a ladder of questions checked from the top every loop, with the row deciding the current state highlighted.
 
-Right-click a state for **Simulate from this state**, **Reset simulation**, **Edit step in Autos** (for routine steps), copy its name or ID, or **Make this an agent task**. Right-click a transition to copy its condition.
+Right-click a state for **Simulate from this state**, **Reset simulation**, **Edit step in Autos** (for routine steps), or copy its name or ID. Right-click a transition to copy its condition.
 
 Mechanism machines come from `tools/mayhem/machines.json` in the robot repo; see [State machines in robot code](/robot-code/state-machines). For the live and replay views, the manifest has to match the channels your robot logs; see [Logging](/robot-code/logging).

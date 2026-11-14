@@ -1,11 +1,10 @@
 // Screenshots for the documentation site (not part of the regular run): MAYHEM_DOCS_SHOTS=<folder>
 // writes one PNG per workspace. Uses MAYHEM_REVIEW_REPO (a robot repo with robot.mayhem.json; run it on
-// a throwaway clone, since tasks and explainer text are written into it) and MAYHEM_DOCS_LOG (a .wpilog).
+// a throwaway clone, since explainer text is written into it) and MAYHEM_DOCS_LOG (a .wpilog).
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { execute } from "../../scripts/mayhem.mjs";
 import { desktop, dialogPicks, fakeRobot } from "./reviewBridge";
 
 const out = process.env.MAYHEM_DOCS_SHOTS;
@@ -18,11 +17,6 @@ test("docs screenshots", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const git = (...args: string[]) => execFileSync("git", ["-C", repo!, ...args]).toString().trim();
   fakeRobot.stamp = JSON.stringify({ sha: git("rev-parse", "HEAD"), branch: git("rev-parse", "--abbrev-ref", "HEAD"), dirty: [], builtAt: "2026-11-13T10:00:00-08:00", builtBy: "maya", computer: "pit-laptop" });
-  const { tasks } = await execute("list_tasks", { repo, status: ["open", "claimed", "plan", "approved", "review", "done"] });
-  if (!tasks.length) {
-    await execute("add_feedback", { repo, author: "Maya", kind: "pit-note", text: "Left intake roller rubbing the frame" });
-    await execute("add_feedback", { repo, author: "Sam", kind: "comment", title: "Shooter spins up too late in the depot auto", text: "It waits at the hub for almost a second before the first shot." });
-  }
   await desktop(page, repo!);
   await page.addInitScript(() => localStorage.setItem("mayhem.theme", "light"));
   await page.goto("/");
@@ -63,10 +57,6 @@ test("docs screenshots", async ({ page }) => {
   await page.getByRole("button", { name: "On the robot now" }).click();
   await page.getByRole("button", { name: "Check robot" }).click();
   await shot("robot-now");
-
-  await page.getByRole("button", { name: /^Tasks/ }).click();
-  await page.waitForTimeout(800);
-  await shot("tasks");
 
   await nav("Changes");
   await page.getByLabel("Before version").selectOption(git("rev-parse", "HEAD~6"));

@@ -19,7 +19,7 @@ async function copyVendordep() {
 const cards = [
   {
     title: "Using Mayhem",
-    text: "Every workspace: autos, state machines, logs, the robot, code reviews and agent tasks.",
+    text: "Every workspace: autos, state machines, logs, the robot, and reviewing code changes.",
     cta: "Tour the app",
     link: "/suite/overview",
     icon: "M3 4h18v14H3zM8 21h8M12 18v3",
@@ -33,7 +33,7 @@ const cards = [
   },
   {
     title: "Agents",
-    text: "Put a coding agent on the task queue. You approve its plan and check what it changed.",
+    text: "Tell a coding agent what you want in its chat. Review what it changed here, by behavior.",
     cta: "Connect an agent",
     link: "/agents/",
     icon: "M12 8V4H8M4 12h16v8H4zM2 16h2M20 16h2M9 15v1M15 15v1",
@@ -43,7 +43,7 @@ const cards = [
 const features = [
   ["Pose-based autos", "Place goals, draw routes, add actions and conditions, and preview with simulated inputs.", "/suite/autonomous"],
   ["Review by behavior", "See what a code change does to controls, values, hardware and autos, with a before/after sim proof.", "/suite/changes"],
-  ["Agent tasks", "Feedback, pit notes and driver forms become tasks; approve plans and check the changes.", "/suite/tasks"],
+  ["Branches to review", "Every branch that isn't in main yet, with its risk, its recorded sim proof, and how far it has got.", "/suite/changes#branches-to-review"],
   ["On the robot now", "What's deployed, how it differs from main, every value in the code, and one-click rollback.", "/suite/robot#on-the-robot-now"],
   ["Log analysis", "Findings, power, signals and pose playback, with automatic collection and team upload.", "/suite/logs"],
   ["State machines", "Routine and mechanism graphs in simulation, live over NT4, or from a recording.", "/suite/state-machines"],

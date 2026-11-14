@@ -89,7 +89,7 @@
 }
 .mx-area-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 10px;
   margin-bottom: 18px;
 }
@@ -909,48 +909,6 @@
   background: var(--mx-line-strong);
   color: var(--mx-ink-2);
 }
-.mx-thumbs {
-  display: inline-flex;
-  gap: 2px;
-  margin-left: auto;
-  opacity: 0.55;
-}
-.mx-findings li:hover .mx-thumbs {
-  opacity: 1;
-}
-.mx-thumbs button {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--mx-ink-2);
-  cursor: pointer;
-}
-.mx-thumbs button:hover {
-  background: var(--mx-accent-soft);
-  color: var(--mx-accent-ink);
-}
-.mx-auto-overlay.is-clickable {
-  cursor: crosshair;
-}
-.mx-why {
-  margin-bottom: 14px;
-  border-color: var(--mx-accent-line);
-}
-.mx-why h2 {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 15px;
-}
-.mx-why-item p {
-  margin: 4px 0;
-}
-
 /* Search boxes in review toolbars: one box, the input inherits it. */
 .mx-app .mx-search input:not([type="checkbox"]):not([type="range"]):not([type="radio"]),
 .mx-app .mx-search input:not([type="checkbox"]):not([type="range"]):not([type="radio"]):focus {
@@ -961,8 +919,7 @@
   padding: 0;
 }
 /* Flush panels (tables) keep their heading off the edge. */
-.mx-changes .mx-panel.is-flush > .mx-panel-head,
-.mx-tasks .mx-panel.is-flush > .mx-panel-head {
+.mx-changes .mx-panel.is-flush > .mx-panel-head {
   padding: 14px 16px 6px;
 }
 .mx-changes .mx-panel.is-flush {
@@ -1475,4 +1432,317 @@
 }
 .mx-values-tab.is-on small {
   color: inherit;
+}
+
+/* The sim proof recorded on a commit. */
+.mx-proof {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: var(--mx-r-md);
+  border: 1px solid var(--mx-line);
+  background: var(--mx-surface-2);
+  font-size: 13px;
+}
+.mx-proof p,
+p.mx-proof {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.mx-proof p {
+  margin: 0;
+}
+.mx-proof small {
+  color: var(--mx-muted);
+  font-size: 12px;
+}
+.mx-proof .mx-btn {
+  margin-left: auto;
+}
+.mx-proof ul {
+  margin: 6px 0 0;
+  padding-left: 22px;
+  color: var(--mx-ink-2);
+  font-size: 12.5px;
+}
+.mx-proof li.is-more {
+  list-style: none;
+  color: var(--mx-muted);
+}
+.mx-proof.is-good {
+  border-color: var(--mx-good);
+  background: var(--mx-good-soft);
+}
+.mx-proof.is-good > p > svg,
+.mx-proof.is-good strong {
+  color: var(--mx-good);
+}
+.mx-proof.is-warn {
+  border-color: var(--mx-warn);
+  background: var(--mx-warn-soft);
+}
+.mx-proof.is-warn > p > svg,
+.mx-proof.is-warn strong {
+  color: var(--mx-warn);
+}
+.mx-proof.is-bad {
+  border-color: var(--mx-bad);
+  background: var(--mx-bad-soft);
+}
+.mx-proof.is-bad > p > svg,
+.mx-proof.is-bad strong {
+  color: var(--mx-bad);
+}
+.mx-proof.is-none {
+  border-style: dashed;
+  color: var(--mx-muted);
+}
+/* Where a change is: committed, in main, on the robot, in a log, as four steps on a line. */
+.mx-delivery {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+}
+.mx-delivery li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 26px 8px 0 0;
+  min-width: 0;
+}
+.mx-delivery li::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--mx-line-strong);
+}
+.mx-delivery li.is-done::before {
+  background: var(--mx-good);
+}
+.mx-delivery li > i {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid var(--mx-line-strong);
+  background: var(--mx-surface);
+  color: var(--mx-surface);
+}
+.mx-delivery li.is-done > i {
+  border-color: var(--mx-good);
+  background: var(--mx-good);
+}
+.mx-delivery li.is-unknown > i {
+  border-style: dashed;
+}
+.mx-delivery strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.mx-delivery li:not(.is-done) strong {
+  color: var(--mx-muted);
+}
+.mx-delivery small {
+  color: var(--mx-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.mx-delivery .mx-link {
+  font-size: 12px;
+}
+@media (max-width: 560px) {
+  .mx-delivery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 14px;
+  }
+}
+
+/* Branches on the left, the review of the chosen one on the right. */
+.mx-changes-layout {
+  display: grid;
+  grid-template-columns: minmax(230px, 280px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.mx-changes-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.mx-branches {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 14px;
+  padding: 12px 10px;
+  border: 1px solid var(--mx-line);
+  border-radius: var(--mx-r-lg);
+  background: var(--mx-surface);
+}
+.mx-branches section,
+.mx-branches details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+.mx-branches header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  font-size: 13px;
+}
+.mx-branches header .mx-icon-btn {
+  margin-left: auto;
+}
+.mx-branches .mx-help {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 12.5px;
+}
+.mx-branches details {
+  border-top: 1px solid var(--mx-line);
+  padding-top: 10px;
+}
+.mx-branches summary {
+  padding: 0 4px;
+  color: var(--mx-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.mx-branches details[open] summary {
+  margin-bottom: 6px;
+}
+.mx-branch {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--mx-line);
+  border-radius: var(--mx-r-md);
+  background: var(--mx-surface-2);
+}
+.mx-branch:hover,
+.mx-branch.is-active {
+  border-color: var(--mx-accent);
+}
+.mx-branch.is-active {
+  background: var(--mx-accent-soft);
+}
+.mx-branch-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--mx-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mx-branch-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding-right: 22px;
+  font-size: 13px;
+}
+.mx-branch-name svg {
+  flex: none;
+  color: var(--mx-accent-ink);
+}
+.mx-branch-name strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.mx-branch-main small {
+  max-width: 100%;
+  color: var(--mx-ink-2);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-branch-main small.mx-branch-meta {
+  color: var(--mx-muted);
+}
+.mx-branch-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.mx-branch-aside {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--mx-r-sm);
+  background: transparent;
+  color: var(--mx-faint);
+  cursor: pointer;
+  opacity: 0;
+}
+.mx-branch:hover .mx-branch-aside,
+.mx-branch-aside:focus-visible {
+  opacity: 1;
+}
+.mx-branch-aside:hover {
+  background: var(--mx-sunken);
+  color: var(--mx-ink);
+}
+.mx-commits {
+  margin-top: 6px;
+}
+.mx-commits h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  color: var(--mx-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.mx-commits ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  font-size: 13px;
+  color: var(--mx-ink-2);
+}
+.mx-commits code {
+  margin-right: 4px;
+  color: var(--mx-muted);
+  font: 500 12px var(--mx-mono);
+}
+.mx-commits li.is-more {
+  color: var(--mx-muted);
+}
+@media (max-width: 900px) {
+  .mx-changes-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

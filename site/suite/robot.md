@@ -10,7 +10,7 @@ What code the robot is running (desktop app, robot connected). It refreshes when
 
 - The commit and branch, when and by whom it was built, and **same as main** when it matches.
 - A warning if it was deployed with uncommitted changes, since nobody can rebuild exactly that version.
-- If it differs from `main`: the commits on the robot but not on main (with the task each one was for), how many newer commits are on main, and two buttons:
+- If it differs from `main`: the commits on the robot but not on main, how many newer commits are on main, and two buttons:
   - **What's different from main** opens [Changes](/suite/changes) comparing them.
   - **Put main back on the robot** builds main and deploys it after you confirm. The robot must be connected and disabled. Nothing in the repository changes.
 - The health of the newest log: red flags and any flickering signals.

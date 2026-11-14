@@ -15,6 +15,17 @@ The suite is a working development foundation, not a finished replacement for ev
 | Team cloud | Live team library, private storage, selected downloads, upload-only device queue/retry, actual hosted AdvantageScope Lite with selected-log handoff; synthetic upload/download tested | Real match log validation, storage retention controls, upstream Lite preview updates |
 | Release | Mayhem 0.9.2 packaged, signature checked and installed in /Applications; production team website deployed | Apple notarization, Windows/Linux package verification, published releases |
 
+## Branch review replaces the task queue (2026-11-13, after v0.9.45)
+
+The Tasks page, the task files (`tools/mayhem/review/`), plan approval, the driver form, pit notes, every "Make this an agent task" and comment entry point, the task MCP tools and the `mayhem-tasks` skill are gone. People tell agents what they want in the agent's chat; the app is where the result is reviewed.
+
+- The unit of review is a branch. **Changes** lists every branch not in main yet (risk, the sim proof recorded on its newest commit), compares it with the commit where it left main, and after the merge follows it to the robot and into logs. Merges, rebases and squash merges are all recognised. Stale branches fold away; a branch can be set aside until it gets a new commit.
+- A sim proof is a git note (`refs/notes/mayhem-proof`) on the commit it ran on, written by `run_scenarios` or the app's Sim proof tab.
+- `behavior_diff` and `run_scenarios` take `base: "main"` (compare with where the branch left main); `list_changes` returns the branch list. The MCP server's instructions tell agents to record a proof before saying a change is ready.
+- Agent setup (project brief, file link, MCP, CLI, C++ export) moved to Settings.
+
+The v0.9.45 section below describes the task-based design this replaced.
+
 ## Review loop hardening (2026-11-13, working tree after v0.9.44)
 
 - The behavior review no longer reports a change to code it cannot read as empty. Snapshots carry a content id for every file that ends up on the robot (`src/main/**`, `vendordeps/*.json`, `build.gradle`); files that changed and that no other finding explains are listed as **Other code** (yellow). A removed or loosened sim proof scenario is a finding too. `finish_task` therefore auto-accepts only path-only changes and changes that touch no robot code; a logic change always waits in "Ready to check".

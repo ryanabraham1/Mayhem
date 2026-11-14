@@ -12,7 +12,8 @@ async function desktop(page: Page, file: string) {
     // A folder picker (the robot code folder) gets the file's folder; a file picker the file.
     if (cmd === "plugin:dialog|open") return args.options?.directory ? dirname(file) : file;
     if (cmd === "take_opened_projects") return control.opened.splice(0);
-    if (cmd === "review_items") return [];
+    if (cmd === "review_branches") return { main: null, branches: [] };
+    if (cmd === "review_proofs") return [];
     if (cmd === "read_suite_project") {
       if (args.allowMissing && !existsSync(args.path)) return null;
       return control.frozen ?? JSON.parse(readFileSync(args.path, "utf8"));
@@ -80,8 +81,7 @@ test("the linked project reloads when the file changes on disk, keeping the sele
   write(file, project);
   await desktop(page, file);
   await page.goto("/");
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
-  await page.getByText("Connect an agent").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Open project file" }).click();
   await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
 
@@ -122,8 +122,7 @@ test("keep mine writes this copy over the changed file", async ({ page }) => {
   write(file, project);
   const bridge = await desktop(page, file);
   await page.goto("/");
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
-  await page.getByText("Connect an agent").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Open project file" }).click();
   await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
   bridge.freeze(true);
@@ -149,8 +148,7 @@ test("a disk change while this copy has unsaved edits asks instead of overwritin
   write(file, project);
   const bridge = await desktop(page, file);
   await page.goto("/");
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
-  await page.getByText("Connect an agent").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Open project file" }).click();
   await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
   // An agent rewrites the file while the user renames the project, before the app has read the
@@ -220,7 +218,7 @@ test("choosing the robot code folder opens that robot's own project, linked to i
   await desktop(page, file);
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Switch project" })).not.toContainText("Team robot");
-  await page.locator(".mx-panel", { hasText: "Feedback and agents" }).getByRole("button", { name: "Choose robot code folder" }).click();
+  await page.locator(".mx-panel", { hasText: "Changes to review" }).getByRole("button", { name: "Choose robot code folder" }).click();
   await expect(page.getByRole("button", { name: "Switch project" })).toContainText("Team robot");
   await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
 

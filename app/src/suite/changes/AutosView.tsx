@@ -6,8 +6,6 @@ import field from "../core/rebuilt-2026.json";
 import type { DrivenPath, RoutineDiff } from "../core/review/autos.ts";
 import type { ReviewReport } from "../core/review/report.ts";
 import { Badge, EmptyState, Segmented, Stat, type Tone } from "../ui";
-import { useTasks } from "../tasks/feedback";
-import { fieldPoint } from "../tasks/anchors";
 import { speedColor, speedRunsFor } from "../FieldView";
 
 type Show = "both" | "before" | "after";
@@ -38,22 +36,13 @@ function SpeedPath({ path, max, className }: { path: DrivenPath; max: number; cl
 
 const topSpeed = (r: RoutineDiff) => Math.max(0.5, ...(r.before?.speeds ?? []), ...(r.after?.speeds ?? []));
 
-function Overlay({ r, revision, show }: { r: RoutineDiff; revision: string; show: Show }) {
-  const { openFeedback } = useTasks();
+function Overlay({ r, show }: { r: RoutineDiff; show: Show }) {
   const max = topSpeed(r);
   return (
     <svg
-      className="mx-replay-field mx-auto-overlay is-clickable"
+      className="mx-replay-field mx-auto-overlay"
       viewBox={`-.3 -.3 ${field.length + 0.6} ${field.width + 0.6}`}
-      aria-label={`${r.name}: old and new paths (click to comment on a spot)`}
-      onClick={(e) =>
-        openFeedback({
-          kind: "field-point",
-          title: `${r.name}: `,
-          context: "Pinned to this spot on the field for this auto.",
-          anchor: { routine: r.name, revision, pose: fieldPoint(e.currentTarget, e.clientX, e.clientY, field.width) },
-        })
-      }
+      aria-label={`${r.name}: old and new paths`}
     >
       <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
         <FieldArt field={field as FieldModel} hideFuel />
@@ -114,7 +103,7 @@ export function AutosView({ report }: { report: ReviewReport }) {
               )}
             </div>
           </div>
-          <Overlay r={r} revision={report.after.rev} show={show} />
+          <Overlay r={r} show={show} />
           <div className="mx-stats">
             <Stat label="Time" value={stat(r.before?.time, r.after?.time, " s")} />
             <Stat label="Distance" value={stat(r.before?.distance, r.after?.distance, " m")} />

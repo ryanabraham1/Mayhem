@@ -325,66 +325,186 @@ pub async fn review_history(repo: String, paths: Vec<String>, limit: Option<u32>
     .map_err(|e| e.to_string())?
 }
 
-const REVIEW_DIR: &str = "tools/mayhem/review";
+/// Git notes that hold sim proof results (core/review/proofs.ts).
+const PROOF_NOTES: &str = "--ref=refs/notes/mayhem-proof";
+const AS_MAYHEM: [&str; 4] = ["-c", "user.name=Mayhem", "-c", "user.email=mayhem@localhost"];
 
-fn item_id(id: &str) -> Result<(), String> {
-    if id.is_empty() || id.len() > 80 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        return Err(format!("Bad review item id {id}"));
+/// The full id of a commit, or `None` when this clone does not have it.
+fn commit(root: &str, rev: &str) -> Option<String> {
+    // Never let a revision be read as an option.
+    if rev.is_empty() || rev.starts_with('-') {
+        return None;
     }
-    Ok(())
+    git(root, &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")]).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+/// Whether the history of `target` includes the change `base..tip`: as the same commits (a merge
+/// or fast-forward), as equivalent commits (a rebase), or as one commit with the same total patch
+/// (a squash merge). `None` when this clone does not have `target`. Mirrors `reaches` in
+/// scripts/review-git.mjs.
+fn reaches(root: &str, base: &str, tip: &str, target: &str) -> Option<bool> {
+    let to = commit(root, target)?;
+    if git(root, &["merge-base", "--is-ancestor", tip, &to]).is_ok() {
+        return Some(true);
+    }
+    if base == tip {
+        return Some(false);
+    }
+    let rebased = git(root, &["cherry", &to, tip, base]).unwrap_or_default();
+    if rebased.lines().next().is_some() && rebased.lines().all(|l| l.starts_with('-')) {
+        return Some(true);
+    }
+    // One commit carrying the whole change, as a squash merge makes; never referenced, so git drops it.
+    let tree = format!("{tip}^{{tree}}");
+    let mut args = AS_MAYHEM.to_vec();
+    args.extend(["commit-tree", tree.as_str(), "-p", base, "-m", "Mayhem: is this change in there?"]);
+    let Ok(squashed) = git(root, &args) else { return Some(false) };
+    let squashed = squashed.trim();
+    Some(!squashed.is_empty() && git(root, &["cherry", &to, squashed, base]).unwrap_or_default().lines().any(|l| l.starts_with('-')))
 }
 
 #[derive(Serialize)]
-pub struct Item {
-    id: String,
-    text: String,
+pub struct MainRef {
+    rev: String,
+    sha: String,
 }
 
-/// Every feedback/task file in the robot repo's working tree.
-#[tauri::command]
-pub async fn review_items(repo: String) -> Result<Vec<Item>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let root = PathBuf::from(git(&repo, &["rev-parse", "--show-toplevel"])?.trim());
-        let dir = root.join(REVIEW_DIR);
-        let Ok(entries) = fs::read_dir(&dir) else { return Ok(Vec::new()) };
-        let mut items = Vec::new();
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Some(id) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-            if path.extension().is_some_and(|e| e == "json") && item_id(id).is_ok() {
-                if let Ok(text) = fs::read_to_string(&path) {
-                    items.push(Item { id: id.to_string(), text });
-                }
-            }
+/// A branch as a change to review.
+#[derive(Serialize)]
+pub struct Branch {
+    name: String,
+    /// What to hand git: the local name, or `origin/<name>` when only GitHub has it.
+    rev: String,
+    sha: String,
+    /// The commit it left main at: the change is `base..sha`.
+    base: String,
+    ahead: u32,
+    subject: String,
+    author: String,
+    date: String,
+    /// Main already has it (merged, rebased or squashed).
+    merged: bool,
+}
+
+#[derive(Serialize)]
+pub struct Branches {
+    main: Option<MainRef>,
+    branches: Vec<Branch>,
+}
+
+/// How many of the newest branches are looked at.
+const BRANCHES: usize = 30;
+
+fn branches(repo: &str) -> Result<Branches, String> {
+    let root = git(repo, &["rev-parse", "--show-toplevel"])?.trim().to_string();
+    let Some(main) = ["origin/main", "main"].iter().find_map(|rev| commit(&root, rev).map(|sha| MainRef { rev: rev.to_string(), sha })) else {
+        return Ok(Branches { main: None, branches: Vec::new() });
+    };
+    let listed = git(
+        &root,
+        &[
+            "for-each-ref",
+            "--sort=-committerdate",
+            "--format=%(refname)%09%(objectname)%09%(committerdate:iso-strict)%09%(authorname)%09%(subject)",
+            "refs/heads",
+            "refs/remotes/origin",
+        ],
+    )?;
+    let mut seen: Vec<String> = Vec::new();
+    let mut found = Vec::new();
+    for line in listed.lines() {
+        let f: Vec<&str> = line.splitn(5, '\t').collect();
+        if f.len() < 5 {
+            continue;
         }
-        // Ids start with the time they were made: oldest first, the same order every time.
-        items.sort_by(|a, b| a.id.cmp(&b.id));
-        Ok(items)
+        let (reference, tip) = (f[0], f[1]);
+        let local = reference.starts_with("refs/heads/");
+        let name = reference.trim_start_matches("refs/heads/").trim_start_matches("refs/remotes/origin/");
+        // The same commits under two names (a local branch and a renamed one on GitHub) are one change.
+        if name == "HEAD" || name == "main" || name == "master" || tip == main.sha || seen.iter().any(|s| s == name || s == tip) {
+            continue;
+        }
+        seen.push(name.to_string());
+        seen.push(tip.to_string());
+        if found.len() >= BRANCHES {
+            break;
+        }
+        let Ok(base) = git(&root, &["merge-base", &main.sha, tip]) else { continue };
+        let mut base = base.trim().to_string();
+        let merged = if base == tip {
+            // Already an ancestor of main. What it changed is known only if a merge commit brought it in.
+            let merges = git(&root, &["rev-list", "--ancestry-path", "--merges", "--reverse", &format!("{tip}..{}", main.sha)]).unwrap_or_default();
+            let Some(merge) = merges.lines().next() else { continue };
+            base = git(&root, &["merge-base", &format!("{merge}^1"), tip]).unwrap_or_default().trim().to_string();
+            if base.is_empty() || base == tip {
+                continue;
+            }
+            true
+        } else {
+            reaches(&root, &base, tip, &main.sha) == Some(true)
+        };
+        let ahead = git(&root, &["rev-list", "--count", &format!("{base}..{tip}")])?.trim().parse().unwrap_or(0);
+        found.push(Branch {
+            name: name.to_string(),
+            rev: if local { name.to_string() } else { format!("origin/{name}") },
+            sha: tip.to_string(),
+            base,
+            ahead,
+            subject: f[4].to_string(),
+            author: f[3].to_string(),
+            date: f[2].to_string(),
+            merged,
+        });
+    }
+    Ok(Branches { main: Some(main), branches: found })
+}
+
+/// Branches of the robot repo as changes to review (Changes page).
+#[tauri::command]
+pub async fn review_branches(repo: String) -> Result<Branches, String> {
+    tauri::async_runtime::spawn_blocking(move || branches(&repo)).await.map_err(|e| e.to_string())?
+}
+
+/// For each of `targets` (commits: main, what the robot runs, what a log ran): whether its history
+/// includes the change `base..tip`; `null` for a commit this clone does not have.
+#[tauri::command]
+pub async fn review_reaches(repo: String, base: String, tip: String, targets: Vec<String>) -> Result<Vec<Option<bool>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = git(&repo, &["rev-parse", "--show-toplevel"])?.trim().to_string();
+        let (Some(base), Some(tip)) = (commit(&root, &base), commit(&root, &tip)) else {
+            return Ok(targets.iter().map(|_| None).collect());
+        };
+        Ok(targets.iter().map(|t| reaches(&root, &base, &tip, t)).collect())
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// Creates (`expected` absent: the file must not exist) or updates (the file must still hold
-/// `expected`) one feedback/task file, atomically.
+/// The sim proof note of each commit, or `null`.
 #[tauri::command]
-pub async fn review_item_save(repo: String, id: String, text: String, expected: Option<String>) -> Result<(), String> {
+pub async fn review_proofs(repo: String, commits: Vec<String>) -> Result<Vec<Option<String>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        item_id(&id)?;
-        let root = PathBuf::from(git(&repo, &["rev-parse", "--show-toplevel"])?.trim());
-        let dir = root.join(REVIEW_DIR);
-        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let target = dir.join(format!("{id}.json"));
-        let current = fs::read_to_string(&target).ok();
-        if current != expected {
-            return Err(if expected.is_none() { format!("{id} already exists") } else { "Someone changed this item meanwhile. Reload and try again.".into() });
+        Ok(commits
+            .iter()
+            .map(|rev| commit(&repo, rev).and_then(|sha| git(&repo, &["notes", PROOF_NOTES, "show", &sha]).ok()))
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Writes the sim proof note of a commit (the whole note; core/review/proofs.ts builds it).
+#[tauri::command]
+pub async fn review_proof_save(repo: String, commit_id: String, text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let sha = commit(&repo, &commit_id).ok_or_else(|| format!("{commit_id} is not a commit in this repository."))?;
+        let note: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Not a proof note: {e}"))?;
+        if note.get("format").and_then(|f| f.as_str()) != Some("mayhem-proof") {
+            return Err("Not a proof note.".into());
         }
-        let temporary = dir.join(format!(".{id}.{}.tmp", std::process::id()));
-        fs::write(&temporary, text).map_err(|e| e.to_string())?;
-        fs::rename(&temporary, &target).map_err(|e| {
-            let _ = fs::remove_file(&temporary);
-            e.to_string()
-        })
+        let mut args = AS_MAYHEM.to_vec();
+        args.extend(["notes", PROOF_NOTES, "add", "-f", "-m", text.as_str(), sha.as_str()]);
+        git(&repo, &args).map(|_| ())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -411,8 +531,92 @@ mod tests {
         assert!(inside(root, "src/main/include/A.h").is_ok());
         assert!(inside(root, "../etc/passwd").is_err());
         assert!(inside(root, "/etc/passwd").is_err());
-        assert!(item_id("20261113101500-ab12").is_ok());
-        assert!(item_id("../x").is_err());
+    }
+
+    /// A scratch repo with `main` and helpers to commit files on branches.
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("mayhem-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            let s = Scratch(dir);
+            s.git(&["init", "-q", "-b", "main"]);
+            s.git(&["config", "user.name", "t"]);
+            s.git(&["config", "user.email", "t@example.com"]);
+            s.write("src/main/cpp/Robot.cpp", "void Run() {}\n", "first");
+            s
+        }
+        fn path(&self) -> String {
+            self.0.to_string_lossy().to_string()
+        }
+        fn git(&self, args: &[&str]) -> String {
+            git(&self.path(), args).unwrap().trim().to_string()
+        }
+        fn write(&self, file: &str, text: &str, message: &str) -> String {
+            let path = self.0.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+            self.git(&["add", "."]);
+            self.git(&["commit", "-qm", message]);
+            self.git(&["rev-parse", "HEAD"])
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn lists_branches_to_review_and_finds_them_in_main_however_they_were_merged() {
+        let s = Scratch::new("branches");
+        let start = s.git(&["rev-parse", "HEAD"]);
+        // Three branches off the same commit, each changing its own file.
+        for name in ["merge-me", "squash-me", "open"] {
+            s.git(&["checkout", "-q", "-b", name, &start]);
+            s.write(&format!("src/main/cpp/{name}.cpp"), "void A() {}\n", &format!("{name} 1"));
+            s.write(&format!("src/main/cpp/{name}.cpp"), "void A() { B(); }\n", &format!("{name} 2"));
+        }
+        s.git(&["checkout", "-q", "main"]);
+        s.write("src/main/cpp/Robot.cpp", "void Run() { Go(); }\n", "main moves on");
+        s.git(&["merge", "-q", "--no-ff", "merge-me", "-m", "Merge merge-me"]);
+        s.git(&["merge", "-q", "--squash", "squash-me"]);
+        s.git(&["commit", "-qm", "squash-me (#2)"]);
+
+        let listed = branches(&s.path()).unwrap();
+        assert_eq!(listed.main.as_ref().unwrap().rev, "main");
+        let by = |name: &str| listed.branches.iter().find(|b| b.name == name).unwrap();
+        assert_eq!(listed.branches.len(), 3);
+        for name in ["merge-me", "squash-me", "open"] {
+            assert_eq!(by(name).base, start, "{name} left main at the first commit");
+            assert_eq!(by(name).ahead, 2);
+        }
+        assert!(by("merge-me").merged);
+        assert!(by("squash-me").merged, "a squash merge keeps the patch, not the commits");
+        assert!(!by("open").merged);
+
+        // The same question for any other commit: what the robot runs, what a log ran.
+        let root = s.path();
+        let open = by("open");
+        assert_eq!(reaches(&root, &open.base, &open.sha, "main"), Some(false));
+        assert_eq!(reaches(&root, &open.base, &open.sha, &open.sha), Some(true));
+        assert_eq!(reaches(&root, &open.base, &open.sha, "0123456789012345678901234567890123456789"), None);
+        assert_eq!(reaches(&root, &start, &by("squash-me").sha, &start), Some(false));
+    }
+
+    #[test]
+    fn proof_notes_stay_on_their_commit() {
+        let s = Scratch::new("notes");
+        let first = s.git(&["rev-parse", "HEAD"]);
+        let note = r#"{"format":"mayhem-proof","version":1,"proofs":[]}"#;
+        let mut args = AS_MAYHEM.to_vec();
+        args.extend(["notes", PROOF_NOTES, "add", "-f", "-m", note, first.as_str()]);
+        git(&s.path(), &args).unwrap();
+        let second = s.write("src/main/cpp/Robot.cpp", "void Run() { Go(); }\n", "second");
+        assert_eq!(git(&s.path(), &["notes", PROOF_NOTES, "show", &first]).unwrap().trim(), note);
+        assert!(git(&s.path(), &["notes", PROOF_NOTES, "show", &second]).is_err(), "a new commit has no proof");
+        assert!(commit(&s.path(), "--upload-pack=x").is_none());
     }
 
     /// A commit and the same files on disk get the same content ids; an edit changes only its file.

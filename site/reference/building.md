@@ -51,7 +51,7 @@ Every page has an **Edit this page on GitHub** link. A push to `main` that touch
 
 ### Screenshots
 
-The workspace screenshots in `site/public/img/suite/` come from a real robot repo. To retake them, build the app and run the docs screenshot test against a throwaway clone of the robot repo (the test writes tasks into it):
+The workspace screenshots in `site/public/img/suite/` come from a real robot repo. To retake them, build the app and run the docs screenshot test against a throwaway clone of the robot repo (the test writes explainer text into it):
 
 ```bash
 git clone <robot repo> /tmp/robot

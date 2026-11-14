@@ -111,7 +111,7 @@ it("edits the routine start without changing the robot default and inserts a fir
 it("keeps autonomous controls inside Autos and preserves the routine when switching tools", () => {
   render(<SuiteApp />);
   expect(screen.getByRole("complementary",{name:"Autonomous routines"})).toBeTruthy();
-  for(const name of ["State machines", "Logs", "Robot", "Changes", "Tasks", "Overview"]){
+  for(const name of ["State machines", "Logs", "Robot", "Changes", "Overview"]){
     fireEvent.click(screen.getByRole("button",{name,exact:true}));
     expect(screen.queryByRole("complementary",{name:"Autonomous routines"})).toBeNull();
     expect(screen.queryByRole("button",{name:"Export project",exact:true})).toBeNull();

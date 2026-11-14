@@ -14,6 +14,7 @@ import {
 import { conditionLabel } from "../core/model.ts";
 import { downloadCpp } from "../cppExport";
 import { desktop } from "../native";
+import { useRobotRepo } from "../robotRepo";
 import { download } from "../storage";
 import type { SuiteState } from "../useSuiteProject";
 import { Badge, Button, Panel } from "../ui";
@@ -82,24 +83,21 @@ export function agentBrief(s: SuiteState) {
   return lines.join("\n");
 }
 
-/** What to give a coding agent so it works the feedback queue of `repo`, one step per run. */
-export function queuePrompt(repo: string) {
+/** What to tell a coding agent once, so its changes to `repo` arrive ready to review in the app. */
+export function reviewPrompt(repo: string) {
   const where = repo || "<robot code folder>";
   return [
-    `Work the Mayhem task queue for the robot code in ${where}. Each run, do one step and stop.`,
-    "",
-    `Tools: the Mayhem MCP server, or node /path/to/Mayhem/scripts/mayhem.mjs tool <name> '{"repo":"${where}", ...}'.`,
-    "1. list_tasks. For a new task: get_task, claim_task, reproduce it (the log tools, run_scenarios), then propose_plan in plain English for people who don't read code.",
-    "2. If the feedback leaves out something only a person knows, ask me here in this terminal and stop; don't guess, and don't put questions on the task. Put what I answer into the plan.",
-    "3. Do not change code until a person approves the plan in the Mayhem app. If they ask for a different plan, their note is in planDecision.note.",
-    "4. Approved: work on a branch agent/<task id>, commit with a \"Mayhem-Task: <id>\" trailer, report_progress, then run_scenarios with task: <id> (every scenario) so the sim proof is recorded on the commit, then finish_task.",
-    "5. A task reopened after your change has the person's reason as its last history entry.",
-    "Never deploy to the robot. Never approve or accept your own work. Full guide: docs/SUITE_AGENTS.md, Tasks; the same steps as a Claude Code skill: integrations/skills/mayhem-tasks.",
+    `When you change the robot code in ${where}: work on a branch, never on main, and commit your work.`,
+    "Before you tell me a change is ready, run these Mayhem tools (the MCP server, or node /path/to/Mayhem/scripts/mayhem.mjs tool <name> '<JSON>'):",
+    `- behavior_diff {"repo": "${where}", "base": "main", "after": "HEAD"}: what I will be shown. Anything in it you did not mean to change is a problem.`,
+    `- run_scenarios {"repo": "${where}", "base": "main", "after": "HEAD", "by": "<your name>"}: every button, auto and team scenario. It records the sim proof on the commit; I read that record, so don't describe a proof in words instead.`,
+    "Never remove or loosen a scenario to make a run pass, and never deploy to the robot. I review the branch in Mayhem and merge it myself.",
   ].join("\n");
 }
 
-/** Connecting agents to the project (shown at the bottom of the Tasks page). */
-export function AgentsPage({ s, repo = "" }: { s: SuiteState; repo?: string }) {
+/** Connecting agents to the robot code and the project file (shown on Settings). */
+export function AgentsPage({ s }: { s: SuiteState }) {
+  const [repo] = useRobotRepo();
   const [json, setJson] = useState(() => JSON.stringify(s.project, null, 2));
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
@@ -116,12 +114,12 @@ export function AgentsPage({ s, repo = "" }: { s: SuiteState; repo?: string }) {
   );
   return (
     <div className="mx-agent-setup">
-      <Panel title="Put an agent on the queue" icon={Bot} className="mx-agent-start">
+      <Panel title="Tell your agent once" icon={Bot} className="mx-agent-start">
         <p className="mx-help">
-          Open your coding agent in a terminal in the robot code folder and give it this. It picks up feedback, asks you there when something is unclear, proposes a plan,
-          and waits for your approval here before it changes code. In Claude Code with the team's skill: <code>/loop 10m /mayhem-tasks</code>.
+          Paste this into your agent's chat, or into the robot repo's <code>CLAUDE.md</code> or <code>AGENTS.md</code>. Its branches then show up under Changes with their
+          risk and a recorded sim proof.
         </p>
-        <CopyBlock text={queuePrompt(repo)} label="queue prompt" />
+        <CopyBlock text={reviewPrompt(repo)} label="review instructions" />
       </Panel>
       <div className="mx-agent-grid">
         <Panel title="Share this project with an agent" icon={FileText}>

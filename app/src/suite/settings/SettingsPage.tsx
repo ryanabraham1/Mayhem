@@ -3,6 +3,8 @@ import { recoverySnapshot, download } from "../storage";
 import { Button, PageHeader, Panel, Segmented } from "../ui";
 import { shortcutGroups } from "../autos/ShortcutSheet";
 import { checkForUpdate, installUpdate, useUpdater } from "../../updater";
+import { AgentsPage } from "../agents/AgentsPage";
+import type { SuiteState } from "../useSuiteProject";
 
 export type ThemeChoice = "light" | "dark" | "system";
 
@@ -12,12 +14,14 @@ export function SettingsPage({
   openLegacy,
   notify,
   version,
+  s,
 }: {
   theme: ThemeChoice;
   setTheme: (t: ThemeChoice) => void;
   openLegacy: () => void;
   notify: (m: string) => void;
   version: string;
+  s: SuiteState;
 }) {
   const u = useUpdater();
   const busy = ["checking", "downloading", "restarting"].includes(u.phase);
@@ -103,6 +107,10 @@ export function SettingsPage({
           </Panel>
         </div>
       </div>
+      <section className="mx-settings-agents" aria-label="Agents and the project file">
+        <h2>Agents and the project file</h2>
+        <AgentsPage key={s.project.id} s={s} />
+      </section>
     </div>
   );
 }
