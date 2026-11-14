@@ -65,11 +65,13 @@ export function fixtureRepo() {
 /** The desktop bridge, faked with the same git reader the CLI uses and real file writes. */
 /** A fake roboRIO for "On the robot now": its build stamp, and deploys recorded instead of run. */
 export const fakeRobot = { stamp: "" as string, deploys: [] as { rev: string; team: number }[] };
+/** Paths the next open-file dialogs return, in order; otherwise the dialog picks the repo. */
+export const dialogPicks: string[] = [];
 
 export async function desktop(page: Page, repo: string) {
   const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" }).toString().trim();
   await page.exposeFunction("__mayhemInvoke", async (cmd: string, args: Record<string, any>) => {
-    if (cmd === "plugin:dialog|open") return repo;
+    if (cmd === "plugin:dialog|open") return dialogPicks.shift() ?? repo;
     // ask/confirm: the clicked button's label (here always the OK one).
     if (cmd === "plugin:dialog|message") return args.buttons?.OkCancelCustom?.[0] ?? args.buttons?.OkCustom ?? "Yes";
     if (cmd === "robot_build_info") {

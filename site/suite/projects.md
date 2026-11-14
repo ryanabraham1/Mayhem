@@ -4,7 +4,7 @@
 
 Click the **project name** in the top bar to create, rename, duplicate, open or switch projects. Each project holds its robot limits, routines, typed inputs and state-machine manifests. **Export project** (in the same menu) downloads a portable JSON backup; the upload button next to the name imports one.
 
-Projects use the `mayhem-suite` version 1 JSON format, conventionally `name.mayhem.json`. They are separate from classic `project.mayhem` / `.mtraj` files and are not converted automatically.
+Projects use the `mayhem-suite` version 1 JSON format. In a robot repo the project is `robot.mayhem.json` at the root; choosing that folder opens it. See [the tools/mayhem folder](/reference/repo-files).
 
 ### Live file link (desktop)
 
@@ -26,4 +26,3 @@ Open with the gear in the top bar.
 | **Keyboard shortcuts** | The full list (also `?` in Autonomous). |
 | **Updates** | Version and update check. A banner appears when a release is out; **Install** restarts into it. |
 | **Recovery** | **Export recovery snapshot** downloads the last saved copy if a project was ever damaged. |
-| **Classic trajectory planner** | **Open classic planner** for solver-based `.mtraj` projects. See the [classic planner](/app/projects) pages. |

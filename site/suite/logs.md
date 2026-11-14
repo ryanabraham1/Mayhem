@@ -2,6 +2,8 @@
 
 Every recording is checked for red flags and power problems as soon as it arrives.
 
+![The Logs workspace](/img/suite/logs.jpg)
+
 ## The library
 
 Import a `.wpilog` with the upload button, or let [log collection](/suite/robot#log-collection) bring them in. Recordings are stored on this computer. Filter the list by name; right-click a recording to open its report, open it in AdvantageScope, export the original, copy its name or path, archive it, or delete it.

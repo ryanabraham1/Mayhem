@@ -2,6 +2,8 @@
 
 See how states connect, which inputs drive each transition, and what the robot is doing right now.
 
+![The State machines workspace](/img/suite/state-machines.jpg)
+
 Pick an autonomous routine or a robot state-machine manifest from the list. Then choose a data source:
 
 | Source | What it shows |
@@ -14,4 +16,4 @@ Click a state to see its guards and outgoing transitions. Transitions that can f
 
 Right-click a state for **Simulate from this state**, **Reset simulation**, **Edit step in Autos** (for routine steps), copy its name or ID, or **Make this an agent task**. Right-click a transition to copy its condition.
 
-Manifests have to match the signals your robot publishes. See [robot logging](https://github.com/ryanabraham1/Mayhem/blob/main/docs/ROBOT_LOGGING.md) for the signal contract.
+Mechanism machines come from `tools/mayhem/machines.json` in the robot repo; see [State machines in robot code](/robot-code/state-machines). For the live and replay views, the manifest has to match the channels your robot logs; see [Logging](/robot-code/logging).

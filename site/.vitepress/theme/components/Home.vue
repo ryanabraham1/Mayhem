@@ -3,7 +3,7 @@ import { ref } from "vue";
 import { withBase } from "vitepress";
 
 const repo = "https://github.com/ryanabraham1/Mayhem";
-const vendordep = "https://ryanabraham1.github.io/Mayhem/MayhemLib.json";
+const vendordep = "https://ryanabraham1.github.io/Mayhem/MayhemCpp.json";
 const copied = ref(false);
 
 async function copyVendordep() {
@@ -19,24 +19,24 @@ async function copyVendordep() {
 const cards = [
   {
     title: "Using Mayhem",
-    text: "Autos, state machines, logs, the robot, code reviews and agent tasks.",
+    text: "Every workspace: autos, state machines, logs, the robot, code reviews and agent tasks.",
     cta: "Tour the app",
     link: "/suite/overview",
     icon: "M3 4h18v14H3zM8 21h8M12 18v3",
   },
   {
-    title: "MayhemLib",
-    text: "The WPILib 2026 vendordep: routines, triggers, recovery and tuning.",
-    cta: "Robot quick start",
-    link: "/lib/quick-start",
+    title: "Robot code",
+    text: "Install the C++ library, run your autos and state machines, and log what Mayhem reads.",
+    cta: "Set up a robot repo",
+    link: "/robot-code/setup",
     icon: "M5 8h14v11H5zM12 4v4M9 13h.01M15 13h.01M3 13v2M21 13v2",
   },
   {
-    title: "API reference",
-    text: "Javadoc for every public class in mayhemlib, searchable alongside the guides.",
-    cta: "Browse packages",
-    link: "/api/",
-    icon: "m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16",
+    title: "Agents",
+    text: "Put a coding agent on the task queue. You approve its plan and check what it changed.",
+    cta: "Connect an agent",
+    link: "/agents/",
+    icon: "M12 8V4H8M4 12h16v8H4zM2 16h2M20 16h2M9 15v1M15 15v1",
   },
 ];
 
@@ -48,6 +48,13 @@ const features = [
   ["Log analysis", "Findings, power, signals and pose playback, with automatic collection and team upload.", "/suite/logs"],
   ["State machines", "Routine and mechanism graphs in simulation, live over NT4, or from a recording.", "/suite/state-machines"],
 ];
+
+const shots = [
+  ["autonomous", "Autonomous", "Autonomous workspace editing a routine on the 2026 field"],
+  ["state-machines", "State machines", "An autonomous routine drawn as a state graph"],
+  ["logs", "Logs", "A match log with battery and current findings"],
+  ["changes-autos", "Changes", "Before and after paths of an auto, colored by speed"],
+];
 </script>
 
 <template>
@@ -55,8 +62,8 @@ const features = [
     <section class="hero">
       <h1>Autos, logs and code reviews in one app.</h1>
       <p class="lede">
-        Build pose-based routines, review what a code change does to the robot, analyze match logs and hand work to coding agents.
-        The classic trajectory planner remains available for existing paths.
+        Build pose-based routines, see what's running on the robot, analyze match logs, review what a code change does,
+        and hand work to coding agents.
       </p>
       <div class="actions">
         <a class="btn btn-primary" :href="withBase('/guide/introduction')">Get started</a>
@@ -65,7 +72,7 @@ const features = [
           Download the app
         </a>
         <div class="vendordep">
-          <span class="vendordep-label">Classic Java vendordep</span>
+          <span class="vendordep-label">C++ vendordep</span>
           <code>{{ vendordep.replace("https://", "") }}</code>
           <button type="button" :aria-label="copied ? 'Copied' : 'Copy vendordep URL'" @click="copyVendordep">
             <svg v-if="!copied" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>
@@ -76,8 +83,7 @@ const features = [
     </section>
 
     <section class="shot">
-      <p>Classic planner shown below. See the suite guide for the rebuilt workspaces.</p>
-      <img :src="withBase('/img/overview.jpg')" alt="Classic planner workspace with a generated path on the 2026 REBUILT field" />
+      <img :src="withBase('/img/suite/overview.jpg')" alt="Mayhem's Overview: the team's autonomous routines, feedback for agents and the match-ready checklist" />
     </section>
 
     <section class="section">
@@ -100,27 +106,39 @@ const features = [
       </a>
     </section>
 
+    <section class="section">
+      <p class="eyebrow">The workspaces</p>
+      <h2>See it before you install it</h2>
+      <div class="gallery">
+        <a v-for="[file, title, alt] in shots" :key="file" class="gallery-item" :href="withBase(`/img/suite/${file}.jpg`)" target="_blank">
+          <img :src="withBase(`/img/suite/${file}.jpg`)" :alt="alt" loading="lazy" />
+          <span>{{ title }}</span>
+        </a>
+      </div>
+    </section>
+
     <section class="section code-section">
       <div class="code-copy">
-        <p class="eyebrow">Classic planner · Java MayhemLib</p>
-        <h2>A routine in a few lines</h2>
-        <p>Markers you name in the app become triggers in your robot code. Every method is documented in the API reference.</p>
-        <a :href="withBase('/api/auto/AutoTrajectory')">AutoTrajectory reference →</a>
+        <p class="eyebrow">Robot code · C++</p>
+        <h2>The app's IDs, bound in robot code</h2>
+        <p>Actions and conditions you name in an auto become bindings on the runner. Anything left unbound is an error at boot, not a failed step mid-match.</p>
+        <a :href="withBase('/robot-code/autos')">Running autos →</a>
       </div>
       <div class="code">
-        <div class="code-title">RobotContainer.java</div>
-        <pre><code><span class="t">AutoRoutine</span> routine = autoFactory.newRoutine(<span class="s">"Hub Cycle"</span>);
-<span class="t">AutoTrajectory</span> toHub = routine.trajectory(<span class="s">"Hub Cycle"</span>, <span class="n">0</span>);
+        <div class="code-title">MayhemAutos.cpp</div>
+        <pre><code><span class="t">mayhem::AutoRunner</span> runner{routine.View()};
+runner.Bind(<span class="s">"superstructure.intake"</span>,
+            <span class="t">mayhem::Instant</span>([&amp;] { intake.Start(); }))
+      .BindSignal(<span class="s">"superstructure.ready"</span>,
+            [&amp;] { <span class="k">return</span> <span class="t">mayhem::SignalValue</span>{shooter.Ready()}; });
 
-routine.active().onTrue(
-    toHub.resetOdometry().andThen(toHub.cmd()));
-toHub.atTime(<span class="s">"shoot"</span>).onTrue(shooter.shootOnce());
-toHub.recovering().whileTrue(lights.flash());</code></pre>
+<span class="k">if</span> (<span class="k">auto</span> missing = runner.UnboundReport(); !missing.empty())
+  alert.SetText(<span class="s">"Unhandled Mayhem IDs: "</span> + missing);</code></pre>
       </div>
     </section>
 
     <footer class="foot">
-      <span>Mayhem is an open-source FRC project. Not affiliated with FIRST, WPILib or Choreo.</span>
+      <span>Mayhem is an open-source FRC project. Not affiliated with FIRST or WPILib.</span>
       <span class="foot-links">
         <a :href="repo" target="_blank" rel="noreferrer">GitHub</a>
         <a :href="`${repo}/releases`" target="_blank" rel="noreferrer">Releases</a>
@@ -371,8 +389,35 @@ h2 {
 .code .s {
   color: #9be2b9;
 }
-.code .n {
-  color: #ffc98a;
+.code .k {
+  color: #ff9cc2;
+}
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.gallery-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--vp-c-text-1);
+}
+.gallery-item img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top left;
+  border-radius: 10px;
+  border: 1px solid var(--vp-c-divider);
+  transition: border-color 0.2s;
+}
+.gallery-item:hover img {
+  border-color: var(--vp-c-brand-soft-border);
 }
 .foot {
   display: flex;

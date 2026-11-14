@@ -2,6 +2,8 @@
 
 The Robot workspace has five tabs.
 
+![Robot → Values](/img/suite/robot-values.jpg)
+
 ## On the robot now
 
 What code the robot is running (desktop app, robot connected). It refreshes when the robot connects, or click **Check robot**.
@@ -13,7 +15,7 @@ What code the robot is running (desktop app, robot connected). It refreshes when
   - **Put main back on the robot** builds main and deploys it after you confirm. The robot must be connected and disabled. Nothing in the repository changes.
 - The health of the newest log: red flags and any flickering signals.
 
-`main` is the known-good version.
+`main` is the known-good version. The robot code has to record a [build stamp](/robot-code/logging#what-s-deployed) for this tab to work.
 
 ## Values
 

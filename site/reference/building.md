@@ -1,18 +1,15 @@
 # Building and contributing
 
-Mayhem contains the suite and classic planning stack. The suite also provides a C++17 controller in `lib-cpp/` and Node CLI/MCP tools in `scripts/mayhem.mjs`.
-
-The classic stack and desktop shell use:
-
 | Part | Path | Toolchain |
 |---|---|---|
-| Solver (CasADi + IPOPT) | `solver/` | Python 3.12 via [uv](https://docs.astral.sh/uv/) |
 | Desktop app (UI + Tauri shell) | `app/`, `app/src-tauri/` | Node 22+ / pnpm, Rust (stable) |
-| Robot library (vendordep) | `lib/` | JDK 17+, Gradle wrapper |
+| C++ library | `lib-cpp/` | C++17 (C++20 for the WPILib adapters), CMake |
+| CLI and MCP tools | `scripts/mayhem.mjs` | Node 24+ |
+| This documentation site | `site/` | Node / pnpm, VitePress |
 
 ## Run it from source
 
-For suite editing, previews and imported logs, only the frontend is needed:
+Editing, previews and imported logs only need the frontend:
 
 ```bash
 cd app
@@ -20,35 +17,25 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:5173`. For the classic planner, also start the Python solver in a second terminal:
-
-```bash
-cd solver && uv sync && uv run mayhem-solver serve --ws 8765
-```
-
-```bash
-cd app && pnpm install && pnpm dev
-```
-
-Open `http://localhost:5173`. To run as a desktop app, build the solver sidecar once and use `pnpm tauri dev`.
+Open `http://localhost:5173`. To run the desktop app, build the bundled sidecar once with `scripts/build-sidecar.sh` (`pwsh scripts/build-sidecar.ps1` on Windows), then run `pnpm tauri dev`.
 
 ## Tests
 
 ```bash
-cd solver && uv run pytest -q
+cd app && pnpm test            # unit tests
+cd app && pnpm test:e2e        # browser tests (Playwright)
 ```
 
 ```bash
-cd lib && ./gradlew test
-```
-
-```bash
-cd app && pnpm test
+cmake -S lib-cpp -B lib-cpp/build -DBUILD_TESTING=ON
+cmake --build lib-cpp/build
+ctest --test-dir lib-cpp/build --output-on-failure
 ```
 
 ## More
 
-- Sidecar packaging, release builds, CI, auto-update and hosting MayhemLib: [docs/BUILDING.md](https://github.com/ryanabraham1/Mayhem/blob/main/docs/BUILDING.md).
+- Release builds, CI, auto-update and hosting the vendordep: [docs/BUILDING.md](https://github.com/ryanabraham1/Mayhem/blob/main/docs/BUILDING.md).
+- What's been verified and what hasn't: [docs/SUITE_STATUS.md](https://github.com/ryanabraham1/Mayhem/blob/main/docs/SUITE_STATUS.md).
 - Standing product and engineering decisions: [docs/DECISIONS.md](https://github.com/ryanabraham1/Mayhem/blob/main/docs/DECISIONS.md).
 
 ## This documentation site
@@ -60,12 +47,17 @@ cd site && pnpm install && pnpm dev      # live preview at http://localhost:5173
 cd site && pnpm build                    # static output in site/.vitepress/dist
 ```
 
-Every guide page has an **Edit this page on GitHub** link. A push to `main` that touches `site/` or MayhemLib's source publishes the site to the root of the `gh-pages` branch, next to the hosted MayhemLib files.
+Every page has an **Edit this page on GitHub** link. A push to `main` that touches `site/` publishes the site to the root of the `gh-pages` branch, next to the hosted vendordep files.
 
-The [API reference](/api/) is generated from MayhemLib's Javadoc, so fix API docs in the Java source, not in `site/`. A small doclet in `lib/src/doclet` exports the public API to `site/api/mayhemlib.json`, and `site/.vitepress/api.ts` renders one page per class from it. CI regenerates the JSON before every docs build; to preview Javadoc changes locally, run:
+### Screenshots
+
+The workspace screenshots in `site/public/img/suite/` come from a real robot repo. To retake them, build the app and run the docs screenshot test against a throwaway clone of the robot repo (the test writes tasks into it):
 
 ```bash
-cd lib && ./gradlew apiJson
+git clone <robot repo> /tmp/robot
+cd app && pnpm build
+MAYHEM_DOCS_SHOTS=/tmp/shots MAYHEM_REVIEW_REPO=/tmp/robot MAYHEM_DOCS_LOG=<a .wpilog> \
+  npx playwright test docs-shots
 ```
 
-The standard Javadoc HTML is published at [/javadoc/](https://ryanabraham1.github.io/Mayhem/javadoc/) too.
+Then convert the PNGs to JPEG in `site/public/img/suite/`.

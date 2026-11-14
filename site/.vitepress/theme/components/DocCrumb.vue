@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// "MayhemLib / On the robot" above a guide page's title, from the nav and sidebar config.
+// "Robot code / Running autos" above a guide page's title, from the nav and sidebar config.
 import { computed } from "vue";
 import { useData } from "vitepress";
 import type { DefaultTheme } from "vitepress";
@@ -7,7 +7,6 @@ import type { DefaultTheme } from "vitepress";
 const { page, theme, frontmatter } = useData<DefaultTheme.Config>();
 
 const crumbs = computed(() => {
-  if (frontmatter.value.pageClass?.startsWith("api-")) return [];
   const path = "/" + page.value.relativePath.replace(/(^|\/)index\.md$/, "$1").replace(/\.md$/, "");
   const parts: string[] = [];
   const navItem = (theme.value.nav ?? []).find(

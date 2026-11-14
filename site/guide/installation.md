@@ -1,8 +1,6 @@
 # Installation
 
-Install the desktop app below, then follow [Your first routine](/guide/quick-start). The Java vendordep is only for classic trajectories; suite routines run on the robot through the [C++ library](https://github.com/ryanabraham1/Mayhem/blob/main/lib-cpp/README.md).
-
-For the classic workflow you also need the **MayhemLib vendordep** in your robot project.
+You need the desktop app on the laptops your team uses, and the C++ library in your robot code. Node is only needed if you run Mayhem's command-line tools or connect an agent.
 
 ## Desktop app
 
@@ -33,18 +31,28 @@ Make the `.AppImage` executable and run it, or install the `.deb`.
 
 ### Updates
 
-From 0.6.0 on, Mayhem updates itself. It shows a banner when a new release is out and installs the update when you click **Install & restart**. You can also check in **Settings → About & updates**.
+Mayhem updates itself. A banner appears when a new release is out; click **Install & restart**. You can also check in **Settings → Updates**.
 
-## MayhemLib (robot code)
+## C++ library (robot code)
 
-MayhemLib is hosted as a normal vendordep, so you install it the same way as Phoenix 6 or PathPlanner. In VS Code with the WPILib extension, open the command palette (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>), run **WPILib: Manage Vendor Libraries**, choose **Install new libraries (online)**, and paste:
+Your robot runs Mayhem routines and state machines with the header-only **MayhemCpp** library. In VS Code with the WPILib extension, open the command palette (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>), run **WPILib: Manage Vendor Libraries**, choose **Install new libraries (online)**, and paste:
 
 ```
-https://ryanabraham1.github.io/Mayhem/MayhemLib.json
+https://ryanabraham1.github.io/Mayhem/MayhemCpp.json
 ```
 
-Offline installs, installing from a checkout, and the other vendordeps you'll need are covered in [MayhemLib installation](/lib/installation).
+Offline installs and copying the headers into the repo instead are covered in [Set up a robot repo](/robot-code/setup).
 
-## Running from source
+## Command-line tools (optional)
 
-To work on Mayhem itself, see [Building and contributing](/reference/building).
+Exporting C++, checking generated code in CI and connecting agents use `scripts/mayhem.mjs`. It needs **Node 24 or later** and no `npm install`. Download `Mayhem-suite-tools-<version>.zip` from the same release, extract the whole folder, and run:
+
+```sh
+node Mayhem-suite-tools-<version>/scripts/mayhem.mjs --help
+```
+
+A Mayhem source checkout works the same way. See [Command line and MCP tools](/agents/tools).
+
+## Browser version
+
+Most of the editing works in a browser from a source checkout (`cd app && pnpm install && pnpm dev`, then open `http://localhost:5173`). Reading robot code, log collection, live file links and deploys need the desktop app; see [Desktop vs. browser](/suite/overview#desktop-vs-browser).

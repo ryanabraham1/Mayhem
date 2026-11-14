@@ -1,6 +1,10 @@
 # Autonomous
 
-Build an auto by placing goals on the field, attach actions and conditions, then preview it. The header shows the step count and how much of the 15 s auto period the routine uses; the badge above the field says **Fits in auto**, how far over it is, **Doesn't finish**, or how many errors to fix.
+Build an auto by placing goals on the field, attach actions and conditions, then preview it.
+
+![The Autonomous workspace](/img/suite/autonomous.jpg)
+
+The header shows the step count and how much of the 15 s auto period the routine uses; the badge above the field says **Fits in auto**, how far over it is, **Doesn't finish**, or how many errors to fix.
 
 Set the robot's size and limits on [Robot → Specs & limits](/suite/robot#specs-limits) first; every routine is planned with them. Field coordinates use the blue-alliance origin.
 
@@ -82,4 +86,4 @@ The preview is kinematic: it doesn't use PID gains, avoid obstacles or run your 
 
 ## Getting it on the robot
 
-The robot runs routines through the [C++ library](https://github.com/ryanabraham1/Mayhem/blob/main/lib-cpp/README.md). Export the C++ from **Tasks → Connect an agent → C++ library** (or the match-ready checklist on Overview), register your callback IDs in robot code, then tune on the real robot. Exporting a header doesn't deploy anything.
+The robot runs routines with Mayhem's C++ library. Export the C++ from **Tasks → Connect an agent → C++ library** (or the match-ready checklist on Overview), or generate it with `scripts/mayhem.mjs cpp`. Then bind your action and signal IDs in robot code and tune on the real robot; see [Running autos](/robot-code/autos). Exporting a header doesn't deploy anything.

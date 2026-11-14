@@ -2,6 +2,8 @@
 
 Changes shows what a code change does to the robot, read straight from the code, so you can review agent-written (or anyone's) code by behavior instead of by diff.
 
+![The Changes summary](/img/suite/changes.jpg)
+
 ## Pick what to compare
 
 In the desktop app, click **Choose robot code folder** and pick the robot repository. Then choose **Before** and **After**:
@@ -9,6 +11,8 @@ In the desktop app, click **Choose robot code folder** and pick the robot reposi
 - **This computer (not committed)**: your working copy, with how many files are edited.
 - **Last commit** on the current branch.
 - Any branch, branch on GitHub, tag or recent commit.
+
+With nothing edited on this computer, Changes starts on `main` → the last commit of your branch: what the branch changes against the known-good version. Your choice is kept while the app is open.
 
 **Reload** re-reads the code. In the browser, use **Open review file** with a file made by:
 
@@ -21,7 +25,8 @@ The chip next to the tabs gives the overall risk. Red means a safety change.
 ## Summary
 
 - **Why.** The tasks these commits were for (agents add a `Mayhem-Task: <id>` line to their commits), so you see the request next to the result.
-- **Area cards.** Driver controls, state machines, values, hardware, autos and generated robot code, each colored by its riskiest change. Click one to open its tab.
+- **Area cards.** Driver controls, state machines, values, hardware, autos, generated robot code and other code, each colored by its riskiest change. Click one to open its tab.
+- **Other code.** Mayhem reads controls, state machines, values, hardware and autos. Any other file that ends up on the robot (logic in `.cpp` files, vendored libraries, deploy files) is only compared: the card counts the files that changed and the finding names them. Such a change is never reported as "no behavior changes"; the sim proof is how you check it. A team scenario that was removed, or that checks less than before, is called out the same way.
 - **Findings.** Every change, marked **safety**, **review** or **ok**. Use the thumbs to send **Looks good** or **Not right** straight to [Tasks](/suite/tasks).
 
 ## Tabs
@@ -50,7 +55,7 @@ Results are grouped into **Autos**, **Buttons** and **Team scenarios**, each mar
 - Click a spot on the replay, or **Comment here**, to pin feedback to that place and moment.
 - **Record clip** makes a video you can download. It's kept only while the replay is open.
 
-A team scenario looks like:
+A team scenario looks like this; [Sim proof scenarios](/robot-code/scenarios) lists every step and expectation:
 
 ```json
 {

@@ -1,19 +1,17 @@
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vitepress";
-import { apiSearchSections, apiSidebar, loadApi } from "./api";
 
 const repo = "https://github.com/ryanabraham1/Mayhem";
 const appVersion: string = JSON.parse(
   readFileSync(new URL("../../app/package.json", import.meta.url), "utf-8"),
 ).version;
-const api = loadApi();
 
 export default defineConfig({
   title: "Mayhem",
   description:
-    "Pose-based autonomous editing, state-machine inspection and robot log analysis for FRC.",
+    "One app for an FRC robot's software: autos, state machines, logs, code reviews and agent tasks.",
   // Served from https://ryanabraham1.github.io/Mayhem/ (the gh-pages branch also hosts the
-  // MayhemLib maven repo and MayhemLib.json at the same root).
+  // vendordep maven repo and MayhemCpp.json at the same root).
   base: "/Mayhem/",
   cleanUrls: true,
   lastUpdated: false,
@@ -40,16 +38,15 @@ export default defineConfig({
     nav: [
       { text: "Guide", link: "/guide/introduction", activeMatch: "/guide/" },
       { text: "Using Mayhem", link: "/suite/overview", activeMatch: "/suite/" },
-      { text: "Classic planner", link: "/app/projects", activeMatch: "/app/" },
-      { text: "MayhemLib", link: "/lib/installation", activeMatch: "/lib/" },
-      { text: "API", link: "/api/", activeMatch: "/api/" },
-      { text: "Reference", link: "/reference/solver", activeMatch: "/reference/" },
+      { text: "Robot code", link: "/robot-code/setup", activeMatch: "/robot-code/" },
+      { text: "Agents", link: "/agents/", activeMatch: "/agents/" },
+      { text: "Reference", link: "/reference/conventions", activeMatch: "/reference/" },
       {
         text: `v${appVersion}`,
         items: [
           { text: "Download the app", link: `${repo}/releases/latest` },
           { text: "All releases", link: `${repo}/releases` },
-          { text: `MayhemLib ${api.version}`, link: "/lib/installation" },
+          { text: "C++ library (MayhemCpp)", link: "/robot-code/setup" },
         ],
       },
     ],
@@ -60,13 +57,17 @@ export default defineConfig({
           items: [
             { text: "Introduction", link: "/guide/introduction" },
             { text: "Installation", link: "/guide/installation" },
-            { text: "Your first routine", link: "/guide/quick-start" },
-            { text: "Classic trajectory quick start", link: "/guide/classic-quick-start" },
+            { text: "Your first auto", link: "/guide/quick-start" },
+            { text: "A week with Mayhem", link: "/guide/workflow" },
           ],
         },
         {
-          text: "Using Mayhem",
-          items: [{ text: "The app at a glance", link: "/suite/overview" }],
+          text: "Next",
+          items: [
+            { text: "The app at a glance", link: "/suite/overview" },
+            { text: "Set up robot code", link: "/robot-code/setup" },
+            { text: "Connect an agent", link: "/agents/" },
+          ],
         },
       ],
       "/suite/": [
@@ -99,74 +100,41 @@ export default defineConfig({
           ],
         },
       ],
-      "/app/": [
+      "/robot-code/": [
         {
-          text: "Classic planner",
+          text: "Robot code",
           items: [
-            { text: "Projects and deploying", link: "/app/projects" },
-            { text: "Robot configuration", link: "/app/robot" },
-            { text: "Field and obstacles", link: "/app/field" },
-            { text: "Building paths", link: "/app/paths" },
-            { text: "Constraints", link: "/app/constraints" },
-            { text: "Markers and pose variables", link: "/app/markers" },
-            { text: "Checking a path", link: "/app/checking" },
-            { text: "Fuel sim", link: "/app/fuel-sim" },
-            { text: "Troubleshooting", link: "/app/troubleshooting" },
+            { text: "Set up a robot repo", link: "/robot-code/setup" },
+            { text: "Running autos", link: "/robot-code/autos" },
+            { text: "State machines", link: "/robot-code/state-machines" },
+            { text: "Logging and what's deployed", link: "/robot-code/logging" },
+            { text: "Sim proof scenarios", link: "/robot-code/scenarios" },
           ],
         },
       ],
-      "/lib/": [
+      "/agents/": [
         {
-          text: "Get started",
+          text: "Agents",
           items: [
-            { text: "Installation", link: "/lib/installation" },
-            { text: "Quick start", link: "/lib/quick-start" },
-            { text: "Coming from Choreo", link: "/lib/from-choreo" },
+            { text: "Connect an agent", link: "/agents/" },
+            { text: "How agents work tasks", link: "/agents/tasks" },
+            { text: "Command line and MCP tools", link: "/agents/tools" },
           ],
-        },
-        {
-          text: "Concepts",
-          items: [
-            { text: "AutoFactory, routines and triggers", link: "/lib/api" },
-            { text: "Event markers", link: "/lib/markers" },
-            { text: "Splits and alliance flipping", link: "/lib/splits-and-alliance" },
-          ],
-        },
-        {
-          text: "On the robot",
-          items: [
-            { text: "Bump recovery", link: "/lib/recovery" },
-            { text: "Tuning the follower", link: "/lib/tuning" },
-            { text: "Telemetry", link: "/lib/telemetry" },
-            { text: "Testing without a robot", link: "/lib/testing" },
-            { text: "Troubleshooting", link: "/lib/troubleshooting" },
-          ],
-        },
-        {
-          text: "Reference",
-          items: [{ text: "MayhemLib API (Javadoc)", link: "/api/" }],
         },
       ],
-      "/api/": apiSidebar(api),
       "/reference/": [
         {
           text: "Reference",
           items: [
-            { text: "How the solver works", link: "/reference/solver" },
             { text: "Conventions", link: "/reference/conventions" },
+            { text: "The tools/mayhem folder", link: "/reference/repo-files" },
             { text: "Building and contributing", link: "/reference/building" },
           ],
         },
       ],
     },
     socialLinks: [{ icon: "github", link: repo }],
-    search: {
-      provider: "local",
-      options: {
-        // Index the generated API pages too (see apiSearchSections).
-        miniSearch: { _splitIntoSections: (file: string) => apiSearchSections(file) },
-      },
-    },
+    search: { provider: "local" },
     editLink: {
       pattern: `${repo}/edit/main/site/:path`,
       text: "Edit this page on GitHub",
@@ -175,7 +143,7 @@ export default defineConfig({
     docFooter: { prev: "Previous", next: "Next" },
     footer: {
       message: "Mayhem is an open-source FRC project.",
-      copyright: "Not affiliated with FIRST, WPILib or Choreo.",
+      copyright: "Not affiliated with FIRST or WPILib.",
     },
   },
 });
