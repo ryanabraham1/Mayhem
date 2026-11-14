@@ -1,6 +1,6 @@
 # Troubleshooting
 
-> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Suite workflows](/guide/suite).
+> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Using Mayhem](/suite/overview).
 
 
 When generation fails, the app lists what's wrong and pins the spot on the field. Click an issue to jump to it. These are the common ones.

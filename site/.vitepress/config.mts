@@ -39,7 +39,7 @@ export default defineConfig({
     siteTitle: "Mayhem",
     nav: [
       { text: "Guide", link: "/guide/introduction", activeMatch: "/guide/" },
-      { text: "Suite", link: "/guide/suite" },
+      { text: "Using Mayhem", link: "/suite/overview", activeMatch: "/suite/" },
       { text: "Classic planner", link: "/app/projects", activeMatch: "/app/" },
       { text: "MayhemLib", link: "/lib/installation", activeMatch: "/lib/" },
       { text: "API", link: "/api/", activeMatch: "/api/" },
@@ -60,9 +60,42 @@ export default defineConfig({
           items: [
             { text: "Introduction", link: "/guide/introduction" },
             { text: "Installation", link: "/guide/installation" },
-            { text: "Your first suite routine", link: "/guide/quick-start" },
-            { text: "Suite workflows", link: "/guide/suite" },
+            { text: "Your first routine", link: "/guide/quick-start" },
             { text: "Classic trajectory quick start", link: "/guide/classic-quick-start" },
+          ],
+        },
+        {
+          text: "Using Mayhem",
+          items: [{ text: "The app at a glance", link: "/suite/overview" }],
+        },
+      ],
+      "/suite/": [
+        {
+          text: "Using Mayhem",
+          items: [
+            { text: "The app at a glance", link: "/suite/overview" },
+            { text: "Projects, files and settings", link: "/suite/projects" },
+          ],
+        },
+        {
+          text: "Build",
+          items: [
+            { text: "Autonomous", link: "/suite/autonomous" },
+            { text: "State machines", link: "/suite/state-machines" },
+          ],
+        },
+        {
+          text: "Robot and logs",
+          items: [
+            { text: "Robot", link: "/suite/robot" },
+            { text: "Logs", link: "/suite/logs" },
+          ],
+        },
+        {
+          text: "Review and agents",
+          items: [
+            { text: "Changes", link: "/suite/changes" },
+            { text: "Tasks", link: "/suite/tasks" },
           ],
         },
       ],

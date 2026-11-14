@@ -1,6 +1,6 @@
 # Constraints
 
-> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Suite workflows](/guide/suite).
+> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Using Mayhem](/suite/overview).
 
 
 Open the **Constraint** menu in the toolbar and pick a type, then **click the first waypoint and the last waypoint** it applies to. Click one waypoint and press <kbd>↵</kbd> to apply it to just that waypoint.

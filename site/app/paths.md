@@ -1,6 +1,6 @@
 # Building paths
 
-> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Suite workflows](/guide/suite).
+> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Using Mayhem](/suite/overview).
 
 
 Switch to **Paths** in the top bar. A project holds many paths; the sidebar lists them. Use the folder button in the *Paths* header to organize them into folders, and drag paths into folders.

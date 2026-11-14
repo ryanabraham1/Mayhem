@@ -1,8 +1,8 @@
 # Installation
 
-For the development suite, follow [Building and contributing](/reference/building), then [Your first suite routine](/guide/quick-start). Check published release notes for suite availability. The Java vendordep below is for classic trajectories; suite C++ integration is covered in the [suite guide](/guide/suite).
+Install the desktop app below, then follow [Your first routine](/guide/quick-start). The Java vendordep is only for classic trajectories; suite routines run on the robot through the [C++ library](https://github.com/ryanabraham1/Mayhem/blob/main/lib-cpp/README.md).
 
-The classic workflow has two things to install: the **desktop app** on your laptop and the **MayhemLib vendordep** in your robot project.
+For the classic workflow you also need the **MayhemLib vendordep** in your robot project.
 
 ## Desktop app
 

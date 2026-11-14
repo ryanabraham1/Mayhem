@@ -1,29 +1,31 @@
 # Introduction
 
-Mayhem is a robot software workspace for pose-based autonomous routines, state-machine inspection, and log playback and analysis. The development suite combines these tools in one app, with shared robot connection and background log collection.
+Mayhem is one desktop app for a robot's software: build pose-based autos, inspect state machines, analyze match logs, see what's running on the robot, review what a code change actually does, and turn team feedback into tasks for coding agents.
 
 ## Choose your workflow
 
-| Workflow | Start here |
+| You want to | Start here |
 | --- | --- |
-| New suite: pose goals, inputs, callbacks, C++ integration | [Your first suite routine](/guide/quick-start) and [suite workflows](/guide/suite) |
-| Existing solver projects and Java MayhemLib | [Your first classic trajectory](/guide/classic-quick-start) |
-| Build the development app | [Building and contributing](/reference/building) |
+| Install the app | [Installation](/guide/installation) |
+| Build an auto | [Your first routine](/guide/quick-start), then [Autonomous](/suite/autonomous) |
+| Find your way around | [The app at a glance](/suite/overview) |
+| Review a robot code change | [Changes](/suite/changes) |
+| Hand work to agents | [Tasks](/suite/tasks) |
+| Keep using solver `.mtraj` paths and Java MayhemLib | [Classic trajectory quick start](/guide/classic-quick-start) |
+| Work on Mayhem itself | [Building and contributing](/reference/building) |
 
-## The suite workspaces
+## The workspaces
 
-- **Overview:** routine thumbnails, recent logs, connection status and project checks.
-- **Autonomous:** edit pose/translation goals, moving handoffs and robot actions; preview the path or full routine with simulated inputs.
-- **State machines:** inspect routine and mechanism graphs in simulation, live over read-only NT4, or from recorded signals.
-- **Logs:** import WPILOG files, investigate findings, inspect power and signals, and replay poses.
-- **Robot:** connection, automatic robot/folder collection, team upload, robot limits and typed inputs.
-- **Agents:** project brief, live file link, CLI/MCP setup, C++ export and JSON.
-- **Settings:** appearance, recovery snapshots and the classic trajectory planner.
+- **[Overview](/suite/overview):** routine thumbnails, latest logs, the match-ready checklist and a clickable robot explainer.
+- **[Changes](/suite/changes):** what a code change does to controls, state machines, values, hardware and autos, with a before/after sim proof.
+- **[Tasks](/suite/tasks):** feedback, pit notes and driver forms become agent tasks; approve plans and check changes.
+- **[Autonomous](/suite/autonomous):** place goals, add actions and conditions, preview the path or the full routine.
+- **[State machines](/suite/state-machines):** graphs in simulation, live over NT4, or replayed from a log.
+- **[Logs](/suite/logs):** findings, power, signals and pose replay for every recording.
+- **[Robot](/suite/robot):** what's on the robot now, every value in the code, specs, connection and log collection.
 
-The suite is in development. Preview does not execute custom robot code or establish physical obstacle avoidance. Physical robot validation and cross-platform release checks remain outstanding. See the [implementation status](https://github.com/ryanabraham1/Mayhem/blob/main/docs/SUITE_STATUS.md) for verification boundaries.
+Preview doesn't run your custom robot code or avoid obstacles, and the C++ pose controller still needs tuning on the real robot. See the [implementation status](https://github.com/ryanabraham1/Mayhem/blob/main/docs/SUITE_STATUS.md) for what's been verified.
 
 ## Classic trajectory planner
 
-Open **Settings → Classic trajectory planner → Open classic planner** for existing paths. The Python CasADi/IPOPT solver generates time-optimal trajectories with drivetrain limits and swept bumper collision checks. Java MayhemLib follows exported `.mtraj` files with feedback and bump recovery. These files and APIs are separate from suite JSON projects and the C++ pose controller.
-
-The pages under **Classic planner** and **MayhemLib** document that workflow; their screenshots show the classic UI.
+Open **Settings → Classic trajectory planner → Open classic planner** for existing paths. The Python CasADi/IPOPT solver generates time-optimal trajectories with drivetrain limits and swept bumper collision checks, and Java MayhemLib follows the exported `.mtraj` files. These files and APIs are separate from suite projects and the C++ pose controller. The **Classic planner** and **MayhemLib** sections document that workflow.

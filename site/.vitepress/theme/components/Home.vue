@@ -18,10 +18,10 @@ async function copyVendordep() {
 
 const cards = [
   {
-    title: "Mayhem suite",
-    text: "Pose-based autos, state machines, robot connection and log analysis.",
-    cta: "Build your first auto",
-    link: "/guide/quick-start",
+    title: "Using Mayhem",
+    text: "Autos, state machines, logs, the robot, code reviews and agent tasks.",
+    cta: "Tour the app",
+    link: "/suite/overview",
     icon: "M3 4h18v14H3zM8 21h8M12 18v3",
   },
   {
@@ -41,28 +41,28 @@ const cards = [
 ];
 
 const features = [
-  ["Pose-based autos", "Edit pose and translation goals, moving handoffs, actions and conditions on the field.", "/guide/suite#author-an-autonomous-routine"],
-  ["Two preview modes", "Inspect the whole path, then check conditions, callback results and watchdogs with simulated inputs.", "/guide/suite#preview-the-path-and-routine"],
-  ["State machines", "Inspect routine and mechanism graphs in simulation, live over NT4, or from a recording.", "/guide/suite#inspect-state-machines"],
-  ["Log analysis", "Review findings, power, signals and pose playback at a shared cursor.", "/guide/suite#import-and-analyze-logs"],
-  ["Background collection", "Collect robot or folder recordings and queue team uploads while using any workspace.", "/guide/suite#connect-and-collect-recordings"],
-  ["Agent collaboration", "Share project briefs and revision-checked files, use CLI/MCP tools, and export C++.", "/guide/suite#hand-off-to-robot-code-or-an-agent"],
+  ["Pose-based autos", "Place goals, draw routes, add actions and conditions, and preview with simulated inputs.", "/suite/autonomous"],
+  ["Review by behavior", "See what a code change does to controls, values, hardware and autos, with a before/after sim proof.", "/suite/changes"],
+  ["Agent tasks", "Feedback, pit notes and driver forms become tasks; approve plans and check the changes.", "/suite/tasks"],
+  ["On the robot now", "What's deployed, how it differs from main, every value in the code, and one-click rollback.", "/suite/robot#on-the-robot-now"],
+  ["Log analysis", "Findings, power, signals and pose playback, with automatic collection and team upload.", "/suite/logs"],
+  ["State machines", "Routine and mechanism graphs in simulation, live over NT4, or from a recording.", "/suite/state-machines"],
 ];
 </script>
 
 <template>
   <div class="home">
     <section class="hero">
-      <h1>Autos, states and logs in one workspace.</h1>
+      <h1>Autos, logs and code reviews in one app.</h1>
       <p class="lede">
-        Build pose-based routines, inspect state machines and review robot recordings in the development suite.
+        Build pose-based routines, review what a code change does to the robot, analyze match logs and hand work to coding agents.
         The classic trajectory planner remains available for existing paths.
       </p>
       <div class="actions">
         <a class="btn btn-primary" :href="withBase('/guide/introduction')">Get started</a>
         <a class="btn btn-alt" :href="`${repo}/releases/latest`" target="_blank" rel="noreferrer">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" /></svg>
-          Published releases
+          Download the app
         </a>
         <div class="vendordep">
           <span class="vendordep-label">Classic Java vendordep</span>

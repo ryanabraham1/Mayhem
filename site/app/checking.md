@@ -1,6 +1,6 @@
 # Checking a path
 
-> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Suite workflows](/guide/suite).
+> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Using Mayhem](/suite/overview).
 
 
 ![Scrubbing a generated path on the timeline](/img/playback.jpg)

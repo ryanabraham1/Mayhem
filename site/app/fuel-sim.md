@@ -1,6 +1,6 @@
 # Fuel sim
 
-> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Suite workflows](/guide/suite).
+> **Classic planner:** Open Settings → Classic trajectory planner for this workflow. For the rebuilt app, see [Using Mayhem](/suite/overview).
 
 
 **Fuel sim** in the toolbar simulates the FUEL on the field during playback. Robots push it around, and an extended intake takes it in only as fast as its intake rate. Everything else it touches gets shoved, the way a real intake bulldozes part of a pile.
