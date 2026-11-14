@@ -60,6 +60,10 @@ export interface Anchor {
   behavior?: string;
   /** Match name or number, e.g. "Qual 14". */
   match?: string;
+  /** Right-clicked anywhere else: the app page, the card or panel, and the item under the pointer. */
+  page?: string;
+  section?: string;
+  element?: string;
 }
 
 export interface Change {

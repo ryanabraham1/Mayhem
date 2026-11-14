@@ -16,6 +16,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { copyText, openContextMenu, type MenuItem } from "./ContextMenu";
+import { stepTask } from "./tasks/anchors";
 import { useTrackpadZoom } from "./trackpad";
 import { routeSegments, routeWarnings } from "./core/routes.ts";
 import { FieldArt } from "../components/FieldArt";
@@ -47,7 +48,7 @@ type SpeedPoint = { x: number; y: number; speed: number; node?: string };
  * Split a route into polylines of one speed color each (few SVG nodes, smooth
  * joins). Points driven toward a step outside `live` become ghost runs.
  */
-function speedRunsFor(path: SpeedPoint[], maxSpeed: number, live?: Set<string>) {
+export function speedRunsFor(path: SpeedPoint[], maxSpeed: number, live?: Set<string>) {
   const runs: { color: string; ghost: boolean; points: [number, number][] }[] = [];
   let bucket = -1,
     ghost = false;
@@ -157,6 +158,11 @@ export function FieldView({
   const start =
     drag?.id === "@start" ? drag : (routine.start ?? project.robot.start);
   const goals = routine.nodes.filter((n) => n.kind === "pose" && n.goal);
+  const startTask = {
+    title: `${routine.name} · starting pose: `,
+    anchor: { routine: routine.name, pose: { x: start.x, y: start.y, heading: start.heading } },
+    context: "Pinned to where this auto starts.",
+  };
   const positions = goals.map((n) =>
     drag?.id === n.id ? { ...n.goal!, ...drag } : n.goal!,
   );
@@ -411,6 +417,11 @@ export function FieldView({
               { label: "Fit field", icon: Maximize2, onSelect: () => setView(fit()) },
             ],
             at,
+            {
+              title: `${routine.name} · field (${p.x.toFixed(1)}, ${p.y.toFixed(1)}): `,
+              anchor: { routine: routine.name, pose: { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 } },
+              context: "Pinned to this spot on the field in this auto.",
+            },
           );
         }}
         onDoubleClick={(e) => {
@@ -512,6 +523,7 @@ export function FieldView({
                 },
               ],
               "Starting pose",
+              startTask,
             );
           }}
           onPointerDown={(e) => startGoalDrag(e, "@start", "position", start)}
@@ -621,6 +633,7 @@ export function FieldView({
                     { label: "Delete goal", icon: Trash2, danger: true, hint: "Del", onSelect: () => remove(node.id) },
                   ],
                   node.name,
+                  stepTask(routine.name, node),
                 );
               }}
               className={`mx-goal${quiet ? " is-quiet" : ""}`}

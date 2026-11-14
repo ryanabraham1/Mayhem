@@ -436,10 +436,10 @@
   background: var(--mx-bad);
 }
 .mx-legend .is-before::before {
-  background: var(--mx-muted);
+  background: repeating-linear-gradient(90deg, var(--mx-ink-2) 0 4px, transparent 4px 7px);
 }
 .mx-legend .is-after::before {
-  background: var(--mx-path);
+  background: var(--mx-ink-2);
 }
 .mx-graph .mx-state.is-diff-added {
   border-color: var(--mx-good);
@@ -491,6 +491,48 @@
 .mx-auto-overlay polyline.is-after {
   stroke: var(--mx-path);
 }
+/* Speed-colored paths: after is a solid line, before a thinner dashed one under it. */
+.mx-auto-overlay g.is-speed polyline {
+  stroke-linecap: round;
+  stroke-width: 0.09;
+}
+.mx-auto-overlay g.is-before.is-speed polyline {
+  stroke-width: 0.06;
+  stroke-dasharray: 0.18 0.12;
+  stroke-linecap: butt;
+  opacity: 0.7;
+}
+.mx-auto-overlay g.is-before.is-speed.is-alone polyline {
+  stroke-width: 0.09;
+  stroke-dasharray: none;
+  stroke-linecap: round;
+  opacity: 1;
+}
+.mx-autos-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.mx-legend .mx-speed-scale {
+  display: inline-flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 150px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+}
+.mx-legend .mx-speed-scale::before {
+  display: none;
+}
+.mx-legend .mx-speed-scale small {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #fff;
+}
+
 .mx-overlay-robot rect {
   stroke-width: 0.04;
 }
@@ -1328,4 +1370,78 @@
   max-height: 420px;
   border-radius: var(--mx-r-md);
   background: #000;
+}
+
+/* All values: search, then tabs for the kind of value and the part, pinned while scrolling. */
+.mx-values {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.mx-values-nav {
+  position: sticky;
+  top: -26px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 -4px;
+  padding: 10px 4px;
+  background: var(--mx-bg);
+  border-bottom: 1px solid var(--mx-line);
+}
+.mx-values-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.mx-values-tabs-label {
+  flex: none;
+  width: 34px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mx-muted);
+}
+.mx-values-tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--mx-line);
+  border-radius: 999px;
+  background: var(--mx-surface);
+  color: var(--mx-ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.mx-values-tab small {
+  font-size: 11px;
+  color: var(--mx-muted);
+  font-variant-numeric: tabular-nums;
+}
+.mx-values-tab.is-safety::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mx-bad, #d33);
+}
+.mx-values-tab:hover {
+  border-color: var(--mx-accent-line);
+}
+.mx-values-tab.is-on {
+  background: var(--mx-accent-soft);
+  border-color: var(--mx-accent-line);
+  color: var(--mx-accent-ink);
+}
+.mx-values-tab.is-on small {
+  color: inherit;
 }

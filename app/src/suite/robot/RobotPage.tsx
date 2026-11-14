@@ -4,6 +4,7 @@ import {
   Cable,
   CloudUpload,
   Gauge,
+  ListTree,
   HardDriveDownload,
   Plug,
   RefreshCw,
@@ -16,6 +17,7 @@ import { robotAddresses, useRobot } from "../robot";
 import { useLogLibrary } from "../logLibrary";
 import { SignalsEditor } from "../SignalsEditor";
 import { RobotNow } from "./RobotNow";
+import { RobotValues } from "./RobotValues";
 import { resolveConstraints } from "../core/model.ts";
 import type { SuiteState } from "../useSuiteProject";
 import {
@@ -331,9 +333,9 @@ function ViewerPanel() {
   );
 }
 
-export type RobotTab = "now" | "specs" | "connection" | "logs";
+export type RobotTab = "now" | "values" | "specs" | "connection" | "logs";
 const TAB_KEY = "mayhem.robot-tab.v1";
-const tabs = ["now", "specs", "connection", "logs"] as const;
+const tabs = ["now", "values", "specs", "connection", "logs"] as const;
 
 /** Remember which Robot tab to show next, e.g. before navigating there. */
 export function setRobotTab(tab: RobotTab) {
@@ -430,6 +432,8 @@ export function RobotPage({ s, openChanges }: { s: SuiteState; openChanges: () =
         subtitle={
           tab === "now"
             ? "What code the robot is running, what changed since the last good version, and how the latest log looks."
+            : tab === "values"
+            ? "Every value in the robot code: CAN IDs, current limits, ratios, gains. Pick a kind or a part to narrow it down."
             : tab === "specs"
             ? `${project.robot.name} · the size and limits every auto is planned with.`
             : tab === "connection"
@@ -444,6 +448,7 @@ export function RobotPage({ s, openChanges }: { s: SuiteState; openChanges: () =
           onChange={setTab}
           options={[
             { value: "now", label: "On the robot now", icon: Rocket },
+            { value: "values", label: "Values", icon: ListTree },
             { value: "specs", label: "Specs & limits", icon: SlidersHorizontal },
             { value: "connection", label: "Connection", icon: Cable },
             { value: "logs", label: "Log collection", icon: HardDriveDownload },
@@ -451,6 +456,7 @@ export function RobotPage({ s, openChanges }: { s: SuiteState; openChanges: () =
         />
       </div>
       {tab === "now" && <RobotNow openChanges={openChanges} />}
+      {tab === "values" && <RobotValues />}
       {tab === "specs" && (
         <>
           <div className="mx-robot-grid">

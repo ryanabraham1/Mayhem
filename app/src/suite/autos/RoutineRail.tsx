@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import { openContextMenu } from "../ContextMenu";
+import { stepTask } from "../tasks/anchors";
 import { autoStepLabel, type AutoNode } from "../core/model.ts";
 import type { SuiteState } from "../useSuiteProject";
 import { IconButton } from "../ui";
@@ -86,6 +87,11 @@ export function RoutineRail({
                     },
                   ],
                   r.name,
+                  {
+                    title: `${r.name}: `,
+                    anchor: { routine: r.name, ...(s.projectPath ? { project: s.projectPath } : {}) },
+                    context: "Pinned to this auto routine.",
+                  },
                 );
               }}
             >
@@ -179,6 +185,11 @@ export function RoutineRail({
                   },
                 ],
                 "Starting pose",
+                {
+                  title: `${routine.name} · starting pose: `,
+                  anchor: { routine: routine.name, ...(s.projectPath ? { project: s.projectPath } : {}) },
+                  context: "Pinned to where this auto starts.",
+                },
               );
             }}
           >
@@ -267,6 +278,7 @@ export function RoutineRail({
                       },
                     ],
                     n.name,
+                    stepTask(routine.name, n, s.projectPath),
                   );
                 }}
               >

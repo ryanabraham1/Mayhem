@@ -437,6 +437,11 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
                       },
                     ],
                     l.name.replace(/\.wpilog$/i, ""),
+                    {
+                      title: `${l.name.replace(/\.wpilog$/i, "")}: `,
+                      anchor: { log: l.name, ...(l.nativePath ? { logPath: l.nativePath } : {}) },
+                      context: "Pinned to this log. An agent can open it with the log tools.",
+                    },
                   )
                 }
               />

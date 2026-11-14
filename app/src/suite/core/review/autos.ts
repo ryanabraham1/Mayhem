@@ -15,6 +15,8 @@ export interface DrivenPath {
   distance: number;
   /** Every ~0.1 s: x, y, heading. */
   poses: Pose[];
+  /** Speed at each pose (m/s), for coloring the path slow → fast. Absent in older review files. */
+  speeds?: number[];
   end: Pose;
 }
 
@@ -44,12 +46,16 @@ export function drivenPath(project: SuiteProject, routine: AutoRoutine): DrivenP
   try {
     const result = simulate(project, routine, {}, { mode: "path", maxSeconds: 60 });
     const poses: Pose[] = [];
+    const speeds: number[] = [];
     let distance = 0;
     result.frames.forEach((f, i) => {
       if (i) distance += dist(f.pose, result.frames[i - 1].pose);
-      if (i % 5 === 0 || i === result.frames.length - 1) poses.push({ x: f.pose.x, y: f.pose.y, heading: f.pose.heading });
+      if (i % 5 === 0 || i === result.frames.length - 1) {
+        poses.push({ x: f.pose.x, y: f.pose.y, heading: f.pose.heading });
+        speeds.push(Math.round(Math.hypot(f.velocity.vx, f.velocity.vy) * 100) / 100);
+      }
     });
-    return { status: result.status, time: result.frame.time, distance, poses, end: result.frame.pose };
+    return { status: result.status, time: result.frame.time, distance, poses, speeds, end: result.frame.pose };
   } catch {
     return undefined;
   }

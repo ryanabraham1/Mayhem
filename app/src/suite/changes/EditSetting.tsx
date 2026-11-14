@@ -15,7 +15,10 @@ export interface EditTarget {
   title?: string;
 }
 
-export function EditSetting({ review, target, close }: { review: Review; target: EditTarget; close: () => void }) {
+/** What editing needs: the working copy's values, a preview of one edit, and saving it. */
+export type ValueEditor = Pick<Review, "settingsAfter" | "preview" | "edit">;
+
+export function EditSetting({ review, target, close }: { review: ValueEditor; target: EditTarget; close: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const { setting, index } = target;
   const info = editInfo(setting, index);

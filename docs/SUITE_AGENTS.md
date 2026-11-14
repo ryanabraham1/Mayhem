@@ -297,7 +297,7 @@ Outcomes are compared on every machine's `Mayhem/States/<id>/state` log channel,
 
 The robot repo's `.claude/skills/mayhem-tasks` skill runs this workflow one step at a time (`/loop 10m /mayhem-tasks`). Every MCP tool is also available from the shell: `node scripts/mayhem.mjs tool <name> '<JSON>'`.
 
-People leave feedback in the app (Logs: comment at a moment; Changes: thumbs up/down on any finding, click a field spot; Sim proof: comment at a replay time; Tasks: pit notes and the post-match driver form). Each becomes `tools/mayhem/review/<id>.json` in the robot repo with its context (`anchor`: log name and `logPath`, seconds into it, code revision, field pose, scenario, match).
+People leave feedback in the app (Logs: comment at a moment; Changes: thumbs up/down on any finding, click a field spot; Sim proof: comment at a replay time; Tasks: pit notes and the post-match driver form; anywhere: right-click → "Make this an agent task"). Each becomes `tools/mayhem/review/<id>.json` in the robot repo with its context (`anchor`: log name and `logPath`, seconds into it, code revision, field pose, scenario, match; `routine` and `step` for an auto step; `machine`, `state` and `transition` for a state machine; `page`, `section` and `element` for anything else right-clicked, naming the app page, the panel and the item).
 
 1. `list_tasks`, then `get_task` for the context; open the log at `anchor.logPath` with the log tools.
 2. `claim_task` (records `base` = HEAD).

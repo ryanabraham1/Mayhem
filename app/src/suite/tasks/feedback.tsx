@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { MessageSquarePlus, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { Bot, MessageSquarePlus, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { registerTaskAction } from "../ContextMenu";
 import { createItem, move, parseItem, serializeItem, type Anchor, type FeedbackKind, type Move, type ReviewItem } from "../core/review/tasks.ts";
 import { desktop, invoke } from "../native";
 import { useAuthor, useRobotRepo } from "../robotRepo";
@@ -86,6 +87,7 @@ export const anchorText = (a: Anchor) =>
     a.step && `step “${a.step.name}”${a.step.x !== undefined ? ` at (${a.step.x.toFixed(1)}, ${a.step.y!.toFixed(1)}) m` : ""}`,
     a.machine && `${a.machine}${a.state ? ` · state ${a.state}` : ""}${a.transition ? ` · transition ${a.transition}` : ""}`,
     a.behavior,
+    a.page && [a.page, a.section, a.element].filter(Boolean).join(" › "),
     a.pose && a.step?.x === undefined && `field (${a.pose.x.toFixed(1)}, ${a.pose.y.toFixed(1)}) m`,
     a.revision && `code ${a.revision === "WORKTREE" ? "on this computer" : a.revision.slice(0, 7)}`,
   ]
@@ -166,6 +168,16 @@ export function FeedbackProvider({ notify, children }: { notify: (m: string) => 
   const store = useTaskStore(notify);
   const [draft, setDraft] = useState<Draft>();
   const value = useMemo(() => ({ ...store, openFeedback: setDraft }), [store]);
+  // Every right-click menu offers to turn what's under the pointer into an agent task.
+  useEffect(
+    () =>
+      registerTaskAction(({ title, anchor, context }) => ({
+        label: "Make this an agent task",
+        icon: Bot,
+        onSelect: () => setDraft({ title, anchor: anchor as Anchor, context }),
+      })),
+    [],
+  );
   return (
     <Context.Provider value={value}>
       {children}

@@ -20,7 +20,7 @@ import {
 import { useTasks } from "../tasks/feedback";
 import { copyText, openContextMenu } from "../ContextMenu";
 import { ANY_STATE, checkedIn, evaluate, type Signals } from "../core/model.ts";
-import { edgeLabels } from "../core/edgeLabels.ts";
+import { compactCondition, edgeLabels } from "../core/edgeLabels.ts";
 import {
   INPUT_CATEGORIES,
   INPUT_CATEGORY_ORDER,
@@ -206,6 +206,19 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
     active = simState ?? machine.initial;
   }
   const node = graph.nodes.find((n) => n.id === selected) ?? graph.nodes[0];
+  // "Make this an agent task" for a state, or for a transition out of it.
+  const stateTask = (id: string, edgeId?: string) => {
+    const state = graph.nodes.find((n) => n.id === id) ?? node;
+    const edge = graph.transitions.find((t) => t.id === edgeId);
+    const to = edge && (graph.nodes.find((n) => n.id === edge.to)?.name ?? edge.to);
+    return {
+      title: `${machine ? machine.name : graph.name} · ${state.name}${edge ? ` → ${to}` : ""}: `,
+      context: edge ? "Pinned to this transition of the state machine." : "Pinned to this state of the state machine.",
+      anchor: machine
+        ? { machine: machine.name, state: state.id, ...(edge ? { transition: edge.name ? `${edge.id} (${edge.name})` : edge.id } : {}) }
+        : { routine: graph.name, step: { id: state.id, name: state.name, kind: state.kind } },
+    };
+  };
   const editable = source === "simulate";
   const categoryOf = useMemo(() => categoryLookup(inputs), [inputs]);
   // A priority-select supervisor: rows checked top to bottom, the current state can win.
@@ -499,6 +512,16 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                   { label: "Copy ID", onSelect: () => void copyText(id) },
                 ],
                 target?.name,
+                stateTask(id),
+              );
+            }}
+            edgeMenu={(e, id) => {
+              const edge = graph.transitions.find((t) => t.id === id);
+              openContextMenu(
+                e,
+                [{ label: "Copy condition", icon: ClipboardCopy, onSelect: () => void copyText(edge ? compactCondition(edge.condition) : id) }],
+                edge?.name ?? id,
+                stateTask(edge?.from ?? node.id, id),
               );
             }}
           />
@@ -560,16 +583,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
                 label="Comment on this state"
                 title="Comment on this state (and the selected transition): it becomes a task for the agents"
                 icon={MessageSquarePlus}
-                onClick={() => {
-                  const edge = graph.transitions.find((t) => t.id === selectedEdge);
-                  openFeedback({
-                    title: `${machine ? machine.name : graph.name} · ${node.name}${edge ? ` → ${graph.nodes.find((n) => n.id === edge.to)?.name ?? edge.to}` : ""}: `,
-                    context: edge ? "Pinned to this transition of the state machine." : "Pinned to this state of the state machine.",
-                    anchor: machine
-                      ? { machine: machine.name, state: node.id, ...(edge ? { transition: edge.name ? `${edge.id} (${edge.name})` : edge.id } : {}) }
-                      : { routine: graph.name, step: { id: node.id, name: node.name, kind: node.kind } },
-                  });
-                }}
+                onClick={() => openFeedback(stateTask(node.id, selectedEdge))}
               />
             </div>
           </div>

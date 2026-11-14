@@ -159,6 +159,7 @@ export function StateGraph({
   active,
   select,
   menu,
+  edgeMenu,
   machine = false,
   selectedEdge,
   selectEdge,
@@ -177,6 +178,8 @@ export function StateGraph({
   selectEdge?: (id: string) => void;
   /** Right-click on a state. */
   menu?: (event: MouseEvent, id: string) => void;
+  /** Right-click on a transition label. */
+  edgeMenu?: (event: MouseEvent, id: string) => void;
   graph: AutoRoutine;
   signals: Signals;
   selected: string;
@@ -538,6 +541,14 @@ export function StateGraph({
                         select(from);
                         selectEdge?.(t.id);
                       }}
+                      onContextMenu={
+                        edgeMenu &&
+                        ((e) => {
+                          select(from);
+                          selectEdge?.(t.id);
+                          edgeMenu(e, t.id);
+                        })
+                      }
                     >
                       {/* A name is prose: don't mark words in it that happen to be input keys. */}
                       {t.name && !label.includes(" · ") ? label : <ConditionText text={label} isKey={isKey} categoryOf={categoryOf} />}

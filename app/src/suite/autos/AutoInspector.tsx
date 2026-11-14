@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Check, Circle, Copy, MessageSquarePlus, Plus, Trash2, X } from "lucide-react";
 import { useTasks } from "../tasks/feedback";
+import { stepTask } from "../tasks/anchors";
 import {
   DEFAULT_GOAL,
   resolveConstraints,
@@ -275,22 +276,7 @@ export function AutoInspector({
             title="Comment on this step: it becomes a task for the agents, pinned to this step"
             icon={MessageSquarePlus}
             onClick={() =>
-              openFeedback({
-                title: `${routine.name} · ${node.name}: `,
-                context: "Pinned to this step of the auto. An agent sees the routine, the step and its target.",
-                anchor: {
-                  routine: routine.name,
-                  step: {
-                    id: node.id,
-                    name: node.name,
-                    kind: node.kind,
-                    ...(goal ? { x: Math.round(goal.x * 100) / 100, y: Math.round(goal.y * 100) / 100, heading: Math.round(goal.heading * 1000) / 1000 } : {}),
-                    ...(node.action ? { action: node.action } : {}),
-                  },
-                  ...(goal ? { pose: { x: Math.round(goal.x * 100) / 100, y: Math.round(goal.y * 100) / 100 } } : {}),
-                  ...(s.projectPath ? { project: s.projectPath } : {}),
-                },
-              })
+              openFeedback(stepTask(routine.name, node, s.projectPath))
             }
           />
           {node.kind !== "finish" && (

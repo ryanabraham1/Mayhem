@@ -1,4 +1,33 @@
 import { valueAt, type Recording } from "../core/analysis.ts";
+import type { AutoNode } from "../core/model.ts";
+import type { Anchor } from "../core/review/tasks.ts";
+import type { TaskTarget } from "../ContextMenu";
+
+const cm = (n: number) => Math.round(n * 100) / 100;
+
+/** An auto step as feedback context: the routine, the step and its target. */
+export function stepAnchor(routine: string, node: AutoNode, project?: string | null): Anchor {
+  const goal = node.goal;
+  return {
+    routine,
+    step: {
+      id: node.id,
+      name: node.name,
+      kind: node.kind,
+      ...(goal ? { x: cm(goal.x), y: cm(goal.y), heading: Math.round(goal.heading * 1000) / 1000 } : {}),
+      ...(node.action ? { action: node.action } : {}),
+    },
+    ...(goal ? { pose: { x: cm(goal.x), y: cm(goal.y) } } : {}),
+    ...(project ? { project } : {}),
+  };
+}
+
+/** "Make this an agent task" for an auto step. */
+export const stepTask = (routine: string, node: AutoNode, project?: string | null): TaskTarget => ({
+  title: `${routine} · ${node.name}: `,
+  anchor: { ...stepAnchor(routine, node, project) },
+  context: "Pinned to this step of the auto. An agent sees the routine, the step and its target.",
+});
 
 /** The robot's logged position at `time`, for pinning feedback to a place on the field. */
 export function poseAt(recording: Recording, time: number): { x: number; y: number; heading?: number } | undefined {

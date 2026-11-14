@@ -81,3 +81,39 @@ test("a comment on an auto step reaches agents with the step's details", async (
   expect(task.anchor).toMatchObject({ routine: expect.any(String), step: { id: expect.any(String), name: expect.any(String), kind: expect.any(String) } });
   expect(task.text).toMatch(/slower/);
 });
+
+test("right-click anything to make it an agent task", async ({ page }) => {
+  const repo = fixtureRepo();
+  await desktop(page, repo);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("button", { name: "Choose robot code folder" }).first().click();
+  await page.getByLabel("Your name").fill("Maya");
+  const dialog = page.getByRole("dialog", { name: "Feedback" });
+  const menuItem = page.getByRole("menuitem", { name: "Make this an agent task" });
+
+  // An auto step: the task carries the routine and the step.
+  await page.getByRole("button", { name: "Autonomous", exact: true }).click();
+  const step = page.locator(".mx-step:not(.is-start)").first();
+  await step.click({ button: "right" });
+  await menuItem.click();
+  await expect(dialog.getByText(/step “/)).toBeVisible();
+  await dialog.getByLabel("What happened, or what should change?").fill("Slow down into this pickup.");
+  await shot(page, "t6-right-click-step");
+  await dialog.getByRole("button", { name: "Send to agents" }).click();
+  await expect(dialog).toBeHidden();
+
+  // Anything without a menu of its own: the page and what was clicked.
+  await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("heading").first().click({ button: "right" });
+  await menuItem.click();
+  await expect(dialog.locator(".mx-anchor")).toContainText("Tasks");
+  await dialog.getByLabel("What happened, or what should change?").fill("Show the oldest task first.");
+  await dialog.getByRole("button", { name: "Send to agents" }).click();
+  await expect(dialog).toBeHidden();
+
+  const { tasks } = await execute("list_tasks", { repo });
+  const all = await Promise.all(tasks.map((t: { id: string }) => execute("get_task", { repo, id: t.id })));
+  expect(all.find((t) => /pickup/.test(t.text)).anchor).toMatchObject({ routine: expect.any(String), step: { id: expect.any(String) } });
+  expect(all.find((t) => /oldest/.test(t.text)).anchor).toMatchObject({ page: "Tasks" });
+});

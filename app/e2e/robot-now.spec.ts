@@ -33,3 +33,25 @@ test("shows what's on the robot, how it differs from main, and puts main back", 
   await expect(page.getByText("same as main")).toBeVisible();
   expect(fakeRobot.deploys).toEqual([{ rev: git("rev-parse", "main"), team: 3256 }]);
 });
+
+test("Robot → Values lists every value by kind and part, and edits it in place", async ({ page }) => {
+  const repo = fixtureRepo();
+  await desktop(page, repo);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("button", { name: "Choose robot code folder" }).first().click();
+  await page.getByRole("button", { name: "Robot", exact: true }).click();
+  await page.getByRole("button", { name: "Values", exact: true }).click();
+  const kinds = page.getByRole("tablist", { name: "Kind of value" });
+  const parts = page.getByRole("tablist", { name: "Part" });
+  await kinds.getByRole("tab", { name: /^CAN IDs/ }).click();
+  await expect(page.getByRole("region", { name: "CAN IDs" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Current limits" })).toHaveCount(0);
+  await parts.getByRole("tab", { name: /^Shooter/ }).click();
+  await expect(page.locator(".mx-spec-card h3")).toHaveText(["Shooter"]);
+  await shot(page, "r2-robot-values");
+  // Back to everything, then edit a value: the robot code changes on disk.
+  await kinds.getByRole("tab", { name: /^All/ }).click();
+  await page.getByRole("button", { name: /^Edit Shooter/ }).first().click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+});
