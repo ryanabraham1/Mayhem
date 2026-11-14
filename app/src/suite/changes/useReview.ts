@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyEdit } from "../core/review/edit.ts";
 import { readProject } from "../core/review/autos.ts";
 import { parseMachineSpecs } from "../core/review/machines.ts";
@@ -27,18 +27,57 @@ export interface RepoInfo {
 }
 
 
+/** The versions last compared, so leaving the page and coming back shows the same review. */
+let remembered: { repo: string; before: string; after: string } | undefined;
+
+/**
+ * What to compare when nobody chose: with nothing edited on this computer, "last commit → this
+ * computer" is always empty, so show what the current branch changes against main (the known-good
+ * version) instead.
+ */
+export function defaultCompare(info: RepoInfo): { before: string; after: string } | undefined {
+  if (info.dirty.length) return undefined;
+  const main = info.revisions.find((r) => r.kind === "remote" && r.rev === "origin/main") ?? info.revisions.find((r) => r.kind === "branch" && r.rev === "main");
+  return main && main.sha !== info.head ? { before: main.rev, after: "HEAD" } : undefined;
+}
+
 /** Two revisions of the robot repo, the review between them, and edits to the working copy. */
 export function useReview() {
   const [repo, setRepoState] = useRobotRepo();
   const [info, setInfo] = useState<RepoInfo>();
   const [request] = useState(takeCompareRequest);
-  const [before, setBefore] = useState(request?.before ?? "HEAD");
-  const [after, setAfter] = useState(request?.after ?? WORKTREE);
+  const [start] = useState(() => request ?? (remembered?.repo === repo ? remembered : undefined));
+  const [before, setBeforeState] = useState(start?.before ?? "HEAD");
+  const [after, setAfterState] = useState(start?.after ?? WORKTREE);
+  // Once a person (or a link from another page) picks versions, the default no longer applies.
+  const chosen = useRef(!!start);
+  const setBefore = (rev: string) => {
+    chosen.current = true;
+    setBeforeState(rev);
+  };
+  const setAfter = (rev: string) => {
+    chosen.current = true;
+    setAfterState(rev);
+  };
+  useEffect(() => {
+    if (repo) remembered = { repo, before, after };
+  }, [repo, before, after]);
+  useEffect(() => {
+    if (!info || chosen.current) return;
+    chosen.current = true;
+    const pick = defaultCompare(info);
+    if (pick) {
+      setBeforeState(pick.before);
+      setAfterState(pick.after);
+    }
+  }, [info]);
   const [snapshots, setSnapshots] = useState<{ before: Snapshot; after: Snapshot }>();
   const [imported, setImported] = useState<ReviewReport>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [proof, setProof] = useState<SimProof>();
+  // The two versions the proof ran on (commits, or WORKTREE), to keep its result on a task.
+  const [proofRevs, setProofRevs] = useState<{ before: string; after: string }>();
   const [simProgress, setSimProgress] = useState<{ text: string; done: number; total: number }>();
   const [simError, setSimError] = useState<string>();
   const [simErrors, setSimErrors] = useState<string[]>([]);
@@ -51,6 +90,12 @@ export function useReview() {
   const setRepo = (path: string) => {
     setRepoState(path);
     setImported(undefined);
+    if (path !== repo) {
+      // Another repo: its own default comparison.
+      chosen.current = false;
+      setBeforeState("HEAD");
+      setAfterState(WORKTREE);
+    }
   };
 
   const load = useCallback(async () => {
@@ -120,7 +165,10 @@ export function useReview() {
           invoke<{ log?: string | null; result?: string | null; ok: boolean; output: string }>("review_sim_run", { dir, id, scenario }),
         readLog: async (path: string) => parseWPILog(await nativeRead(path), path.split("/").pop() ?? path),
       };
-      setProof(await runSimProof(runner, { before: snapshots.before.rev, after: after === WORKTREE ? WORKTREE : snapshots.after.rev }, set.scenarios, machines, (text, done, total) => setSimProgress({ text, done, total })));
+      const revs = { before: snapshots.before.rev, after: after === WORKTREE ? WORKTREE : snapshots.after.rev };
+      const result = await runSimProof(runner, revs, set.scenarios, machines, (text, done, total) => setSimProgress({ text, done, total }));
+      setProofRevs(revs);
+      setProof(result);
     } catch (e) {
       setSimError(String(e));
     } finally {
@@ -129,7 +177,9 @@ export function useReview() {
   };
 
   return {
-    sim: { proof, progress: simProgress, error: simError, errors: simErrors, start: startSim, set: setProof },
+    sim: { proof, revs: proofRevs, progress: simProgress, error: simError, errors: simErrors, start: startSim, set: setProof },
+    /** What another page asked this one to show (a task's change, with or without its sim proof). */
+    request,
     repo,
     setRepo,
     info,

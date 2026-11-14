@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { CircleCheck, CircleX, FlaskConical, MessageSquarePlus, Pause, Play, TriangleAlert, Video } from "lucide-react";
-import { Replay3D, type View3D } from "./Replay3D";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { CircleCheck, CircleX, FileCode2, FlaskConical, MessageSquarePlus, Pause, Play, TriangleAlert, Video } from "lucide-react";
+import type { View3D } from "./Replay3D";
 import { useTasks } from "../tasks/feedback";
 import { fieldPoint } from "../tasks/anchors";
 import { FieldArt } from "../../components/FieldArt";
@@ -15,6 +15,9 @@ import type { ScenarioResult, SimProof } from "../core/review/simproof.ts";
 import { desktop, invoke } from "../native";
 import { Badge, Button, EmptyState, Segmented } from "../ui";
 import type { Review } from "./useReview";
+
+// The 3D replay brings three.js; it loads when a replay is first shown in 3D, not with the app.
+const Replay3D = lazy(() => import("./Replay3D").then((m) => ({ default: m.Replay3D })));
 
 const COLORS = ["#6a3df0", "#0e9670", "#b86e00", "#d33452", "#2f80ed", "#8e44ad", "#16a085", "#c0392b"];
 const color = (value: string) => COLORS[[...value].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % COLORS.length];
@@ -142,7 +145,11 @@ export function Replay({ result, onTime, revision }: { result: ScenarioResult; o
           )}
         </div>
       )}
-      {mode === "3d" && has3D && <Replay3D logs={result.logs} time={time} view={view} onCanvas={(c) => (canvas.current = c)} />}
+      {mode === "3d" && has3D && (
+        <Suspense fallback={<p className="mx-help">Loading the 3D view…</p>}>
+          <Replay3D logs={result.logs} time={time} view={view} onCanvas={(c) => (canvas.current = c)} />
+        </Suspense>
+      )}
       {clip && (
         <div className="mx-clip">
           <video src={clip.url} controls autoPlay muted playsInline aria-label="Recorded clip" />
@@ -251,6 +258,35 @@ export function SimProofView({ report, review }: { report: ReviewReport; review:
           <span className="mx-help">Runs in the desktop app (or <code>mayhem.mjs sim</code>).</span>
         )}
       </div>
+      {(report.otherCode?.length || report.scenarios?.some((c) => c.weaker)) && (
+        <div className="mx-unread" role="note" aria-label="What only the sim proof can check">
+          {report.otherCode?.length ? (
+            <p>
+              <FileCode2 size={14} />
+              <span>Code changed that only a run can show</span>
+              {report.otherCode.slice(0, 10).map((c) => (
+                <code key={c.path} title={`${c.path} (${c.kind})`} className={`is-${c.kind}`}>
+                  {c.path.split("/").pop()}
+                </code>
+              ))}
+              {report.otherCode.length > 10 && <small>+{report.otherCode.length - 10} more</small>}
+            </p>
+          ) : null}
+          {report.scenarios?.some((c) => c.weaker) ? (
+            <p>
+              <TriangleAlert size={14} />
+              <span>Scenarios that check less than before</span>
+              {report.scenarios
+                .filter((c) => c.weaker)
+                .map((c) => (
+                  <code key={c.name} className={`is-${c.kind}`}>
+                    {c.name}
+                  </code>
+                ))}
+            </p>
+          ) : null}
+        </div>
+      )}
       {review.sim.progress && (
         <div className="mx-progress" role="status">
           <span>{review.sim.progress.text}</span>

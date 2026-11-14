@@ -15,6 +15,12 @@ export interface Snapshot {
   /** What a person sees: `main`, `a1b2c3d Fix intake`, `This computer (not committed)`. */
   label: string;
   files: Record<string, string>;
+  /**
+   * Every file that ends up on the robot (`isRobotCode`), path → content id (git blob id). The
+   * review reads only `files`; this tells it that code it cannot read changed. Absent in snapshots
+   * from older tools.
+   */
+  code?: Record<string, string>;
 }
 
 export const WORKTREE = "WORKTREE";
@@ -29,13 +35,19 @@ export const EXPLAINER_FILE = "tools/mayhem/explainer.json";
 export const isReviewFile = (path: string) =>
   isSettingsSource(path) || path === MACHINES_FILE || path === SCENARIOS_FILE || path === GENERATED_FILE || path === EXPLAINER_FILE || /^[^/]+\.mayhem\.json$/.test(path);
 
+/** Written by the robot build with what was deployed; never part of a change. */
+export const BUILD_STAMP = "src/main/deploy/mayhem-build.json";
+/** Files that end up on the robot or decide what is built into it. */
+export const isRobotCode = (path: string) =>
+  (path.startsWith("src/main/") && path !== BUILD_STAMP) || /^vendordeps\/[^/]+\.json$/.test(path) || path === "build.gradle";
+
 export function projectFile(files: Record<string, string>): string | undefined {
   if ("robot.mayhem.json" in files) return "robot.mayhem.json";
   return Object.keys(files).filter((p) => /^[^/]+\.mayhem\.json$/.test(p)).sort()[0];
 }
 
 export type Level = "red" | "yellow" | "green" | "none";
-export type Area = "controls" | "machines" | "settings" | "hardware" | "autos" | "generated";
+export type Area = "controls" | "machines" | "settings" | "hardware" | "autos" | "generated" | "code";
 
 export interface Finding {
   level: Exclude<Level, "none">;
@@ -58,9 +70,76 @@ export interface ReviewReport {
   duplicates: ReturnType<typeof duplicateIds>;
   machines: MachineDiff[];
   routines: RoutineDiff[];
+  /**
+   * Robot code that changed where the review can't show what it does (logic in .cpp files, vendored
+   * libraries, deploy files). Absent when a snapshot came without content ids.
+   */
+  otherCode?: CodeChange[];
+  /** Team sim proof scenarios (tools/mayhem/scenarios.json) that changed, by name. */
+  scenarios?: ScenarioChange[];
   field?: SuiteProject["field"];
   errors: string[];
 }
+
+export interface CodeChange {
+  path: string;
+  kind: "added" | "removed" | "changed";
+}
+export interface ScenarioChange {
+  name: string;
+  kind: "added" | "removed" | "changed";
+  /** Fewer or different checks: the proof this scenario gives is not the one it gave before. */
+  weaker: boolean;
+}
+
+/**
+ * Robot code that differs between two snapshots and that no other part of the review explains:
+ * a constants header counts only when none of its values changed (so its logic did), and the
+ * generated header only when nothing it is generated from changed (so it was edited by hand).
+ */
+export function otherCodeChanges(before: Snapshot, after: Snapshot, settings: SettingChange[], regenerated: boolean): CodeChange[] | undefined {
+  if (!before.code || !after.code) return undefined;
+  const explained = new Set(settings.flatMap((c) => [c.before?.origin.file, c.after?.origin.file]));
+  if (regenerated) explained.add(GENERATED_FILE);
+  const out: CodeChange[] = [];
+  for (const path of [...new Set([...Object.keys(before.code), ...Object.keys(after.code)])].sort()) {
+    const a = before.code[path],
+      b = after.code[path];
+    if (a === b || explained.has(path)) continue;
+    out.push({ path, kind: a === undefined ? "added" : b === undefined ? "removed" : "changed" });
+  }
+  return out;
+}
+
+/** Which team scenarios differ, and whether a changed one checks less than it did. */
+export function scenarioChanges(before: string | undefined, after: string | undefined): ScenarioChange[] {
+  if (before === after) return [];
+  const read = (text: string | undefined) => {
+    const byName = new Map<string, { steps: string; expect: string[] }>();
+    try {
+      for (const s of (text ? JSON.parse(text).scenarios : []) ?? [])
+        if (typeof s?.name === "string") byName.set(s.name, { steps: JSON.stringify(s.steps ?? []), expect: (s.expect ?? []).map(String) });
+    } catch {
+      // An unreadable file is reported by the sim proof; here it reads as no scenarios.
+    }
+    return byName;
+  };
+  const a = read(before),
+    b = read(after);
+  const out: ScenarioChange[] = [];
+  for (const name of [...new Set([...a.keys(), ...b.keys()])]) {
+    const x = a.get(name),
+      y = b.get(name);
+    if (!x) out.push({ name, kind: "added", weaker: false });
+    else if (!y) out.push({ name, kind: "removed", weaker: true });
+    else if (x.steps !== y.steps || x.expect.join("\n") !== y.expect.join("\n"))
+      out.push({ name, kind: "changed", weaker: x.steps !== y.steps || x.expect.some((line) => !y.expect.includes(line)) });
+  }
+  return out;
+}
+
+const fileName = (path: string) => path.split("/").pop()!;
+const listed = (names: string[], most = 3) => (names.length > most ? `${names.slice(0, most).join(", ")} and ${names.length - most} more` : names.join(", "));
 
 const LEVELS: Level[] = ["none", "green", "yellow", "red"];
 const worst = (a: Level, b: Level) => (LEVELS.indexOf(a) >= LEVELS.indexOf(b) ? a : b);
@@ -181,6 +260,25 @@ export function buildReport(before: Snapshot, after: Snapshot): ReviewReport {
     findings.push({ level: "red", area: "generated", text: `The autos changed in ${pa} but ${GENERATED_FILE.split("/").pop()} did not: the robot still drives the old autos. Run tools/mayhem/export.sh.` });
   else if (GENERATED_FILE in after.files && pa && pb && changedFile(pa) && JSON.stringify(readProject(after.files[pa]).project?.extensions?.machines ?? null) !== JSON.stringify(readProject(before.files[pb]).project?.extensions?.machines ?? null) && !changedFile(GENERATED_FILE))
     findings.push({ level: "red", area: "generated", text: `The state machines changed in ${pa} but ${GENERATED_FILE.split("/").pop()} did not: the robot still runs the old machines. Run tools/mayhem/export.sh.` });
+  // Code the review can't read: say that it changed, so "no behavior changes" is never claimed
+  // about logic nobody looked at. The sim proof is how a person checks it.
+  const regenerated = changedFile(MACHINES_FILE) || pa !== pb || (!!pa && changedFile(pa));
+  const otherCode = otherCodeChanges(before, after, settings, regenerated);
+  if (otherCode?.length)
+    findings.push({
+      level: "yellow",
+      area: "code",
+      text: `Other robot code changed: ${listed(otherCode.map((c) => fileName(c.path)))}. Mayhem can't show what ${otherCode.length === 1 ? "it does" : "these do"}; check with the sim proof.`,
+    });
+  // A sim proof is only as good as its scenarios: a change that removes or loosens one says so.
+  const scenarios = scenarioChanges(before.files[SCENARIOS_FILE], after.files[SCENARIOS_FILE]);
+  const weaker = scenarios.filter((c) => c.weaker);
+  if (weaker.length)
+    findings.push({
+      level: "yellow",
+      area: "code",
+      text: `Sim proof scenarios ${weaker.every((c) => c.kind === "removed") ? "removed" : "changed"}: ${listed(weaker.map((c) => `“${c.name}”`))}. They no longer check what they did before.`,
+    });
   const level = findings.reduce<Level>((l, f) => worst(l, f.level), "none");
   return {
     format: "mayhem-review",
@@ -196,6 +294,8 @@ export function buildReport(before: Snapshot, after: Snapshot): ReviewReport {
     duplicates,
     machines: machines.machines,
     routines: routines.routines,
+    ...(otherCode ? { otherCode } : {}),
+    ...(scenarios.length ? { scenarios } : {}),
     ...(routines.field ? { field: routines.field } : {}),
     errors: [...machines.errors, ...routines.errors],
   };

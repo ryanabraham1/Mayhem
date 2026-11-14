@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 // The desktop bridge, faked: project-file commands read and write a real file on disk, so the
 // test can change it underneath the app the way an agent or generator does.
@@ -9,9 +9,14 @@ async function desktop(page: Page, file: string) {
   // While frozen, reads return the file as it was when frozen (to order events deterministically).
   const control = { frozen: null as unknown, opened: [] as string[] };
   await page.exposeFunction("__mayhemInvoke", (cmd: string, args: Record<string, any>) => {
-    if (cmd === "plugin:dialog|open") return file;
+    // A folder picker (the robot code folder) gets the file's folder; a file picker the file.
+    if (cmd === "plugin:dialog|open") return args.options?.directory ? dirname(file) : file;
     if (cmd === "take_opened_projects") return control.opened.splice(0);
-    if (cmd === "read_suite_project") return control.frozen ?? JSON.parse(readFileSync(args.path, "utf8"));
+    if (cmd === "review_items") return [];
+    if (cmd === "read_suite_project") {
+      if (args.allowMissing && !existsSync(args.path)) return null;
+      return control.frozen ?? JSON.parse(readFileSync(args.path, "utf8"));
+    }
     if (cmd === "write_suite_project") {
       const disk = JSON.parse(readFileSync(args.path, "utf8"));
       if (args.expectedRevision !== null && disk.revision !== args.expectedRevision)
@@ -202,4 +207,29 @@ test("opening a file from outside the app switches to it, links it and does not 
   // After a relaunch the link is remembered.
   await page.reload();
   await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
+});
+
+test("choosing the robot code folder opens that robot's own project, linked to its file", async ({ page }) => {
+  page.on("pageerror", (error) => { throw error; });
+  const dir = mkdtempSync(join(tmpdir(), "mayhem-repo-"));
+  const file = join(dir, "robot.mayhem.json");
+  const project = JSON.parse(readFileSync(new URL("../../examples/suite/competition.mayhem.json", import.meta.url), "utf8"));
+  project.id = "team-robot";
+  project.name = "Team robot";
+  write(file, project);
+  await desktop(page, file);
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Switch project" })).not.toContainText("Team robot");
+  await page.locator(".mx-panel", { hasText: "Feedback and agents" }).getByRole("button", { name: "Choose robot code folder" }).click();
+  await expect(page.getByRole("button", { name: "Switch project" })).toContainText("Team robot");
+  await expect(page.locator(".mx-disk-status")).toHaveText("Watching file");
+
+  // Showing another project later: the overview offers the robot's own file again.
+  await page.getByRole("button", { name: "Switch project" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /Competition robot/ }).first().click();
+  const prompt = page.locator(".mx-repo-project");
+  await expect(prompt).toContainText("robot.mayhem.json");
+  await prompt.getByRole("button", { name: "Open it" }).click();
+  await expect(page.getByRole("button", { name: "Switch project" })).toContainText("Team robot");
+  await expect(prompt).toHaveCount(0);
 });

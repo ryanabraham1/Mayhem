@@ -289,3 +289,197 @@
 .mx-health p {
   margin: 0 0 6px;
 }
+
+/* Which agents are on the queue and when each last acted. */
+.mx-agents-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin: 0;
+  color: var(--mx-muted);
+  font-size: 13px;
+}
+.mx-agents-line > svg {
+  color: var(--mx-accent-ink);
+}
+.mx-agents-line strong {
+  color: var(--mx-ink);
+  font-weight: 600;
+}
+/* A commit's findings: one short line each, colored by risk. */
+.mx-change-findings {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  font-size: 12.5px;
+  color: var(--mx-ink-2);
+}
+.mx-change-findings li {
+  padding-left: 10px;
+  border-left: 3px solid var(--mx-line-strong);
+}
+.mx-change-findings li.is-red {
+  border-left-color: var(--mx-bad);
+}
+.mx-change-findings li.is-yellow {
+  border-left-color: var(--mx-warn);
+}
+.mx-change-findings li.is-green {
+  border-left-color: var(--mx-good);
+}
+.mx-change-findings li.is-more {
+  border-left-color: transparent;
+  color: var(--mx-muted);
+}
+.mx-form-field small {
+  color: var(--mx-muted);
+  font-size: 12px;
+}
+.mx-need-repo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.mx-agent-start {
+  margin-bottom: 16px;
+}
+
+/* The sim proof recorded on a commit. */
+.mx-proof {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: var(--mx-r-md);
+  border: 1px solid var(--mx-line);
+  background: var(--mx-surface-2);
+  font-size: 13px;
+}
+.mx-proof p,
+p.mx-proof {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.mx-proof p {
+  margin: 0;
+}
+.mx-proof small {
+  color: var(--mx-muted);
+  font-size: 12px;
+}
+.mx-proof .mx-btn {
+  margin-left: auto;
+}
+.mx-proof ul {
+  margin: 6px 0 0;
+  padding-left: 22px;
+  color: var(--mx-ink-2);
+  font-size: 12.5px;
+}
+.mx-proof li.is-more {
+  list-style: none;
+  color: var(--mx-muted);
+}
+.mx-proof.is-good {
+  border-color: var(--mx-good);
+  background: var(--mx-good-soft);
+}
+.mx-proof.is-good > p > svg,
+.mx-proof.is-good strong {
+  color: var(--mx-good);
+}
+.mx-proof.is-warn {
+  border-color: var(--mx-warn);
+  background: var(--mx-warn-soft);
+}
+.mx-proof.is-warn > p > svg,
+.mx-proof.is-warn strong {
+  color: var(--mx-warn);
+}
+.mx-proof.is-bad {
+  border-color: var(--mx-bad);
+  background: var(--mx-bad-soft);
+}
+.mx-proof.is-bad > p > svg,
+.mx-proof.is-bad strong {
+  color: var(--mx-bad);
+}
+.mx-proof.is-none {
+  border-style: dashed;
+  color: var(--mx-muted);
+}
+/* After accepting: accepted, merged, on the robot, in a log, as four steps on a line. */
+.mx-delivery {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+}
+.mx-delivery li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 26px 8px 0 0;
+  min-width: 0;
+}
+.mx-delivery li::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--mx-line-strong);
+}
+.mx-delivery li.is-done::before {
+  background: var(--mx-good);
+}
+.mx-delivery li > i {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid var(--mx-line-strong);
+  background: var(--mx-surface);
+  color: var(--mx-surface);
+}
+.mx-delivery li.is-done > i {
+  border-color: var(--mx-good);
+  background: var(--mx-good);
+}
+.mx-delivery li.is-unknown > i {
+  border-style: dashed;
+}
+.mx-delivery strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.mx-delivery li:not(.is-done) strong {
+  color: var(--mx-muted);
+}
+.mx-delivery small {
+  color: var(--mx-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.mx-delivery .mx-link {
+  font-size: 12px;
+}
+@media (max-width: 560px) {
+  .mx-delivery {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 14px;
+  }
+}

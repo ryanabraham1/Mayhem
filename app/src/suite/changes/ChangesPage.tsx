@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Cpu,
+  FileCode2,
   FileSearch,
   FlaskConical,
   FolderGit2,
@@ -20,7 +21,8 @@ import {
 import { useTasks } from "../tasks/feedback";
 import { LEVEL_TEXT, WORKTREE, type Area, type Level, type ReviewReport } from "../core/review/report.ts";
 import { desktop } from "../native";
-import { chooseRepo as pickRepo } from "../robotRepo";
+import { chooseRepo as pickRepo, useAuthor } from "../robotRepo";
+import { summarizeProof } from "../core/review/simproof.ts";
 import { Badge, Button, EmptyState, FileButton, PageHeader, Segmented, type Tone } from "../ui";
 import { AutosView } from "./AutosView";
 import { ControlsView } from "./ControlsView";
@@ -33,7 +35,7 @@ import { WhyPanel } from "./WhyPanel";
 import { useReview, type Review } from "./useReview";
 import "./changes.css";
 
-type Tab = "summary" | Area | "sim";
+type Tab = "summary" | Exclude<Area, "generated" | "code"> | "sim";
 const TABS: { value: Tab; label: string; icon: typeof Cpu }[] = [
   { value: "summary", label: "Summary", icon: LayoutList },
   { value: "controls", label: "Controls", icon: Gamepad2 },
@@ -56,7 +58,7 @@ function RevisionPicker({ review, side }: { review: Review; side: "before" | "af
       <span>{side === "before" ? "Before" : "After"}</span>
       <select value={value} onChange={(e) => set(e.target.value)} aria-label={`${side === "before" ? "Before" : "After"} version`}>
         <option value={WORKTREE}>
-          This computer (not committed){info?.dirty.length ? ` · ${info.dirty.length} files edited` : ""}
+          This computer (not committed){info?.dirty.length ? ` · ${info.dirty.length} file${info.dirty.length === 1 ? "" : "s"} edited` : ""}
         </option>
         <option value="HEAD">Last commit{info ? ` on ${info.branch}` : ""}</option>
         {!known && <option value={value}>{value}</option>}
@@ -88,7 +90,11 @@ function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void 
     { area: "hardware", title: "Hardware", icon: Cpu, empty: "No changes" },
     { area: "autos", title: "Autos", icon: Navigation, empty: "No path changes" },
     { area: "generated", title: "Generated robot code", icon: RefreshCw, empty: "Up to date" },
+    // Code the review can't read; older review files don't know whether any changed.
+    { area: "code", title: "Other code", icon: FileCode2, empty: report.otherCode ? "Nothing else changed" : "Not checked" },
   ];
+  // Where a finding is looked at: its own tab, the sim proof for code only a run can show.
+  const tabFor = (area: Area): Tab => (area === "generated" ? "summary" : area === "code" ? "sim" : area);
   return (
     <div className="mx-review-summary">
       <div className="mx-area-cards">
@@ -96,10 +102,10 @@ function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void 
           const n = count(area);
           const level = report.findings.filter((f) => f.area === area).reduce<Level>((l, f) => (f.level === "red" || l === "red" ? "red" : f.level === "yellow" || l === "yellow" ? "yellow" : "green"), n ? "green" : "none");
           return (
-            <button key={area} type="button" className={`mx-area-card is-${level}`} onClick={() => go(area === "generated" ? "summary" : area)}>
+            <button key={area} type="button" className={`mx-area-card is-${level}`} onClick={() => go(tabFor(area))}>
               <Icon size={18} />
               <strong>{title}</strong>
-              <span>{n ? `${n} change${n === 1 ? "" : "s"}` : empty}</span>
+              <span>{area === "code" && report.otherCode?.length ? `${report.otherCode.length} file${report.otherCode.length === 1 ? "" : "s"} changed` : n ? `${n} change${n === 1 ? "" : "s"}` : empty}</span>
             </button>
           );
         })}
@@ -109,7 +115,7 @@ function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void 
           {report.findings.map((f, i) => (
             <li key={i} className={`is-${f.level}`}>
               <Badge tone={LEVEL_TONE[f.level]}>{f.level === "red" ? "safety" : f.level === "yellow" ? "review" : "ok"}</Badge>
-              <button type="button" className="mx-link" onClick={() => go(f.area === "generated" ? "summary" : f.area)}>
+              <button type="button" className="mx-link" onClick={() => go(tabFor(f.area))}>
                 {f.text}
               </button>
               <span className="mx-thumbs">
@@ -135,9 +141,32 @@ function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void 
 
 export function ChangesPage({ notify }: { notify: (message: string) => void }) {
   const review = useReview();
-  const [tab, setTab] = useState<Tab>("summary");
+  const tasks = useTasks();
+  const [author] = useAuthor();
+  const [tab, setTab] = useState<Tab>(review.request?.sim ? "sim" : "summary");
   const [editing, setEditing] = useState<EditTarget>();
   const { report } = review;
+
+  // Sent here from a task to run its sim proof: start as soon as both versions are read.
+  const started = useRef(false);
+  useEffect(() => {
+    if (!review.request?.sim || started.current || !review.snapshots || review.loading) return;
+    started.current = true;
+    void review.sim.start();
+  }, [review.request, review.snapshots, review.loading, review.sim]);
+
+  // A proof that ran on a task's commit against the task's base is kept on the task, so whoever
+  // checks the change next sees this run's result.
+  const kept = useRef<unknown>(undefined);
+  const { proof, revs } = review.sim;
+  useEffect(() => {
+    if (!proof || !revs || kept.current === proof || revs.after === WORKTREE) return;
+    kept.current = proof;
+    const summary = summarizeProof(proof, { by: author || "someone", before: revs.before });
+    for (const t of tasks.items)
+      if (t.base === revs.before && ["approved", "review", "done"].includes(t.status) && t.changes.some((c) => c.revision === revs.after))
+        void tasks.saveProof(t.id, revs.after, summary).catch((e) => notify(`The sim proof ran, but could not be saved on “${t.title}”: ${String(e)}`));
+  }, [proof, revs, author, tasks, notify]);
 
   const chooseRepo = () => pickRepo(review.setRepo);
   const importReport = async (file?: File) => {

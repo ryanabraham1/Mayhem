@@ -858,6 +858,7 @@ export function useSuiteProject() {
     takeDiskVersion,
     keepMyVersion,
     openNativeProject,
+    openProjectFile: openProjectPath,
     saveNativeProject,
     importProject,
     switchProject,

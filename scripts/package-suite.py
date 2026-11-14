@@ -24,7 +24,8 @@ def main():
              *core_files,
              ROOT / "THIRD_PARTY_NOTICES.md",
              ROOT / "docs/SUITE_AGENTS.md", ROOT / "docs/ROBOT_LOGGING.md",
-             ROOT / "docs/TEAM_LOGS.md", *sorted((ROOT / "examples/suite").glob("*.json"))]
+             ROOT / "docs/TEAM_LOGS.md", ROOT / "integrations/skills/mayhem-tasks/SKILL.md",
+             *sorted((ROOT / "examples/suite").glob("*.json"))]
     cpp = [p for p in sorted((ROOT / "lib-cpp").rglob("*")) if p.is_file()
            and p.relative_to(ROOT / "lib-cpp").parts[0] in
            {"include", "tests", "cmake", "CMakeLists.txt", "README.md"}]
@@ -35,6 +36,8 @@ def main():
         ("suite-tools", tools, "Requires Node 24+. No npm install needed.\n\n"
          "Run: node scripts/mayhem.mjs example\n"
          "CLI and MCP setup: docs/SUITE_AGENTS.md\n"
+         "Agent skill for the task queue: copy integrations/skills/mayhem-tasks into the\n"
+         "robot repo's .claude/skills/\n"
          "Keep the archive's directory structure intact.\n"),
         ("cpp", cpp, "Header-only C++17 library; optional WPILib adapters require C++20.\n"
          "Build/install instructions: lib-cpp/README.md\n"

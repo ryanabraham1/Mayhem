@@ -3,8 +3,11 @@ import {
   AlertOctagon,
   AlertTriangle,
   ArrowRight,
+  Bot,
   CheckCircle2,
   FileChartColumn,
+  FolderGit2,
+  MessageSquare,
   Plus,
 } from "lucide-react";
 import { FieldArt } from "../../components/FieldArt";
@@ -21,6 +24,10 @@ import { useLogLibrary } from "../logLibrary";
 import { useRobot } from "../robot";
 import type { SuiteState } from "../useSuiteProject";
 import { Badge, Button, Panel, timeAgo } from "../ui";
+import { STATUS_NAMES, agentActivity, type AgentActivity, type ReviewItem } from "../core/review/tasks.ts";
+import { chooseRepo, samePath, useRepoProject, useRobotRepo } from "../robotRepo";
+import { useDelivery } from "../tasks/delivery";
+import { useTasks } from "../tasks/feedback";
 import { Explainer } from "./Explainer";
 
 export type Destination = "autos" | "states" | "logs" | "robot" | "tasks" | "changes";
@@ -53,6 +60,97 @@ function MiniField({ project, routine }: { project: SuiteProject; routine: AutoR
   );
 }
 
+/** What the agents are doing with the team's feedback, leading with what waits for a person. */
+function AgentWork({ items, agents, go }: { items: ReviewItem[]; agents: AgentActivity[]; go: (d: Destination) => void }) {
+  const tasks = useTasks();
+  const [, setRepo] = useRobotRepo();
+  const waiting = items.filter((t) => t.status === "plan" || t.status === "review").sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+  const withAgents = items.filter((t) => t.status === "claimed" || t.status === "approved").length;
+  const fresh = items.filter((t) => t.status === "open").length;
+  // Accepted is not the end: a change counts once it is merged and on the robot.
+  const delivery = [...useDelivery(items).values()];
+  const unmerged = delivery.filter((d) => d.inMain === false).length;
+  const undeployed = delivery.filter((d) => d.inMain && d.onRobot === false && !d.log).length;
+  const show = (id?: string) => {
+    tasks.setOpenTask(id);
+    go("tasks");
+  };
+  return (
+    <Panel
+      title="Feedback and agents"
+      icon={Bot}
+      actions={
+        <Button size="sm" variant="ghost" icon={MessageSquare} onClick={() => tasks.openFeedback({})}>
+          Add feedback
+        </Button>
+      }
+    >
+      {desktop && !tasks.repo ? (
+        <div className="mx-panel-empty">
+          <p>Choose the robot code folder. Feedback, agent plans and code changes live there.</p>
+          <Button size="sm" variant="primary" icon={FolderGit2} onClick={() => void chooseRepo(setRepo)}>
+            Choose robot code folder
+          </Button>
+        </div>
+      ) : !desktop ? (
+        <div className="mx-panel-empty">
+          <p>Feedback you add here saves as a file for the robot repo. The desktop app keeps the queue there and shows agent plans and changes.</p>
+        </div>
+      ) : (
+        <>
+          <div className="mx-work-stats">
+            <button type="button" className={waiting.length ? "is-warn" : ""} onClick={() => show(waiting[0]?.id)}>
+              <strong>{waiting.length}</strong>
+              <span>waiting for you</span>
+            </button>
+            <button type="button" onClick={() => show()}>
+              <strong>{withAgents}</strong>
+              <span>with agents</span>
+            </button>
+            <button type="button" onClick={() => show()}>
+              <strong>{fresh}</strong>
+              <span>new</span>
+            </button>
+          </div>
+          {waiting.length > 0 && (
+            <div className="mx-mini-logs mx-work-list">
+              {waiting.slice(0, 4).map((t) => (
+                <button key={t.id} type="button" onClick={() => show(t.id)}>
+                  <span>
+                    <strong>{t.title}</strong>
+                    <small>
+                      {t.agent ? `${t.agent} · ` : ""}
+                      {timeAgo(Date.parse(t.updatedAt))}
+                    </small>
+                  </span>
+                  <Badge tone="warn">{STATUS_NAMES[t.status]}</Badge>
+                </button>
+              ))}
+            </div>
+          )}
+          {(unmerged > 0 || undeployed > 0) && (
+            <button type="button" className="mx-link mx-work-pending" onClick={() => show()}>
+              {[
+                unmerged && `${unmerged} accepted change${unmerged === 1 ? " is" : "s are"} not merged yet`,
+                undeployed && `${undeployed} merged change${undeployed === 1 ? " is" : "s are"} not on the robot`,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </button>
+          )}
+          <p className="mx-help mx-work-agents">
+            {agents.length
+              ? agents.slice(0, 3).map((a) => `${a.agent} last active ${timeAgo(Date.parse(a.lastAt))}`).join(" · ")
+              : fresh
+                ? "No agent has picked anything up yet."
+                : "No feedback yet. Right-click anything in the app to make it an agent task."}
+          </p>
+        </>
+      )}
+    </Panel>
+  );
+}
+
 export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) => void }) {
   const { project } = s;
   const robot = useRobot();
@@ -64,6 +162,12 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
   const status = robot.live.snapshot.status;
   const [, refreshExport] = useState(0);
   const exportState = cppExportState(project);
+  const tasks = useTasks();
+  const [repo, setRepo] = useRobotRepo();
+  const agents = useMemo(() => agentActivity(tasks.items), [tasks.items]);
+  // The robot repo has its own project file and this window shows a different project.
+  const repoProject = useRepoProject(repo);
+  const unlinked = repoProject && !samePath(s.projectPath, repoProject) ? repoProject : undefined;
   const routines = useMemo(() => {
     const signals = Object.fromEntries(project.signals.map((signal) => [signal.key, signal.initial]));
     return project.routines.map((routine, index) => {
@@ -74,6 +178,14 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
     });
   }, [project, s.issues]);
   const checklist = [
+    ...(desktop
+      ? [
+          { title: "Choose the robot code folder", detail: repo ? repo.split(/[\\/]/).pop()! : "Where feedback, agent plans and code changes live.",
+            done: !!repo, action: "Choose", run: () => void chooseRepo(setRepo) },
+          { title: "Put an agent on the queue", detail: agents.length ? `${agents[0].agent} last active ${timeAgo(Date.parse(agents[0].lastAt))}` : "It picks up feedback and proposes plans for you to approve.",
+            done: agents.length > 0, action: "Set up", run: () => go("tasks") },
+        ]
+      : []),
     { title: "Plan an autonomous routine", detail: "Create a valid routine that reaches a finish.",
       done: routines.some((r) => !r.errors.length), action: "Open Autos", run: () => go("autos") },
     { title: "Connect to the robot", detail: status === "connected" ? `Connected to ${robot.host}` : "Connect over your robot network.",
@@ -97,6 +209,17 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
         </div>
       </header>
 
+      {unlinked && (
+        <p className="mx-repo-project" role="status">
+          <FolderGit2 size={15} />
+          <span>
+            This robot's autos and state machines are in <code>robot.mayhem.json</code> in the robot code folder; this window shows a different project.
+          </span>
+          <Button size="sm" onClick={() => void s.openProjectFile(unlinked)}>
+            Open it
+          </Button>
+        </p>
+      )}
       <section className="mx-gallery" aria-label="Autonomous routines">
         {routines.map(({ routine: r, errors: routineIssues, seconds }) => {
           const steps = r.nodes.filter((n) => n.kind !== "finish").length;
@@ -138,68 +261,71 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
       </section>
 
       <div className="mx-overview-grid">
-        <Panel
-          title="Latest logs"
-          icon={FileChartColumn}
-          actions={
-            <Button size="sm" variant="ghost" onClick={() => go("logs")}>
-              All logs <ArrowRight size={14} />
-            </Button>
-          }
-        >
-          {recent.length ? (
-            <>
-              <p className={`mx-summary-line is-${flagged ? "bad" : "good"}`}>
-                {flagged ? <AlertOctagon size={16} /> : <CheckCircle2 size={16} />}
-                {flagged
-                  ? `${flagged} of the last ${recent.length} logs have red flags`
-                  : `No red flags in the last ${recent.length} logs`}
-              </p>
-              <div className="mx-mini-logs">
-                {recent.map((l) => (
-                  <button
-                    key={l.id}
-                    onClick={() => {
-                      void lib.open(l);
-                      go("logs");
-                    }}
-                  >
-                    <span>
-                      <strong>{l.name.replace(/\.wpilog$/i, "")}</strong>
-                      <small>
-                        {timeAgo(l.added)}
-                        {l.summary?.minVoltage !== undefined && ` · min ${l.summary.minVoltage.toFixed(1)} V`}
-                      </small>
-                    </span>
-                    {l.summary ? (
-                      l.summary.errors ? (
-                        <Badge tone="bad">{l.summary.errors} red</Badge>
-                      ) : l.summary.warnings ? (
-                        <Badge tone="warn">{l.summary.warnings} warn</Badge>
-                      ) : (
-                        <Badge tone="good">clean</Badge>
-                      )
-                    ) : (
-                      <Badge>not analyzed</Badge>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="mx-panel-empty">
-              <p>No logs yet. Turn on collection and plug into the robot, or import a .wpilog.</p>
-              <Button size="sm" onClick={() => go("logs")}>
-                Open Logs
+        <div className="mx-col">
+          <AgentWork items={tasks.items} agents={agents} go={go} />
+          <Panel
+            title="Latest logs"
+            icon={FileChartColumn}
+            actions={
+              <Button size="sm" variant="ghost" onClick={() => go("logs")}>
+                All logs <ArrowRight size={14} />
               </Button>
-            </div>
-          )}
-        </Panel>
+            }
+          >
+            {recent.length ? (
+              <>
+                <p className={`mx-summary-line is-${flagged ? "bad" : "good"}`}>
+                  {flagged ? <AlertOctagon size={16} /> : <CheckCircle2 size={16} />}
+                  {flagged
+                    ? `${flagged} of the last ${recent.length} logs have red flags`
+                    : `No red flags in the last ${recent.length} logs`}
+                </p>
+                <div className="mx-mini-logs">
+                  {recent.map((l) => (
+                    <button
+                      key={l.id}
+                      onClick={() => {
+                        void lib.open(l);
+                        go("logs");
+                      }}
+                    >
+                      <span>
+                        <strong>{l.name.replace(/\.wpilog$/i, "")}</strong>
+                        <small>
+                          {timeAgo(l.added)}
+                          {l.summary?.minVoltage !== undefined && ` · min ${l.summary.minVoltage.toFixed(1)} V`}
+                        </small>
+                      </span>
+                      {l.summary ? (
+                        l.summary.errors ? (
+                          <Badge tone="bad">{l.summary.errors} red</Badge>
+                        ) : l.summary.warnings ? (
+                          <Badge tone="warn">{l.summary.warnings} warn</Badge>
+                        ) : (
+                          <Badge tone="good">clean</Badge>
+                        )
+                      ) : (
+                        <Badge>not analyzed</Badge>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="mx-panel-empty">
+                <p>No logs yet. Turn on collection and plug into the robot, or import a .wpilog.</p>
+                <Button size="sm" onClick={() => go("logs")}>
+                  Open Logs
+                </Button>
+              </div>
+            )}
+          </Panel>
+        </div>
 
         <Panel title="Get to match-ready" icon={CheckCircle2}>
           <div className="mx-checklist-progress">
-            <span>{done} of 4 done</span>
-            <progress value={done} max={4} aria-label="Match readiness" />
+            <span>{done} of {checklist.length} done</span>
+            <progress value={done} max={checklist.length} aria-label="Match readiness" />
           </div>
           <div className="mx-checklist">
             {checklist.map((item) => (

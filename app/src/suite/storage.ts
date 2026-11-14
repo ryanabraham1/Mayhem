@@ -198,6 +198,8 @@ export interface LogSummary {
   warnings: number;
   minVoltage?: number;
   peakCurrent?: number;
+  /** The commit the robot code in this log was built from (its Mayhem/Build stamp), when logged. */
+  revision?: string;
 }
 export interface ReceiptOptions {
   queueSite?: string;

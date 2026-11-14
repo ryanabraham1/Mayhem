@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
-export function demoLog() {
+/** `build`: a deploy stamp (`{ sha, … }`) to log as Mayhem/Build, the way robot code does at boot. */
+export function demoLog(build) {
   const parts = [Buffer.from("5750494c4f47000100000000", "hex")];
   const u32 = (n) => {
     const b = Buffer.alloc(4);
@@ -36,6 +37,10 @@ export function demoLog() {
   entry(6, "intake.requested", "boolean");
   entry(7, "intake.hasPiece", "boolean");
   entry(8, "intake.release", "boolean");
+  if (build) {
+    entry(9, "RealOutputs/Mayhem/Build", "string");
+    record(9, 0, Buffer.from(JSON.stringify(build)));
+  }
   const double = (n) => {
     const b = Buffer.alloc(8);
     b.writeDoubleLE(n);

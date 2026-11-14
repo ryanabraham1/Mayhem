@@ -27,11 +27,13 @@ import {
 } from "./storage";
 import { desktop, invoke, nativeRead } from "./native";
 import { forgetSources, loadSyncConfig, useLogSync } from "./logSync";
+import { buildOf } from "./tasks/anchors";
 
 export const MAX_LOG_BYTES = 250 * 1024 * 1024;
 type Parsed = { recording: Recording; analysis: Analysis };
 
 export function summarize({ recording, analysis }: Parsed): LogSummary {
+  const revision = buildOf(recording);
   return {
     duration: recording.duration,
     channels: recording.channels.length,
@@ -39,6 +41,7 @@ export function summarize({ recording, analysis }: Parsed): LogSummary {
     warnings: analysis.findings.filter((f) => f.severity === "warning").length,
     minVoltage: analysis.power.minVoltage,
     peakCurrent: analysis.power.peakCurrent,
+    ...(revision ? { revision } : {}),
   };
 }
 

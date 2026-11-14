@@ -5,6 +5,7 @@
 import type { Recording } from "../analysis.ts";
 import type { MachineManifest } from "../machines.ts";
 import { checkExpectations, compareOutcomes, outcomeOf, probeInput, type Check, type Outcome, type Physics, type Scenario } from "./scenarios.ts";
+import type { ProofSummary } from "./tasks.ts";
 
 export interface SimRunner {
   /** Build `rev` with the probe; returns the folder runs go in. */
@@ -76,4 +77,16 @@ export async function runSimProof(
     r.failed = !r.after || r.checks.some((c) => !c.pass);
   }
   return { results, passed: results.every((r) => !r.failed), changed: results.filter((r) => r.differences.length).length };
+}
+
+/** A finished proof, reduced to what is kept on a task's commit. */
+export function summarizeProof(proof: SimProof, meta: { by: string; before?: string; partial?: boolean }): Omit<ProofSummary, "at"> {
+  return {
+    ...(meta.before ? { before: meta.before } : {}),
+    by: meta.by,
+    ran: proof.results.length,
+    failed: proof.results.filter((r) => r.failed).map((r) => r.scenario.name),
+    different: proof.results.filter((r) => r.differences.length).map((r) => r.scenario.name),
+    ...(meta.partial ? { partial: true } : {}),
+  };
 }

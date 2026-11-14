@@ -5,19 +5,11 @@ import { tasksInMessage } from "../core/review/tasks.ts";
 import { useLogLibrary } from "../logLibrary";
 import { desktop, invoke } from "../native";
 import { useRobot } from "../robot";
-import { requestCompare, useRobotRepo } from "../robotRepo";
+import { requestCompare, useRobotRepo, useRobotStamp, type BuildStamp } from "../robotRepo";
 import { useTasks } from "../tasks/feedback";
 import { Badge, Button, Panel } from "../ui";
 
-/** deploy/mayhem-build.json, written by the robot code's build. */
-interface Stamp {
-  sha: string;
-  branch: string;
-  dirty: string[];
-  builtAt: string;
-  builtBy: string;
-  computer?: string;
-}
+type Stamp = BuildStamp;
 interface Commit {
   sha: string;
   subject: string;
@@ -30,7 +22,17 @@ export function RobotNow({ openChanges }: { openChanges: () => void }) {
   const lib = useLogLibrary();
   const tasks = useTasks();
   const [repo] = useRobotRepo();
-  const [stamp, setStamp] = useState<Stamp>();
+  const [stamp, setStampState] = useState<Stamp>();
+  // Remembered for the Tasks page: whether an accepted change has reached the robot.
+  const [, rememberStamp] = useRobotStamp();
+  const setStamp = useCallback(
+    (next: Stamp) => {
+      setStampState(next);
+      if (next?.sha) rememberStamp(next);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   const [checking, setChecking] = useState(false);
   const [problem, setProblem] = useState<string>();
   // main is the known-good version: what the robot runs is compared with it.
@@ -51,7 +53,7 @@ export function RobotNow({ openChanges }: { openChanges: () => void }) {
     } finally {
       setChecking(false);
     }
-  }, [robot.host]);
+  }, [robot.host, setStamp]);
   // Look as soon as the robot is reachable.
   const connected = robot.live.snapshot.status === "connected";
   useEffect(() => {

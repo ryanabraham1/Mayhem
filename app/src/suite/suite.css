@@ -3078,6 +3078,73 @@ svg.mx-field {
   color: var(--mx-muted);
   font-size: 12px;
 }
+/* Overview: what waits for a person, what the agents hold, what is new. */
+.mx-work-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.mx-work-stats button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--mx-line);
+  border-radius: var(--mx-r-md);
+  background: var(--mx-surface-2);
+  color: var(--mx-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.mx-work-stats button:hover {
+  border-color: var(--mx-accent);
+}
+.mx-work-stats strong {
+  color: var(--mx-ink);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.mx-work-stats button.is-warn {
+  border-color: var(--mx-warn);
+  background: var(--mx-warn-soft);
+  color: var(--mx-warn);
+}
+.mx-work-stats button.is-warn strong {
+  color: var(--mx-warn);
+}
+.mx-work-list {
+  margin-top: 6px;
+}
+.mx-work-list strong {
+  font-family: var(--mx-font);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mx-work-pending {
+  margin-top: 10px;
+  font-size: 13px;
+  text-align: left;
+}
+.mx-work-agents {
+  margin: 10px 0 0;
+}
+.mx-repo-project {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  color: var(--mx-ink-2);
+  font-size: 13px;
+}
+.mx-repo-project > svg {
+  flex: none;
+  color: var(--mx-accent-ink);
+}
 .mx-panel-empty {
   display: flex;
   flex-direction: column;

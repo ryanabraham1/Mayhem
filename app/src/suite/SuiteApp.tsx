@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
   ArrowUpCircle,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useSuiteProject, type SuiteState } from "./useSuiteProject";
 import { RobotProvider, useRobot } from "./robot";
+import { samePath, useRepoProject, useRobotRepo } from "./robotRepo";
 import { LogLibraryProvider, useLogLibrary } from "./logLibrary";
 import { ProjectPicker } from "./ProjectPicker";
 import { AutosPage } from "./autos/AutosPage";
@@ -139,6 +140,20 @@ function Shell({
   );
   const [projectPicker, setProjectPicker] = useState(false);
   const [legacy, setLegacy] = useState(false);
+  // Picking the robot code folder shows that robot: its own project file (autos, state machines)
+  // opens and stays linked. A folder already chosen at launch is left to the Overview's prompt.
+  const [repo] = useRobotRepo();
+  const repoProject = useRepoProject(repo);
+  const shownRepo = useRef(repo);
+  const openProjectFile = useRef(s.openProjectFile);
+  openProjectFile.current = s.openProjectFile;
+  const projectPath = useRef(s.projectPath);
+  projectPath.current = s.projectPath;
+  useEffect(() => {
+    if (!repoProject || shownRepo.current === repo) return;
+    shownRepo.current = repo;
+    if (!samePath(projectPath.current, repoProject)) void openProjectFile.current(repoProject);
+  }, [repo, repoProject]);
   const setPage = (p: Page) => {
     setPageState(p);
     if (p !== "autos") s.setPlaying(false);

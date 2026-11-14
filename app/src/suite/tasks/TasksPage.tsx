@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, ClipboardList, FolderGit2, GitCompare, MapPin, MessageSquare, NotebookPen, ThumbsDown, ThumbsUp, X } from "lucide-react";
-import { DRIVER_FORM, STATUS_NAMES, type ReviewItem, type TaskStatus } from "../core/review/tasks.ts";
+import { Bot, Check, ClipboardList, FlaskConical, FolderGit2, GitCompare, MapPin, MessageSquare, NotebookPen, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { DRIVER_FORM, STALLED_HOURS, STATUS_NAMES, agentActivity, hoursWithAgent, latestProof, parseFinding, proofText, taskBase, type ProofSummary, type ReviewItem, type TaskStatus } from "../core/review/tasks.ts";
 import { WORKTREE } from "../core/review/report.ts";
 import { useLogLibrary } from "../logLibrary";
 import { desktop } from "../native";
@@ -8,6 +8,8 @@ import { chooseRepo, requestCompare, useAuthor, useRobotRepo } from "../robotRep
 import type { SuiteState } from "../useSuiteProject";
 import { AgentsPage } from "../agents/AgentsPage";
 import { Badge, Button, EmptyState, PageHeader, timeAgo, type Tone } from "../ui";
+import { setRobotTab } from "../robot/RobotPage";
+import { deliveryStage, useDelivery, type Delivery } from "./delivery";
 import { anchorText, useTasks } from "./feedback";
 import "./tasks.css";
 
@@ -27,8 +29,122 @@ const KindIcon = ({ kind }: { kind: ReviewItem["kind"] }) => {
   return <Icon size={14} />;
 };
 
-function Card({ item, open }: { item: ReviewItem; open: () => void }) {
+/** How a recorded proof reads at a glance: failed, behaves differently, or clean. */
+const proofTone = (proof: ProofSummary): Tone => (proof.failed.length ? "bad" : proof.different.length || proof.partial ? "warn" : "good");
+
+/** The sim proof of a commit: the recorded run, or that there is none, with a way to run it. */
+function ProofLine({ proof, run }: { proof?: ProofSummary; run?: () => void }) {
+  if (!proof)
+    return (
+      <p className="mx-proof is-none">
+        <FlaskConical size={14} />
+        <span>Sim proof not run on this commit</span>
+        {run && (
+          <Button size="sm" onClick={run}>
+            Run sim proof
+          </Button>
+        )}
+      </p>
+    );
+  const names = proof.failed.length ? proof.failed : proof.different;
+  return (
+    <div className={`mx-proof is-${proofTone(proof)}`}>
+      <p>
+        <FlaskConical size={14} />
+        <strong>Sim proof: {proofText(proof)}</strong>
+        {proof.partial && <Badge tone="warn">some scenarios only</Badge>}
+        <small>
+          run by {proof.by} · {timeAgo(Date.parse(proof.at))}
+        </small>
+        {run && (
+          <button type="button" className="mx-link" onClick={run}>
+            {names.length ? "Watch them" : "Run again"}
+          </button>
+        )}
+      </p>
+      {names.length > 0 && (
+        <ul>
+          {names.slice(0, 5).map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+          {names.length > 5 && <li className="is-more">and {names.length - 5} more</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** After a change is accepted: has it been merged, is it on the robot, has it run. */
+function DeliveryLane({ item, delivery, go }: { item: ReviewItem; delivery?: Delivery; go: (page: "robot" | "logs") => void }) {
+  const lib = useLogLibrary();
+  const accepted = [...item.history].reverse().find((h) => h.what.startsWith("accepted the change"));
+  const main = delivery?.main ?? "main";
+  const log = delivery?.log;
+  const steps: { done: boolean | undefined; title: string; detail: string; action?: { label: string; run: () => void } }[] = [
+    { done: true, title: "Accepted", detail: accepted ? `${accepted.by} · ${timeAgo(Date.parse(accepted.at))}` : "" },
+    {
+      done: delivery?.inMain,
+      title: delivery?.inMain ? `In ${main}` : `Not in ${main} yet`,
+      detail: delivery?.inMain ? "Merged" : delivery?.inMain === false ? "Its pull request is not merged" : "No main branch found in this folder",
+    },
+    {
+      done: delivery?.onRobot,
+      title: delivery?.onRobot ? "On the robot" : "Not on the robot",
+      detail: delivery?.robotCheckedAt ? `as of the check ${timeAgo(delivery.robotCheckedAt)}` : "The robot has not been checked",
+      action: delivery?.onRobot
+        ? undefined
+        : {
+            label: "Check robot",
+            run: () => {
+              setRobotTab("now");
+              go("robot");
+            },
+          },
+    },
+    {
+      done: !!log,
+      title: log ? "In a log" : "No log with it yet",
+      detail: log
+        ? `${log.name.replace(/\.wpilog$/i, "")} · ${log.summary?.errors ? `${log.summary.errors} red flag${log.summary.errors === 1 ? "" : "s"}` : "no red flags"}${delivery!.logs > 1 ? ` · ${delivery!.logs} logs` : ""}`
+        : "Logs name the code they ran",
+      action: log
+        ? {
+            label: "Open log",
+            run: () => {
+              void lib.open(log);
+              go("logs");
+            },
+          }
+        : undefined,
+    },
+  ];
+  return (
+    <section aria-label="Where this change is now">
+      <h3>Where it is now</h3>
+      <ol className="mx-delivery">
+        {steps.map((step) => (
+          <li key={step.title} className={step.done ? "is-done" : step.done === false ? "is-todo" : "is-unknown"}>
+            <i aria-hidden="true">{step.done && <Check size={12} />}</i>
+            <strong>{step.title}</strong>
+            <small>{step.detail}</small>
+            {step.action && (
+              <button type="button" className="mx-link" onClick={step.action.run}>
+                {step.action.label}
+              </button>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function Card({ item, open, delivery }: { item: ReviewItem; open: () => void; delivery?: Delivery }) {
   const last = item.changes[item.changes.length - 1];
+  const stage = deliveryStage(delivery);
+  // An agent that has held a task this long without touching it has probably stopped.
+  const idle = hoursWithAgent(item);
+  const stalled = idle !== undefined && idle >= STALLED_HOURS;
   return (
     <button type="button" className={`mx-task-card is-${item.status}`} onClick={open}>
       <span className="mx-task-title">
@@ -46,12 +162,28 @@ function Card({ item, open }: { item: ReviewItem; open: () => void }) {
           </Badge>
         )}
         {last?.level && <Badge tone={LEVEL_TONE[last.level]}>{LEVEL_WORD[last.level]}</Badge>}
+        {item.status === "review" && last && (last.proof ? <Badge tone={proofTone(last.proof)}>sim proof {last.proof.failed.length ? "failed" : last.proof.different.length ? "differs" : last.proof.partial ? "partial" : "passed"}</Badge> : <Badge>no sim proof</Badge>)}
+        {stage && <Badge tone={stage.tone}>{stage.text}</Badge>}
+        {item.status === "declined" && <Badge>declined</Badge>}
+        {stalled && <Badge tone="warn">no update for {idle! < 48 ? `${Math.round(idle!)} h` : `${Math.round(idle! / 24)} days`}</Badge>}
       </span>
     </button>
   );
 }
 
-function Detail({ item, close, openChanges }: { item: ReviewItem; close: () => void; openChanges: (before: string, after: string) => void }) {
+function Detail({
+  item,
+  close,
+  openChanges,
+  delivery,
+  go,
+}: {
+  item: ReviewItem;
+  close: () => void;
+  openChanges: (before: string, after: string, sim?: boolean) => void;
+  delivery?: Delivery;
+  go: (page: "robot" | "logs") => void;
+}) {
   const tasks = useTasks();
   const dialog = useRef<HTMLDialogElement>(null);
   const [note, setNote] = useState("");
@@ -61,18 +193,25 @@ function Detail({ item, close, openChanges }: { item: ReviewItem; close: () => v
     try {
       await tasks.act(item.id, action, note.trim() ? { note: note.trim() } : {});
       setNote("");
+      setFailure(undefined);
     } catch (e) {
-      setFailure(String(e));
+      setFailure((e as Error).message ?? String(e));
     }
   };
   const lastRev = item.changes[item.changes.length - 1]?.revision;
+  const newest = latestProof(item);
+  const compareFrom = taskBase(item);
+  // Sending work back needs a reason the agent can act on.
+  const sendsBack = item.status === "plan" || item.status === "review";
+  const hasNote = note.trim().length > 0;
+  const withAgent = item.status === "claimed" || item.status === "approved";
   return (
     <dialog ref={dialog} className="mx-dialog mx-task-detail" aria-label={item.title} onCancel={close}>
       <div className="mx-dialog-head">
         <div>
           <h2>{item.title}</h2>
           <p>
-            <Badge tone={item.status === "plan" ? "warn" : item.status === "done" ? "good" : "neutral"}>{STATUS_NAMES[item.status]}</Badge> {item.author} ·{" "}
+            <Badge tone={item.status === "plan" || item.status === "review" ? "warn" : item.status === "done" ? "good" : "neutral"}>{STATUS_NAMES[item.status]}</Badge> {item.author} ·{" "}
             {new Date(item.createdAt).toLocaleString()}
             {item.agent ? ` · agent ${item.agent}` : ""}
           </p>
@@ -113,17 +252,33 @@ function Detail({ item, close, openChanges }: { item: ReviewItem; close: () => v
               <li key={c.revision}>
                 <code>{c.revision.slice(0, 7)}</code> {c.summary}
                 {c.level && <Badge tone={LEVEL_TONE[c.level]}>{LEVEL_WORD[c.level]}</Badge>}
-                {c.findings?.length ? <div className="mx-before-after">{c.findings.slice(0, 4).join(" · ")}</div> : null}
+                {c.findings?.length ? (
+                  <ul className="mx-change-findings">
+                    {c.findings.slice(0, 6).map((line) => {
+                      const f = parseFinding(line);
+                      return (
+                        <li key={line} className={f.level ? `is-${f.level}` : undefined}>
+                          {f.text}
+                        </li>
+                      );
+                    })}
+                    {c.findings.length > 6 && <li className="is-more">and {c.findings.length - 6} more on the Changes page</li>}
+                  </ul>
+                ) : null}
               </li>
             ))}
           </ul>
-          {desktop && lastRev && (
-            <Button size="sm" icon={GitCompare} onClick={() => openChanges(item.base ?? `${item.changes[0].revision}~1`, lastRev)}>
+          {newest && item.status !== "approved" && (
+            <ProofLine proof={newest.proof} run={desktop && compareFrom ? () => openChanges(compareFrom, newest.revision, true) : undefined} />
+          )}
+          {desktop && lastRev && compareFrom && (
+            <Button size="sm" icon={GitCompare} onClick={() => openChanges(compareFrom, lastRev)}>
               See what changed on the robot
             </Button>
           )}
         </section>
       )}
+      {item.status === "done" && item.changes.length > 0 && desktop && <DeliveryLane item={item} delivery={delivery} go={(page) => (close(), go(page))} />}
       <details className="mx-history">
         <summary>History</summary>
         <ul>
@@ -137,14 +292,21 @@ function Detail({ item, close, openChanges }: { item: ReviewItem; close: () => v
       {desktop && (
         <>
           <label className="mx-form-field">
-            <span>Note (optional)</span>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={item.status === "plan" ? "What should the plan do differently?" : "Why?"} />
+            <span>{sendsBack ? "Note for the agent" : "Note (optional)"}</span>
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={item.status === "plan" ? "What should the plan do differently?" : item.status === "review" ? "What is not right about the change?" : "Why?"}
+            />
+            {sendsBack && !hasNote && <small>Needed to send it back; optional when you {item.status === "plan" ? "approve" : "accept"}.</small>}
           </label>
           {failure && <p className="mx-help is-bad">{failure}</p>}
           <div className="mx-dialog-actions">
             {item.status === "plan" && (
               <>
-                <Button onClick={() => void act("reject")}>Ask for a different plan</Button>
+                <Button disabled={!hasNote} onClick={() => void act("reject")}>
+                  Ask for a different plan
+                </Button>
                 <Button variant="primary" onClick={() => void act("approve")}>
                   Approve plan
                 </Button>
@@ -152,11 +314,18 @@ function Detail({ item, close, openChanges }: { item: ReviewItem; close: () => v
             )}
             {item.status === "review" && (
               <>
-                <Button onClick={() => void act("reopen")}>Not right, reopen</Button>
+                <Button disabled={!hasNote} onClick={() => void act("reopen")}>
+                  Not right, send back
+                </Button>
                 <Button variant="primary" onClick={() => void act("accept")}>
                   Accept the change
                 </Button>
               </>
+            )}
+            {withAgent && (
+              <Button onClick={() => void act("reopen")} title={`Take it back from ${item.agent ?? "the agent"} so any agent can pick it up`}>
+                Back to New
+              </Button>
             )}
             {["open", "claimed", "approved"].includes(item.status) && <Button onClick={() => void act("decline")}>Decline</Button>}
             {["done", "declined", "noted"].includes(item.status) && <Button onClick={() => void act("reopen")}>Reopen</Button>}
@@ -263,16 +432,24 @@ function DriverForm({ close }: { close: () => void }) {
   );
 }
 
-export function TasksPage({ s, go }: { s: SuiteState; go: (page: "changes") => void }) {
+export function TasksPage({ s, go }: { s: SuiteState; go: (page: "changes" | "robot" | "logs") => void }) {
   const tasks = useTasks();
   const [author, setAuthor] = useAuthor();
-  const [open, setOpen] = useState<string>();
+  const { openTask: open, setOpenTask: setOpen } = tasks;
   const [form, setForm] = useState(false);
   const [note, setNote] = useState("");
   const [, setRepo] = useRobotRepo();
+  const connect = useRef<HTMLDetailsElement>(null);
   const openItem = tasks.items.find((t) => t.id === open);
-  const openChanges = (before: string, after: string) => {
-    requestCompare(before, after === WORKTREE ? WORKTREE : after);
+  const agents = agentActivity(tasks.items);
+  const unclaimed = tasks.items.filter((t) => t.status === "open").length;
+  const showConnect = () => {
+    if (connect.current) connect.current.open = true;
+    connect.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const delivery = useDelivery(tasks.items);
+  const openChanges = (before: string, after: string, sim = false) => {
+    requestCompare(before, after === WORKTREE ? WORKTREE : after, { sim });
     go("changes");
   };
   const waiting = tasks.items.filter((t) => t.status === "plan" || t.status === "review").length;
@@ -320,8 +497,35 @@ export function TasksPage({ s, go }: { s: SuiteState; go: (page: "changes") => v
         </div>
       )}
       {tasks.error && <p className="mx-help is-bad">{tasks.error}</p>}
+      {tasks.repo && (agents.length > 0 || unclaimed > 0) && (
+        <p className="mx-agents-line" role="status" aria-label="Agents on this queue">
+          <Bot size={14} />
+          {agents.length ? (
+            agents.slice(0, 4).map((a) => (
+              <span key={a.agent}>
+                <strong>{a.agent}</strong> {a.holding ? `has ${a.holding} · ` : ""}last active {timeAgo(Date.parse(a.lastAt))}
+              </span>
+            ))
+          ) : (
+            <span>
+              No agent has picked anything up yet.{" "}
+              <button type="button" className="mx-link" onClick={showConnect}>
+                Start one
+              </button>
+            </span>
+          )}
+        </p>
+      )}
       {desktop && !tasks.repo ? (
-        <EmptyState icon={FolderGit2} title="Choose the robot code folder">
+        <EmptyState
+          icon={FolderGit2}
+          title="Choose the robot code folder"
+          action={
+            <Button variant="primary" icon={FolderGit2} onClick={() => void chooseRepo(setRepo)}>
+              Choose robot code folder
+            </Button>
+          }
+        >
           Feedback and tasks are saved in the robot repo (tools/mayhem/review), so agents and teammates see them with the code.
         </EmptyState>
       ) : (
@@ -339,24 +543,20 @@ export function TasksPage({ s, go }: { s: SuiteState; go: (page: "changes") => v
                 </header>
                 <small className="mx-help">{col.hint}</small>
                 {list.map((t) => (
-                  <Card key={t.id} item={t} open={() => setOpen(t.id)} />
+                  <Card key={t.id} item={t} open={() => setOpen(t.id)} delivery={delivery.get(t.id)} />
                 ))}
               </section>
             );
           })}
         </div>
       )}
-      <details className="mx-agent-connect">
+      <details className="mx-agent-connect" ref={connect}>
         <summary>
           <Bot size={16} /> Connect an agent
         </summary>
-        <p className="mx-help">
-          Agents use the Mayhem MCP tools <code>list_tasks</code>, <code>claim_task</code>, <code>propose_plan</code>, <code>report_progress</code> and{" "}
-          <code>finish_task</code>. See docs/SUITE_AGENTS.md, Tasks.
-        </p>
-        <AgentsPage key={s.project.id} s={s} />
+        <AgentsPage key={s.project.id} s={s} repo={tasks.repo} />
       </details>
-      {openItem && <Detail item={openItem} close={() => setOpen(undefined)} openChanges={openChanges} />}
+      {openItem && <Detail item={openItem} close={() => setOpen(undefined)} openChanges={openChanges} delivery={delivery.get(openItem.id)} go={go} />}
       {form && <DriverForm close={() => setForm(false)} />}
     </div>
   );

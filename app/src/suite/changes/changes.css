@@ -639,6 +639,37 @@
 .mx-sim-head p {
   margin: 4px 0 0;
 }
+/* Code the review can't read, and scenarios that got looser: file and scenario names as chips. */
+.mx-unread {
+  display: grid;
+  gap: 6px;
+}
+.mx-unread p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--mx-warn);
+  font-size: 13px;
+}
+.mx-unread p > span {
+  margin-right: 2px;
+  font-weight: 500;
+}
+.mx-unread code {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--mx-warn-soft);
+  color: var(--mx-ink-2);
+  font: 500 11.5px/1.6 var(--mx-mono);
+}
+.mx-unread code.is-removed {
+  text-decoration: line-through;
+}
+.mx-unread small {
+  color: var(--mx-muted);
+}
 .mx-progress {
   display: flex;
   align-items: center;

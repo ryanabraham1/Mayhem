@@ -6,12 +6,12 @@ A coding agent (Claude Code, Codex or any agent that can run commands) can work 
 
 1. In the app, choose the robot code folder.
 2. Open **Tasks → Connect an agent → Put an agent on the queue** and copy the prompt. It has this robot's folder filled in.
-3. Open your agent **in the robot code folder** and paste it.
+3. Open your agent in a terminal **in the robot code folder** and paste it.
 
-The agent then picks up the next task, proposes a plan, and waits for you. The line above the Tasks board names each agent on the queue and when it last did something.
+The agent then picks up the next task, asks you in that terminal if something is unclear, proposes a plan, and waits for you. The line above the Tasks board names each agent on the queue and when it last did something.
 
 ::: tip Keep it running
-If the robot repo has the `mayhem-tasks` skill (in `.claude/skills/`), Claude Code can work the queue on a timer: `/loop 10m /mayhem-tasks`.
+If the robot repo has the `mayhem-tasks` skill (in `.claude/skills/`; it ships as `integrations/skills/mayhem-tasks` in the Mayhem tools), Claude Code can work the queue on a timer: `/loop 10m /mayhem-tasks`.
 :::
 
 ## Give it Mayhem's tools (MCP)

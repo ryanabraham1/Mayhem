@@ -34,13 +34,37 @@ The line above the board names the agents on the queue and when each last did so
 
 Only two kinds of change skip **Ready to check**: one that changes only auto paths, every one of which still finishes in the preview, and one that touches nothing that reaches the robot (notes, a new scenario). Everything else waits for you, including any change to code Mayhem can't read. Those show as **Other robot code changed** with the file names; check them with the [sim proof](/suite/changes#sim-proof).
 
+### The sim proof on a change
+
+A card in **Ready to check** says whether a sim proof was run on that exact commit: **sim proof passed**, **differs**, **failed**, or **no sim proof**. Open the card to see the run: how many scenarios, which ones failed or behave differently, who ran it and when. That line is written by whatever ran the simulation (the agent's tool, or this app), never typed in by an agent.
+
+- **Run sim proof** (when there is none) opens Changes on the task's versions and starts it. When it finishes, the result is kept on the task.
+- **Watch them** opens the same comparison so you can replay the scenarios that changed.
+
+A newer commit on the same task has no proof until one is run on it.
+
+### After you accept
+
+Accepting is not the end. A done task shows **Where it is now** as four steps, each read from git, the robot and the logs:
+
+| Step | Reached when |
+| --- | --- |
+| **Accepted** | You accepted the change. |
+| **In main** | Its pull request is merged (a squash merge counts). |
+| **On the robot** | The code on the robot includes it, as of the last **Check robot**. |
+| **In a log** | A collected log was recorded on code that includes it. The step names the log and its red flags; **Open log** opens it. |
+
+The card's chip shows the furthest step, and the Overview says how many accepted changes are not merged or not on the robot yet.
+
 ## Connect an agent
+
+Agents run in a terminal, and that is where you talk to them: an agent that needs to know something asks you there and waits. The app is for feedback, approving plans and checking changes.
 
 Expand **Connect an agent** at the bottom of the page:
 
 | Panel | What's there |
 | --- | --- |
-| **Put an agent on the queue** | A copyable prompt, with this robot's folder filled in, that tells any coding agent how to work the queue. Open the agent in the robot code folder and paste it. |
+| **Put an agent on the queue** | A copyable prompt, with this robot's folder filled in, that tells any coding agent how to work the queue. Open the agent in a terminal in the robot code folder and paste it. For Claude Code, the same steps are a skill: copy `integrations/skills/mayhem-tasks` into the robot repo's `.claude/skills/` and run `/loop 10m /mayhem-tasks`. |
 | **Share this project with an agent** | A copyable brief describing the project. |
 | **Live file link** | **Save project file** links the project to a file in the robot repo; see [projects](/suite/projects#live-file-link-desktop). |
 | **Connect over MCP** | Setup for the Mayhem MCP server. |

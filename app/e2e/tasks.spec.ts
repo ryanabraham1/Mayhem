@@ -1,9 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execute } from "../../scripts/mayhem.mjs";
-import { desktop, fixtureRepo } from "./reviewBridge";
+import { execute, recordTaskProof } from "../../scripts/mayhem.mjs";
+import { demoLog } from "../../scripts/make-demo-log.mjs";
+import { readItem, saveItem } from "../../scripts/review-tasks.mjs";
+import { move } from "../src/suite/core/review/tasks";
+import { desktop, dialogPicks, fakeRobot, fixtureRepo } from "./reviewBridge";
 
 const shots = process.env.MAYHEM_SHOTS;
 const shot = async (page: Page, name: string) => {
@@ -116,4 +120,155 @@ test("right-click anything to make it an agent task", async ({ page }) => {
   const all = await Promise.all(tasks.map((t: { id: string }) => execute("get_task", { repo, id: t.id })));
   expect(all.find((t) => /pickup/.test(t.text)).anchor).toMatchObject({ routine: expect.any(String), step: { id: expect.any(String) } });
   expect(all.find((t) => /oldest/.test(t.text)).anchor).toMatchObject({ page: "Tasks" });
+});
+
+test("the overview leads with what waits for you; unread code never skips review; sending back needs a reason", async ({ page }) => {
+  const repo = fixtureRepo();
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" }).toString().trim();
+  await desktop(page, repo);
+  await page.goto("/");
+  // First run: the overview asks for the robot code folder, then shows the queue.
+  const work = page.locator(".mx-panel", { hasText: "Feedback and agents" });
+  await work.getByRole("button", { name: "Choose robot code folder" }).click();
+  await expect(work.getByRole("button", { name: /waiting for you/ })).toContainText("0");
+
+  // An agent takes a task through to a change that only touches logic the review can't read.
+  const added = await execute("add_feedback", { repo, author: "Maya", title: "Intake should retract when the slide stalls", text: "It keeps pushing against the wall." });
+  await execute("claim_task", { repo, id: added.id, agent: "claude-1" });
+  await execute("propose_plan", { repo, id: added.id, agent: "claude-1", plan: "Retract the intake when the slide current spikes for half a second." });
+  await expect(work.getByRole("button", { name: /waiting for you/ })).toContainText("1", { timeout: 10_000 });
+  await shot(page, "t7-overview");
+  await work.getByRole("button", { name: /Intake should retract/ }).click();
+  const detail = page.getByRole("dialog", { name: "Intake should retract when the slide stalls" });
+  await expect(detail.getByText("Agent's plan")).toBeVisible();
+  // Asking for another plan needs a note the agent can act on.
+  await expect(detail.getByRole("button", { name: "Ask for a different plan" })).toBeDisabled();
+  await detail.getByLabel("Note for the agent").fill("Only while intaking, not when stowed");
+  await detail.getByRole("button", { name: "Ask for a different plan" }).click();
+  await expect.poll(async () => (await execute("get_task", { repo, id: added.id })).planDecision).toMatchObject({ approved: false, note: "Only while intaking, not when stowed" });
+  await execute("propose_plan", { repo, id: added.id, agent: "claude-1", plan: "Retract only while intaking." });
+  await expect(detail.getByText("Retract only while intaking.")).toBeVisible({ timeout: 10_000 });
+  await detail.getByRole("button", { name: "Approve plan" }).click();
+  await detail.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("status", { name: "Agents on this queue" })).toContainText("claude-1 has 1");
+
+  mkdirSync(join(repo, "src/main/cpp/subsystems"), { recursive: true });
+  writeFileSync(join(repo, "src/main/cpp/subsystems/Superstructure.cpp"), "void Superstructure::Periodic() { RetractOnStall(); }\n");
+  git("add", ".");
+  git("commit", "-qm", `Retract on stall\n\nMayhem-Task: ${added.id}`);
+  await execute("report_progress", { repo, id: added.id, agent: "claude-1", revision: "HEAD", summary: "Retract on stall" });
+  await execute("finish_task", { repo, id: added.id, agent: "claude-1" });
+  // Not auto-accepted, and the change names the file instead of claiming nothing changed.
+  const ready = page.getByRole("region", { name: "Ready to check" });
+  await expect(ready.getByText("Intake should retract")).toBeVisible({ timeout: 10_000 });
+  await ready.getByText("Intake should retract").click();
+  await expect(detail.getByText(/Other robot code changed: Superstructure\.cpp/)).toBeVisible();
+  await shot(page, "t8-unread-code");
+  await expect(detail.getByRole("button", { name: "Not right, send back" })).toBeDisabled();
+  await detail.getByRole("button", { name: "See what changed on the robot" }).click();
+  await expect(page.locator(".mx-area-card", { hasText: "Other code" })).toContainText("1 file changed");
+  await expect(page.locator(".mx-risk-chip")).toContainText("Behavior changes to review");
+  await page.locator(".mx-area-card", { hasText: "Other code" }).click();
+  await expect(page.getByRole("note", { name: "What only the sim proof can check" })).toContainText("Superstructure.cpp");
+  await shot(page, "t9-sim-unread");
+});
+
+test("a change is checked against its recorded sim proof, then followed to main, the robot and a log", async ({ page }) => {
+  const repo = fixtureRepo();
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" }).toString().trim();
+  fakeRobot.stamp = "";
+  await desktop(page, repo);
+  // No robot toolchain here: every simulated run hands back the same recorded log, so the proof
+  // runs through the app's own judging and nothing is built.
+  const simLog = join(mkdtempSync(join(tmpdir(), "mayhem-sim-")), "run.wpilog");
+  writeFileSync(simLog, demoLog());
+  await page.addInitScript((log) => {
+    const internals = (window as any).__TAURI_INTERNALS__;
+    const invoke = internals.invoke;
+    internals.invoke = (cmd: string, args: unknown) =>
+      cmd === "review_sim_prepare"
+        ? Promise.resolve({ dir: "/sim", cached: true })
+        : cmd === "review_sim_run"
+          ? Promise.resolve({ log, result: null, ok: true, output: "" })
+          : invoke(cmd, args);
+  }, simLog);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Tasks", exact: true }).click();
+  await page.getByRole("button", { name: "Choose robot code folder" }).first().click();
+  await page.getByLabel("Your name").fill("Maya");
+
+  // An agent takes a task to a committed change on its own branch, and finishes without a proof.
+  const added = await execute("add_feedback", { repo, author: "Maya", title: "Intake should retract when the slide stalls", text: "It keeps pushing." });
+  const id = added.id as string;
+  await execute("claim_task", { repo, id, agent: "claude-1" });
+  await execute("propose_plan", { repo, id, agent: "claude-1", plan: "Retract the intake when the slide stalls." });
+  const planned = await readItem(repo, id);
+  await saveItem(repo, move(planned.item, "approve", "Maya"), planned.text);
+  git("checkout", "-q", "-b", `agent/${id}`);
+  mkdirSync(join(repo, "src/main/cpp/subsystems"), { recursive: true });
+  writeFileSync(join(repo, "src/main/cpp/subsystems/Superstructure.cpp"), "void Superstructure::Periodic() { RetractOnStall(); }\n");
+  git("add", "src");
+  git("commit", "-qm", `Retract on stall\n\nMayhem-Task: ${id}`);
+  const reported = await execute("report_progress", { repo, id, agent: "claude-1", revision: "HEAD", summary: "Retract on stall" });
+  const revision = reported.changes[0].revision as string;
+  expect((await execute("finish_task", { repo, id, agent: "claude-1" })).warning).toMatch(/No sim proof/);
+
+  // The person sees there is no proof, and one click starts it for exactly this change.
+  const ready = page.getByRole("region", { name: "Ready to check" });
+  await expect(ready.getByText("no sim proof")).toBeVisible({ timeout: 10_000 });
+  await ready.getByText("Intake should retract").click();
+  const detail = page.getByRole("dialog", { name: "Intake should retract when the slide stalls" });
+  await expect(detail.getByText("Sim proof not run on this commit")).toBeVisible();
+  await shot(page, "t10-no-proof");
+  await detail.getByRole("button", { name: "Run sim proof" }).click();
+  await expect(page.getByRole("group", { name: "Review sections" }).getByRole("button", { name: /^Sim proof/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("After version")).toHaveValue(revision);
+  await expect(page.getByRole("button", { name: "Run again" })).toBeVisible({ timeout: 30_000 });
+  // The run is kept on the task's commit: back on the task, it is there, signed by who ran it.
+  await page.getByRole("button", { name: /^Tasks/ }).click();
+  await expect(detail.getByText("Sim proof: 32 scenarios pass, same behavior")).toBeVisible({ timeout: 10_000 });
+  await expect(detail.getByText(/run by Maya/)).toBeVisible();
+  expect((await execute("get_task", { repo, id })).changes[0].proof).toMatchObject({ by: "Maya", before: reported.base, ran: 32, failed: [], different: [] });
+
+  // An agent's run is recorded by the tool that ran the simulation, not typed into a note; the newest run shows.
+  const ran = (name: string, failed: boolean, differences: string[] = []) => ({ scenario: { name }, failed, differences, checks: [], logs: {} });
+  await recordTaskProof(repo, id, revision, { results: [ran("tap X", false), ran("hold LT", false, ["Intake mode: INTAKING → STOWED"]), ran("Depot Sweep", false)], passed: true, changed: 1 }, { by: "claude-1", before: reported.base });
+  await expect(detail.getByText("Sim proof: 3 scenarios pass, 1 behaves differently")).toBeVisible({ timeout: 10_000 });
+  await expect(detail.getByText(/run by claude-1/)).toBeVisible();
+  await expect(detail.locator(".mx-proof li")).toHaveText(["hold LT"]);
+  await shot(page, "t11-proof");
+  await detail.getByRole("button", { name: "Accept the change" }).click();
+
+  // Accepted is not the end. Nothing is merged yet.
+  const lane = detail.getByRole("region", { name: "Where this change is now" });
+  await expect(lane.locator("li")).toHaveText([/Accepted.*Maya/, /Not in main yet/, /Not on the robot.*has not been checked/, /No log with it yet/]);
+  await shot(page, "t12-accepted");
+  // A squash merge keeps the message, not the commit.
+  git("checkout", "-q", "main");
+  git("merge", "-q", "--squash", `agent/${id}`);
+  git("commit", "-qm", `Retract on stall (#12)\n\nMayhem-Task: ${id}`);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(lane.locator("li").nth(1)).toHaveText(/In main/);
+  await expect(lane.locator("li").nth(1)).toHaveClass(/is-done/);
+
+  // Main goes on the robot; then a log recorded on that code comes back.
+  const deployed = git("rev-parse", "HEAD");
+  const stamp = { sha: deployed, branch: "main", dirty: [], builtAt: new Date().toISOString(), builtBy: "maya" };
+  fakeRobot.stamp = JSON.stringify(stamp);
+  await lane.getByRole("button", { name: "Check robot" }).click();
+  await page.getByRole("button", { name: "Check robot" }).click();
+  await expect(page.getByText(deployed.slice(0, 7))).toBeVisible();
+  await page.getByRole("button", { name: "Logs", exact: true }).click();
+  const log = join(mkdtempSync(join(tmpdir(), "mayhem-log-")), "Q14.wpilog");
+  writeFileSync(log, demoLog(stamp));
+  dialogPicks.push(log);
+  await page.getByRole("button", { name: "Import log" }).first().click();
+  await expect(page.getByRole("button", { name: "Play log playback" })).toBeVisible();
+  await page.getByRole("button", { name: /^Tasks/ }).click();
+  const done = page.getByRole("region", { name: "Done" });
+  await expect(done.getByText("in a log")).toBeVisible({ timeout: 10_000 });
+  await done.getByText("Intake should retract").click();
+  await expect(lane.locator("li")).toHaveText([/Accepted/, /In main/, /On the robot/, /In a log.*Q14/]);
+  await expect(lane.locator("li.is-done")).toHaveCount(4);
+  await shot(page, "t13-delivered");
 });

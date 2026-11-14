@@ -36,6 +36,35 @@ fn review_file(path: &str) -> bool {
         || (!path.contains('/') && path.ends_with(".mayhem.json"))
 }
 
+/// Same selection as `isRobotCode` in core/review/report.ts: files that end up on the robot.
+fn robot_code(path: &str) -> bool {
+    (path.starts_with("src/main/") && path != "src/main/deploy/mayhem-build.json")
+        || (path.starts_with("vendordeps/") && path.ends_with(".json") && path.matches('/').count() == 1)
+        || path == "build.gradle"
+}
+
+/// Runs git with `input` on stdin and returns its stdout.
+fn git_with_input(repo: &str, args: &[&str], input: String) -> Result<Vec<u8>, String> {
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .current_dir(repo)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Could not run git: {e}"))?;
+    let mut stdin = child.stdin.take().ok_or("git stdin")?;
+    let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
+    let mut out = Vec::new();
+    child.stdout.take().ok_or("git stdout")?.read_to_end(&mut out).map_err(|e| e.to_string())?;
+    writer.join().map_err(|_| "git writer panicked")?.map_err(|e| e.to_string())?;
+    if !child.wait().map_err(|e| e.to_string())?.success() {
+        return Err(format!("git {} failed", args.first().unwrap_or(&"")));
+    }
+    Ok(out)
+}
+
 #[derive(Serialize)]
 pub struct Revision {
     rev: String,
@@ -50,7 +79,7 @@ pub struct RepoInfo {
     root: String,
     branch: String,
     head: String,
-    /// Review files with uncommitted changes.
+    /// Review files and robot code with uncommitted changes.
     dirty: Vec<String>,
     revisions: Vec<Revision>,
 }
@@ -65,7 +94,7 @@ pub async fn review_repo(repo: String) -> Result<RepoInfo, String> {
             .lines()
             .filter_map(|l| l.get(3..))
             .map(|p| p.rsplit(" -> ").next().unwrap_or(p).trim_matches('"').to_string())
-            .filter(|p| review_file(p))
+            .filter(|p| review_file(p) || robot_code(p))
             .collect();
         let mut revisions = Vec::new();
         let refs = git(
@@ -132,62 +161,80 @@ pub struct Snapshot {
     rev: String,
     label: String,
     files: HashMap<String, String>,
+    /// Content id (git blob id) of every file that ends up on the robot, so the review can tell
+    /// that code it does not read changed.
+    code: HashMap<String, String>,
 }
 
 #[tauri::command]
 pub async fn review_snapshot(repo: String, rev: String) -> Result<Snapshot, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let root = git(&repo, &["rev-parse", "--show-toplevel"])?.trim().to_string();
-        let mut files = HashMap::new();
-        if rev == WORKTREE {
-            let listed = git(&root, &["ls-files", "--cached", "--others", "--exclude-standard"])?;
-            for path in listed.lines().filter(|p| review_file(p)) {
-                if let Ok(text) = fs::read_to_string(Path::new(&root).join(path)) {
+    tauri::async_runtime::spawn_blocking(move || snapshot(repo, rev)).await.map_err(|e| e.to_string())?
+}
+
+fn snapshot(repo: String, rev: String) -> Result<Snapshot, String> {
+    let root = git(&repo, &["rev-parse", "--show-toplevel"])?.trim().to_string();
+    let mut files = HashMap::new();
+    let mut code = HashMap::new();
+    if rev == WORKTREE {
+        // -z: paths with spaces or non-ASCII characters come back unquoted.
+        let listed = git(&root, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"])?;
+        let mut on_robot: Vec<&str> = Vec::new();
+        for path in listed.split('\0').filter(|p| !p.is_empty()) {
+            let file = Path::new(&root).join(path);
+            if review_file(path) {
+                if let Ok(text) = fs::read_to_string(&file) {
                     files.insert(path.to_string(), text);
                 }
             }
-            return Ok(Snapshot { rev, label: "This computer (not committed)".into(), files });
-        }
-        let sha = git(&root, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")])?.trim().to_string();
-        let subject = git(&root, &["log", "-1", "--format=%s", &sha])?.trim().to_string();
-        let paths: Vec<String> = git(&root, &["ls-tree", "-r", "--name-only", &sha])?
-            .lines()
-            .filter(|p| review_file(p))
-            .map(String::from)
-            .collect();
-        let mut child = Command::new("git")
-            .arg("-C")
-            .arg(&root)
-            .args(["cat-file", "--batch"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        let request: String = paths.iter().map(|p| format!("{sha}:{p}\n")).collect();
-        let mut stdin = child.stdin.take().ok_or("git stdin")?;
-        let writer = std::thread::spawn(move || stdin.write_all(request.as_bytes()));
-        let mut out = Vec::new();
-        child.stdout.take().ok_or("git stdout")?.read_to_end(&mut out).map_err(|e| e.to_string())?;
-        writer.join().map_err(|_| "git writer panicked")?.map_err(|e| e.to_string())?;
-        child.wait().map_err(|e| e.to_string())?;
-        let mut at = 0;
-        for path in &paths {
-            let Some(nl) = out[at..].iter().position(|&b| b == b'\n') else { break };
-            let header = String::from_utf8_lossy(&out[at..at + nl]).to_string();
-            let parts: Vec<&str> = header.split(' ').collect();
-            at += nl + 1;
-            if parts.len() < 3 || parts[1] != "blob" {
-                continue;
+            // Deleted but not yet committed: not on disk, so not in this snapshot.
+            if robot_code(path) && file.is_file() && !on_robot.contains(&path) {
+                on_robot.push(path);
             }
-            let size: usize = parts[2].parse().map_err(|_| "bad git header")?;
-            files.insert(path.clone(), String::from_utf8_lossy(&out[at..at + size]).to_string());
-            at += size + 1;
         }
-        let label = if rev == sha { format!("{} · {subject}", &sha[..7]) } else { format!("{rev} · {subject}") };
-        Ok(Snapshot { rev: sha, label, files })
-    })
-    .await
-    .map_err(|e| e.to_string())?
+        if !on_robot.is_empty() {
+            let request: String = on_robot.iter().map(|p| format!("{p}\n")).collect();
+            let out = git_with_input(&root, &["hash-object", "--stdin-paths"], request)?;
+            for (path, id) in on_robot.iter().zip(String::from_utf8_lossy(&out).lines()) {
+                code.insert(path.to_string(), id.to_string());
+            }
+        }
+        return Ok(Snapshot { rev, label: "This computer (not committed)".into(), files, code });
+    }
+    let sha = git(&root, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")])?.trim().to_string();
+    let subject = git(&root, &["log", "-1", "--format=%s", &sha])?.trim().to_string();
+    let mut paths: Vec<String> = Vec::new();
+    // "<mode> <type> <id>\t<path>", NUL-separated.
+    for entry in git(&root, &["ls-tree", "-r", "-z", "--full-tree", &sha])?.split('\0') {
+        let Some((meta, path)) = entry.split_once('\t') else { continue };
+        let mut fields = meta.split(' ');
+        let (Some(_mode), Some(kind), Some(id)) = (fields.next(), fields.next(), fields.next()) else { continue };
+        if kind != "blob" {
+            continue;
+        }
+        if review_file(path) {
+            paths.push(path.to_string());
+        }
+        if robot_code(path) {
+            code.insert(path.to_string(), id.to_string());
+        }
+    }
+    let request: String = paths.iter().map(|p| format!("{sha}:{p}\n")).collect();
+    let out = git_with_input(&root, &["cat-file", "--batch"], request)?;
+    let mut at = 0;
+    for path in &paths {
+        let Some(nl) = out[at..].iter().position(|&b| b == b'\n') else { break };
+        let header = String::from_utf8_lossy(&out[at..at + nl]).to_string();
+        let parts: Vec<&str> = header.split(' ').collect();
+        at += nl + 1;
+        if parts.len() < 3 || parts[1] != "blob" {
+            continue;
+        }
+        let size: usize = parts[2].parse().map_err(|_| "bad git header")?;
+        files.insert(path.clone(), String::from_utf8_lossy(&out[at..at + size]).to_string());
+        at += size + 1;
+    }
+    let label = if rev == sha { format!("{} · {subject}", &sha[..7]) } else { format!("{rev} · {subject}") };
+    Ok(Snapshot { rev: sha, label, files, code })
 }
 
 /// A repo-relative path that stays inside the repo.
@@ -310,6 +357,8 @@ pub async fn review_items(repo: String) -> Result<Vec<Item>, String> {
                 }
             }
         }
+        // Ids start with the time they were made: oldest first, the same order every time.
+        items.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(items)
     })
     .await
@@ -351,11 +400,54 @@ mod tests {
         assert!(review_file("robot.mayhem.json"));
         assert!(!review_file("src/main/cpp/Robot.cpp"));
         assert!(!review_file("examples/x.mayhem.json"));
+        assert!(robot_code("src/main/cpp/Robot.cpp"));
+        assert!(robot_code("src/main/deploy/choreo/a.traj"));
+        assert!(robot_code("vendordeps/Phoenix6.json"));
+        assert!(robot_code("build.gradle"));
+        assert!(!robot_code("src/main/deploy/mayhem-build.json"));
+        assert!(!robot_code("src/test/cpp/main.cpp"));
+        assert!(!robot_code("tools/mayhem/scenarios.json"));
         let root = Path::new("/repo");
         assert!(inside(root, "src/main/include/A.h").is_ok());
         assert!(inside(root, "../etc/passwd").is_err());
         assert!(inside(root, "/etc/passwd").is_err());
         assert!(item_id("20261113101500-ab12").is_ok());
         assert!(item_id("../x").is_err());
+    }
+
+    /// A commit and the same files on disk get the same content ids; an edit changes only its file.
+    #[test]
+    fn snapshot_ids_tell_which_robot_code_changed() {
+        let dir = std::env::temp_dir().join(format!("mayhem-review-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("src/main/cpp/sub dir")).unwrap();
+        fs::create_dir_all(dir.join("src/main/include")).unwrap();
+        fs::create_dir_all(dir.join("src/test")).unwrap();
+        let repo = dir.to_string_lossy().to_string();
+        fs::write(dir.join("src/main/cpp/Robot.cpp"), "void Run() {}\n").unwrap();
+        fs::write(dir.join("src/main/cpp/sub dir/Intake.cpp"), "void Intake() {}\n").unwrap();
+        fs::write(dir.join("src/main/include/Constants.h"), "inline constexpr int kId = 4;\n").unwrap();
+        fs::write(dir.join("src/test/main.cpp"), "int main() {}\n").unwrap();
+        for args in [
+            vec!["init", "-q"],
+            vec!["add", "."],
+            vec!["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "first"],
+        ] {
+            git(&repo, &args).unwrap();
+        }
+        let committed = snapshot(repo.clone(), "HEAD".into()).unwrap();
+        let on_disk = snapshot(repo.clone(), WORKTREE.into()).unwrap();
+        assert_eq!(committed.code, on_disk.code);
+        assert_eq!(committed.code.len(), 3, "everything under src/main, nothing under src/test");
+        assert!(committed.code.contains_key("src/main/cpp/sub dir/Intake.cpp"));
+        assert_eq!(committed.files.len(), 1, "only the header is read");
+
+        fs::write(dir.join("src/main/cpp/Robot.cpp"), "void Run() { Shoot(); }\n").unwrap();
+        fs::remove_file(dir.join("src/main/cpp/sub dir/Intake.cpp")).unwrap();
+        let edited = snapshot(repo, WORKTREE.into()).unwrap();
+        assert_ne!(edited.code["src/main/cpp/Robot.cpp"], committed.code["src/main/cpp/Robot.cpp"]);
+        assert_eq!(edited.code["src/main/include/Constants.h"], committed.code["src/main/include/Constants.h"]);
+        assert!(!edited.code.contains_key("src/main/cpp/sub dir/Intake.cpp"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ArrowDownToLine,
+  Bot,
   Braces,
   Check,
   ClipboardCopy,
@@ -81,8 +82,24 @@ export function agentBrief(s: SuiteState) {
   return lines.join("\n");
 }
 
+/** What to give a coding agent so it works the feedback queue of `repo`, one step per run. */
+export function queuePrompt(repo: string) {
+  const where = repo || "<robot code folder>";
+  return [
+    `Work the Mayhem task queue for the robot code in ${where}. Each run, do one step and stop.`,
+    "",
+    `Tools: the Mayhem MCP server, or node /path/to/Mayhem/scripts/mayhem.mjs tool <name> '{"repo":"${where}", ...}'.`,
+    "1. list_tasks. For a new task: get_task, claim_task, reproduce it (the log tools, run_scenarios), then propose_plan in plain English for people who don't read code.",
+    "2. If the feedback leaves out something only a person knows, ask me here in this terminal and stop; don't guess, and don't put questions on the task. Put what I answer into the plan.",
+    "3. Do not change code until a person approves the plan in the Mayhem app. If they ask for a different plan, their note is in planDecision.note.",
+    "4. Approved: work on a branch agent/<task id>, commit with a \"Mayhem-Task: <id>\" trailer, report_progress, then run_scenarios with task: <id> (every scenario) so the sim proof is recorded on the commit, then finish_task.",
+    "5. A task reopened after your change has the person's reason as its last history entry.",
+    "Never deploy to the robot. Never approve or accept your own work. Full guide: docs/SUITE_AGENTS.md, Tasks; the same steps as a Claude Code skill: integrations/skills/mayhem-tasks.",
+  ].join("\n");
+}
+
 /** Connecting agents to the project (shown at the bottom of the Tasks page). */
-export function AgentsPage({ s }: { s: SuiteState }) {
+export function AgentsPage({ s, repo = "" }: { s: SuiteState; repo?: string }) {
   const [json, setJson] = useState(() => JSON.stringify(s.project, null, 2));
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
@@ -99,6 +116,13 @@ export function AgentsPage({ s }: { s: SuiteState }) {
   );
   return (
     <div className="mx-agent-setup">
+      <Panel title="Put an agent on the queue" icon={Bot} className="mx-agent-start">
+        <p className="mx-help">
+          Open your coding agent in a terminal in the robot code folder and give it this. It picks up feedback, asks you there when something is unclear, proposes a plan,
+          and waits for your approval here before it changes code. In Claude Code with the team's skill: <code>/loop 10m /mayhem-tasks</code>.
+        </p>
+        <CopyBlock text={queuePrompt(repo)} label="queue prompt" />
+      </Panel>
       <div className="mx-agent-grid">
         <Panel title="Share this project with an agent" icon={FileText}>
           <p className="mx-help">

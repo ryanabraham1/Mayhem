@@ -20,7 +20,7 @@ Most workspaces that read robot code (Changes, Tasks, Robot → On the robot now
 
 
 - **Autonomous routines.** A thumbnail per routine with its run time, marked **Ready** or **Doesn't finish**. Click one to open it in Autonomous.
-- **Feedback and agents.** How many plans and changes are waiting for you, how many tasks agents hold, and how many are new, with the waiting ones listed. Click one to open it in Tasks. The last line says when each agent was last active.
+- **Feedback and agents.** How many plans and changes are waiting for you, how many tasks agents hold, and how many are new, with the waiting ones listed. Click one to open it in Tasks. It also says how many accepted changes are not merged or not on the robot yet, and when each agent was last active.
 - **Latest logs.** The newest recordings and whether their analysis is clean.
 - **Get to match-ready.** Checks, each with a button that takes you to the fix:
   1. The robot code folder is chosen (desktop app).
