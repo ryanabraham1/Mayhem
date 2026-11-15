@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  Activity,
   AlertOctagon,
   AlertTriangle,
   ArrowRight,
@@ -17,12 +18,11 @@ import type { AutoRoutine, SuiteProject } from "../core/model.ts";
 import { simulate } from "../core/runtime";
 import { desktop } from "../native";
 import { cppExportState, downloadCpp } from "../cppExport";
-import { setRobotTab } from "../robot/RobotPage";
 import { AUTO_PERIOD_SECONDS } from "../useSuiteProject";
 import { useLogLibrary } from "../logLibrary";
 import { useRobot } from "../robot";
 import type { SuiteState } from "../useSuiteProject";
-import { Badge, Button, Panel, timeAgo } from "../ui";
+import { Badge, Button, Panel, Stat, timeAgo } from "../ui";
 import { BranchRow } from "../changes/ReviewParts";
 import { useReviews } from "../changes/reviewList";
 import { chooseRepo, requestCompare, samePath, useRepoProject, useRobotRepo } from "../robotRepo";
@@ -128,7 +128,7 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
   const status = robot.live.snapshot.status;
   const [, refreshExport] = useState(0);
   const exportState = cppExportState(project);
-  const [repo, setRepo] = useRobotRepo();
+  const [repo] = useRobotRepo();
   // The robot repo has its own project file and this window shows a different project.
   const repoProject = useRepoProject(repo);
   const unlinked = repoProject && !samePath(s.projectPath, repoProject) ? repoProject : undefined;
@@ -141,24 +141,13 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
       return { routine, errors, seconds: run.status === "completed" ? run.frame.time : undefined };
     });
   }, [project, s.issues]);
-  const checklist = [
-    ...(desktop
-      ? [
-          { title: "Choose the robot code folder", detail: repo ? repo.split(/[\\/]/).pop()! : "The code agents change, and what Mayhem reviews.",
-            done: !!repo, action: "Choose", run: () => void chooseRepo(setRepo) },
-        ]
-      : []),
-    { title: "Plan an autonomous routine", detail: "Create a valid routine that reaches a finish.",
-      done: routines.some((r) => !r.errors.length), action: "Open Autos", run: () => go("autos") },
-    { title: "Connect to the robot", detail: status === "connected" ? `Connected to ${robot.host}` : "Connect over your robot network.",
-      done: status === "connected", action: "Connect", run: () => { setRobotTab("connection"); go("robot"); } },
-    { title: "Turn on log collection", detail: desktop ? "Collect logs whenever the robot is plugged in." : "Log collection needs the desktop app.",
-      done: lib.sync.config.autoPull, action: "Set up", run: () => { setRobotTab("logs"); go("robot"); } },
-    { title: "Export autos to robot code", detail: exportState === "stale" ? "Routines changed since the last export" :
-      exportState === "current" ? "Exported C++ matches this project." : "Download C++ for your robot project.",
-      done: exportState === "current", action: "Export C++", run: () => { downloadCpp(project); refreshExport((n) => n + 1); } },
-  ];
-  const done = checklist.filter((item) => item.done).length;
+  const analyzed = recent.filter((l) => l.summary);
+  const voltages = analyzed.flatMap((l) => (l.summary!.minVoltage !== undefined ? [l.summary!.minVoltage] : []));
+  const currents = analyzed.flatMap((l) => (l.summary!.peakCurrent !== undefined ? [l.summary!.peakCurrent] : []));
+  const lowestVoltage = voltages.length ? Math.min(...voltages) : undefined;
+  const peakCurrent = currents.length ? Math.max(...currents) : undefined;
+  const loggedMinutes = analyzed.reduce((sum, l) => sum + l.summary!.duration, 0) / 60;
+  const lastRevision = analyzed.find((l) => l.summary!.revision)?.summary!.revision;
   return (
     <div className="mx-page-scroll mx-overview">
       <header className="mx-hello">
@@ -284,31 +273,66 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
           </Panel>
         </div>
 
-        <Panel title="Get to match-ready" icon={CheckCircle2}>
-          <div className="mx-checklist-progress">
-            <span>{done} of {checklist.length} done</span>
-            <progress value={done} max={checklist.length} aria-label="Match readiness" />
-          </div>
-          <div className="mx-checklist">
-            {checklist.map((item) => (
-              <div className={item.done ? "is-done" : ""} key={item.title}>
-                <CheckCircle2 size={20} aria-label={item.done ? "Done" : "To do"} />
-                <span><strong>{item.title}</strong><small>{item.detail}</small></span>
-                {!item.done && <Button size="sm" onClick={item.run}>{item.action}</Button>}
-              </div>
-            ))}
-          </div>
-          {errors.length || warnings.length ? (
-            <ul className="mx-issues">
-              {[...errors, ...warnings].slice(0, 6).map((i, n) => (
-                <li key={n} className={`is-${i.severity}`}>
-                  {i.severity === "error" ? <AlertOctagon size={14} /> : <AlertTriangle size={14} />}
-                  {i.message}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </Panel>
+        <div className="mx-col">
+          <Panel title="Robot health" icon={Activity}>
+            <div className="mx-stats">
+              <Stat
+                label="Robot"
+                value={status === "connected" ? "Connected" : status === "disconnected" ? "Offline" : "Connecting"}
+                tone={status === "connected" ? "good" : undefined}
+              />
+              <Stat
+                label="Lowest battery"
+                value={lowestVoltage?.toFixed(1) ?? "—"}
+                unit={lowestVoltage !== undefined ? "V" : undefined}
+                tone={lowestVoltage === undefined ? undefined : lowestVoltage < 7 ? "bad" : lowestVoltage < 9 ? "warn" : "good"}
+              />
+              <Stat label="Peak draw" value={peakCurrent?.toFixed(0) ?? "—"} unit={peakCurrent !== undefined ? "A" : undefined} />
+              <Stat label="Time logged" value={analyzed.length ? loggedMinutes.toFixed(loggedMinutes < 10 ? 1 : 0) : "—"} unit={analyzed.length ? "min" : undefined} />
+            </div>
+            <p className="mx-help mx-overview-note">
+              {analyzed.length
+                ? `From the last ${analyzed.length} analyzed ${analyzed.length === 1 ? "log" : "logs"}${lastRevision ? ` · newest code logged: ${lastRevision.slice(0, 7)}` : ""}.`
+                : status === "connected"
+                  ? `Connected to ${robot.host}. Battery and current show up here once a log is analyzed.`
+                  : "Battery and current show up here once a log is analyzed."}
+            </p>
+          </Panel>
+          <Panel
+            title="Autos and state machines"
+            icon={errors.length ? AlertOctagon : warnings.length ? AlertTriangle : CheckCircle2}
+            actions={
+              <Button size="sm" variant="ghost" onClick={() => go("autos")}>
+                Open Autos <ArrowRight size={14} />
+              </Button>
+            }
+          >
+            {errors.length || warnings.length ? (
+              <ul className="mx-issues">
+                {[...errors, ...warnings].slice(0, 6).map((i, n) => (
+                  <li key={n} className={`is-${i.severity}`}>
+                    {i.severity === "error" ? <AlertOctagon size={14} /> : <AlertTriangle size={14} />}
+                    {i.message}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mx-summary-line is-good">
+                <CheckCircle2 size={16} />
+                No problems in {project.routines.length} {project.routines.length === 1 ? "routine" : "routines"}
+              </p>
+            )}
+            {exportState === "stale" && (
+              <p className="mx-summary-line is-warn mx-overview-note">
+                <AlertTriangle size={16} />
+                Routines changed since the last C++ export
+                <Button size="sm" onClick={() => { downloadCpp(project); refreshExport((n) => n + 1); }}>
+                  Export C++
+                </Button>
+              </p>
+            )}
+          </Panel>
+        </div>
       </div>
       <Explainer />
     </div>

@@ -2539,6 +2539,9 @@ svg.mx-field {
 .mx-summary-line.is-good {
   color: var(--mx-good);
 }
+.mx-summary-line.is-warn {
+  color: var(--mx-warn);
+}
 .mx-summary-line.is-bad {
   color: var(--mx-bad);
 }
@@ -2945,17 +2948,9 @@ svg.mx-field {
   color: var(--mx-ink-2);
 }
 
-/* ---------- Overview checklist ---------- */
-.mx-checklist-progress { display: flex; align-items: center; gap: 14px; color: var(--mx-muted); font-size: 12px; margin-bottom: 10px; }
-.mx-checklist-progress progress { flex: 1; height: 7px; accent-color: var(--mx-accent); }
-.mx-checklist { display: grid; margin-bottom: 12px; }
-.mx-checklist > div { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--mx-line); }
-.mx-checklist > div > svg { flex-shrink: 0; color: var(--mx-faint); }
-.mx-checklist > .is-done > svg { color: var(--mx-good); }
-.mx-checklist > div > span { flex: 1; min-width: 0; }
-.mx-checklist strong { display: block; font-size: 13px; font-weight: 600; }
-.mx-checklist small { display: block; color: var(--mx-muted); font-size: 12px; margin-top: 4px; line-height: 1.4; }
-.mx-checklist .mx-btn { flex-shrink: 0; }
+/* ---------- Overview health ---------- */
+.mx-overview-note { margin: 12px 0 0; }
+.mx-summary-line.mx-overview-note .mx-btn { margin-left: auto; }
 
 /* ---------- Overview ---------- */
 .mx-hello {
