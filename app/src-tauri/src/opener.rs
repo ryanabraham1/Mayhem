@@ -59,8 +59,12 @@ mod tests {
     use super::*;
     #[test]
     fn paths_from_files_and_links() {
-        let file = Url::parse("file:///Users/me/robot%20code/robot.mayhem.json").unwrap();
-        assert_eq!(project_path(&file).as_deref(), Some("/Users/me/robot code/robot.mayhem.json"));
+        // A file URL needs a drive letter to be a Windows path.
+        #[cfg(windows)]
+        let (file, path) = ("file:///C:/Users/me/robot%20code/robot.mayhem.json", r"C:\Users\me\robot code\robot.mayhem.json");
+        #[cfg(not(windows))]
+        let (file, path) = ("file:///Users/me/robot%20code/robot.mayhem.json", "/Users/me/robot code/robot.mayhem.json");
+        assert_eq!(project_path(&Url::parse(file).unwrap()).as_deref(), Some(path));
         let link = Url::parse("mayhem://open?path=%2FUsers%2Fme%2Frobot.mayhem.json").unwrap();
         assert_eq!(project_path(&link).as_deref(), Some("/Users/me/robot.mayhem.json"));
         assert_eq!(project_path(&Url::parse("mayhem://other?path=/x").unwrap()), None);
