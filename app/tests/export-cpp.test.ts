@@ -180,7 +180,7 @@ int main() {
     ]);
     // 0.51 s deadline from the built-in stateTime: the 26th 20 ms tick (0.52 s) exceeds it.
     expect(execFileSync(exe, { encoding: "utf8" }).trim()).toBe("Idle 26 2 Second auto");
-  });
+  }, 30_000); // compiles C++: slow on a busy machine
 
   it("exports from \"*\" transitions with except, keeping priority per state", () => {
     const p = load();
@@ -225,7 +225,7 @@ int main() {
     ]);
     // shoot beats intake from IDLE; SHOOT stays; home wins; from HOME toShoot is excepted.
     expect(execFileSync(exe, { encoding: "utf8" }).trim()).toBe("valid SHOOT SHOOT HOME IDLE");
-  });
+  }, 30_000); // compiles C++: slow on a busy machine
 
   // Two mode machines shaped like the 3256 robot's, with one-shot presses marked as events.
   const sig = (key: string, value: boolean | number | string = true, op: "eq" | "gt" | "lt" = "eq") => ({ kind: "signal" as const, key, op, value });
@@ -324,7 +324,7 @@ int main() {
     const [shooterManifest] = modeMachines();
     expect(settleMachine(shooterManifest, "SHOOTING", { enabled: true, inAllianceZone: true, shootHeld: false, stopAll: false, "shot.distance": 3, mode: "hub" }))
       .toEqual({ state: "REV", path: ["SHOOTING", "OFF", "REV"], settled: true });
-  });
+  }, 30_000); // compiles C++: slow on a busy machine
 
   it("turns a misspelled input or state into a compile error", () => {
     const p = load();
@@ -339,7 +339,7 @@ int main() { mayhem_generated::ShooterMode::Machine m; ${line} return 0; }`;
     const state = compile("badState", body("(void)m.Is(mayhem_generated::ShooterMode::State::SHOTING);"), cpp);
     expect(state.status).not.toBe(0);
     expect(state.stderr).toMatch(/SHOTING/);
-  });
+  }, 30_000); // compiles C++: slow on a busy machine
 
   it("validates event inputs and settles events in the editor like mayhem::StateMachine::Settle", () => {
     const [, intake] = modeMachines();
@@ -408,5 +408,5 @@ int main() {
     expect(out.split("|")[0]).toBe("action intake.acquire (node collect)\naction shooter.fire (node shoot)\nsignal pieceDetected\nsignal shooterReady\nsignal shotComplete\n");
     // Completes through the 1.5 s shot window; the red preview ends where the robot ends.
     expect(out.split("|")[1].trim()).toMatch(/^1 1 0 -?0\.0\d -?0\.0\d$/);
-  });
+  }, 30_000); // compiles C++: slow on a busy machine
 });

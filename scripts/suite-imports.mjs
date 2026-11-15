@@ -7,7 +7,8 @@ import { readFileSync } from "node:fs";
 registerHooks({
   load(url, context, nextLoad) {
     if (url.includes("/suite/core/pathing/") && url.endsWith(".ts")) {
-      let source = readFileSync(new URL(url), "utf8");
+      // Windows checkouts may use CRLF; the adapter below matches LF only.
+      let source = readFileSync(new URL(url), "utf8").replace(/\r\n/g, "\n");
       // Node 26 removed transform mode. Lower the pinned upstream class's one
       // parameter property into an ordinary field and constructor assignment,
       // then use strip-only mode on every supported Node version. Upstream

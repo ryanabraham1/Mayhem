@@ -321,7 +321,7 @@ int main() {
     const preview = simulate(p, p.routines[0], {}).frame.pose;
     expect(Number(x)).toBeCloseTo(preview.x, 2);
     expect(Number(y)).toBeCloseTo(preview.y, 2);
-  });
+  }, 30_000); // compiles C++: slow on a busy machine
   it("keeps the requested heading continuous across an early handoff", () => {
     const a = { ...DEFAULT_GOAL, x: 4, y: 1, heading: 1.5 };
     const b = { ...DEFAULT_GOAL, x: 4, y: 5, heading: 1.5 };
@@ -594,7 +594,7 @@ describe("native/browser controller agreement", () => {
       "-o",
       executable,
     ]);
-  });
+  }, 30_000); // compiles C++: slow on a busy machine
   it("passes the native arrival, watchdog, limits, and handoff checks", () => {
     expect(execFileSync(executable, { encoding: "utf8" })).toContain(
       "Controller checks passed",
