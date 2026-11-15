@@ -128,7 +128,7 @@ export function trackingPairs(recording: Recording): TrackingPair[] {
   return pairs;
 }
 
-interface Hold { start: number; end: number; setpoint: number; reached?: number; peak: number; exits: number; finalError: number; tol: number }
+interface Hold { start: number; end: number; setpoint: number; reached?: number; peak: number; exits: number; exitsBelow: number; deepest: number; finalError: number; tol: number }
 /** Split the setpoint into constant holds while enabled and measure how the mechanism followed each. */
 function trackHolds(pair: TrackingPair, phases: Phase[], duration: number): Hold[] {
   const spv = (v: Sample["value"]) => (pair.absolute ? Math.abs(v as number) : (v as number));
@@ -150,16 +150,19 @@ function trackHolds(pair: TrackingPair, phases: Phase[], duration: number): Hold
     // A zero velocity setpoint is "off"; coasting down is not a tracking problem.
     if (pair.quantity === "velocity" && Math.abs(target) < 1e-6) continue;
     const tol = Math.max(Math.abs(target) * (pair.quantity === "velocity" ? 0.05 : 0.02), (hi - lo) * 0.02, 1e-3);
-    const ms = pair.measured.samples.filter((s) => s.time >= start && s.time <= end);
+    // End exclusive: at `end` the next setpoint is already in effect.
+    const ms = pair.measured.samples.filter((s) => s.time >= start && s.time < end);
     if (ms.length < 3) continue;
-    const hold: Hold = { start, end, setpoint: target, peak: NaN, exits: 0, finalError: 0, tol };
+    const hold: Hold = { start, end, setpoint: target, peak: NaN, exits: 0, exitsBelow: 0, deepest: 0, finalError: 0, tol };
     let inside = false, peakErr = Infinity;
     const tail: number[] = [];
     for (const s of ms) {
       const m = mv(s.value)!;
-      const err = m - target;
+      // Against the setpoint in effect then: a hold spans small drifts (distance-scaled shots).
+      const err = m - spv(valueAt(pair.setpoint, s.time) ?? target);
       if (Math.abs(err) <= tol) { if (hold.reached === undefined) hold.reached = s.time - start; inside = true; }
-      else if (inside && Math.abs(err) > tol * 1.5) { hold.exits++; inside = false; }
+      else if (inside && Math.abs(err) > tol * 1.5) { hold.exits++; if (Math.sign(err) !== Math.sign(target)) hold.exitsBelow++; inside = false; }
+      if (hold.reached !== undefined && Math.sign(err) !== Math.sign(target)) hold.deepest = Math.max(hold.deepest, Math.abs(err));
       if (Math.abs(err) < peakErr) { peakErr = Math.abs(err); hold.peak = m; }
       if (s.time >= start + (end - start) * 0.7) tail.push(err);
     }
@@ -199,6 +202,31 @@ function explainFlag(flag: Channel, start: number, end: number, candidates: { na
     if (bestAcc >= 0.85 && spread > 0) results.push({ channel: cand.name, channels: cand.channels ?? [cand.name], when: `true when ${bestDir} ${round(bestAt, 4)}`, agreement: round(bestAcc, 2) });
   }
   return results.sort((a, b) => b.agreement - a.agreement).slice(0, 3);
+}
+
+/**
+ * A flag that is only ever on (or off) for one loop at a time, with longer gaps between, reports
+ * events (a waypoint passed, a shot fired), it is not flickering.
+ */
+function pulseTrain(flag: Channel, start: number, end: number) {
+  const s = flag.samples;
+  const dts = s.slice(1).map((x, i) => x.time - s[i].time).filter((d) => d > 0).sort((a, b) => a - b);
+  const loop = dts[dts.length >> 1] ?? 0.02;
+  const runs: { value: unknown; length: number }[] = [];
+  let at = s.findIndex((x) => x.time >= start - 0.1);
+  for (let i = Math.max(at, 1); i < s.length && s[i].time <= end + 0.1; i++)
+    if (s[i].value !== s[i - 1].value) {
+      if (at >= 0 && runs.length) runs[runs.length - 1].length = s[i].time - s[at].time;
+      runs.push({ value: s[i].value, length: Infinity });
+      at = i;
+    }
+  const closed = runs.slice(0, -1);
+  if (closed.length < 4) return false;
+  for (const pulse of [true, false]) {
+    const on = closed.filter((r) => r.value === pulse), off = closed.filter((r) => r.value !== pulse);
+    if (on.length && on.every((r) => r.length <= loop * 1.5) && off.every((r) => r.length >= loop * 3)) return true;
+  }
+  return false;
 }
 
 // ---- Main ----------------------------------------------------------------------------------------
@@ -258,7 +286,16 @@ export function diagnoseLog(recording: Recording, opts: DiagnoseOptions = {}) {
           detail: `Setpoint ${round(h.setpoint, 4)} for ${round(h.end - h.start, 2)} s; closest ${round(h.peak, 4)}, ending ${round(h.finalError, 4)} off (tolerance ±${round(h.tol, 4)})${units}. Check gains/feedforward, current limits, gearing/units, or a mechanism that is blocked.`,
           channels, metric: round(Math.abs(h.finalError), 4), next: next(h), evidence });
     }
-    for (const h of holds.filter((h) => h.exits >= 3))
+    // Excursions that all go one way (below, then back) are a load each time, not a controller
+    // swinging both sides of its setpoint: game pieces fed through a flywheel, contact, a drop.
+    const dips = (h: Hold) => h.exitsBelow >= h.exits * 0.8;
+    for (const h of holds.filter((h) => h.exits >= 3 && dips(h)))
+      add({ id: `tracking-load-dips:${group}`, severity: "info", kind: "tracking-load-dips", time: h.start,
+        title: `${measuredName} dips under load and recovers`,
+        detail: `Dropped out of the ±${round(h.tol, 4)} band ${h.exits} times in ${round(h.end - h.start, 2)} s, always toward zero (deepest ${round(h.deepest, 4)} under ${round(h.setpoint, 4)})${units}, then recovered: a load each time, not oscillation. Anything gated on "at setpoint" needs hysteresis or a latch; more kP or kA recovers faster.`,
+        channels, metric: round(h.deepest, 4), next: next(h),
+        evidence: { setpoint: round(h.setpoint, 4), dips: h.exits, deepest: round(h.deepest, 4), start: round(h.start), end: round(h.end) } });
+    for (const h of holds.filter((h) => h.exits >= 3 && !dips(h)))
       add({ id: `tracking-oscillates:${group}`, severity: "warning", kind: "tracking-oscillates", time: h.start,
         title: `${measuredName} oscillates around its setpoint`,
         detail: `Left the ±${round(h.tol, 4)} band ${h.exits} times in ${round(h.end - h.start, 2)} s after reaching ${round(h.setpoint, 4)}${units}. Usually too much P/D or too little damping; anything gated on "at setpoint" will flicker.`,
@@ -294,6 +331,7 @@ export function diagnoseLog(recording: Recording, opts: DiagnoseOptions = {}) {
   for (const a of flaps) {
     const ch = recording.channels.find((c) => c.name === a.channel)!;
     const isBool = typeof ch.samples[0]?.value === "boolean";
+    if (isBool && pulseTrain(ch, a.start, a.end)) continue;
     const sub = norm(ch.name).split("/")[0].toLowerCase();
     const candidates = isBool
       ? [
@@ -345,16 +383,26 @@ export function diagnoseLog(recording: Recording, opts: DiagnoseOptions = {}) {
   for (const c of pool) {
     const level = /alerts\/errors$/i.test(c.name) ? "error" : /alerts\/warnings$/i.test(c.name) ? "warning" : undefined;
     if (!level || c.type !== "string[]") continue;
-    const seen = new Map<string, number>();
+    // Each alert's first raise and when it cleared (or that it was still up at the end).
+    const up = new Map<string, { from: number; to?: number }>();
     for (const s of c.samples) {
       if (!inRange(s.time)) continue;
       let items: unknown = [];
       try { items = JSON.parse(String(s.value)); } catch { /* not an array */ }
-      for (const text of Array.isArray(items) ? items : []) if (!seen.has(String(text))) seen.set(String(text), s.time);
+      const now = new Set((Array.isArray(items) ? items : []).map(String));
+      for (const text of now) if (!up.has(text)) up.set(text, { from: s.time });
+      for (const [text, span] of up) if (span.to === undefined && !now.has(text)) span.to = s.time;
     }
-    for (const [text, time] of seen)
-      add({ id: `alert:${text}`, severity: level, kind: "alert", time, title: `Alert: ${text}`, detail: `Raised on ${c.name} at ${round(time, 2)} s.`, channels: [c.name],
-        next: { tool: "log_events", args: { channels: [c.name] } } });
+    for (const [text, { from: raised, to: cleared }] of up) {
+      const end = cleared ?? recording.duration;
+      const during = [...new Set(phases.filter((p) => p.end > raised && p.start < end).map((p) => p.mode))];
+      // Raised and cleared before the robot was ever enabled: start-up, not a match problem.
+      const startup = during.length === 1 && during[0] === "disabled" && cleared !== undefined && raised < (phases.find((p) => p.mode !== "disabled")?.start ?? Infinity);
+      add({ id: `alert:${text}`, severity: startup ? "info" : level, kind: "alert", time: raised, title: `Alert: ${text}`,
+        detail: `Raised on ${c.name} at ${round(raised, 2)} s, ${cleared === undefined ? "still up at the end of the log" : `cleared at ${round(cleared, 2)} s (${round(cleared - raised, 2)} s)`}; up while ${during.join(", ")}.${startup ? " Only during start-up." : ""}`,
+        channels: [c.name], metric: round(end - raised, 2), evidence: { raised: round(raised), cleared: cleared === undefined ? null : round(cleared), phases: during },
+        next: { tool: "log_events", args: { channels: [c.name], from: round(Math.max(0, raised - 0.5)), to: round(end + 0.5) } } });
+    }
   }
   for (const c of recording.channels.filter((c) => /^(messages|\/?RealOutputs\/Console|\/?Console)$/i.test(c.name) && c.samples.length)) {
     const seen = new Set<string>();
@@ -398,7 +446,9 @@ export function diagnoseLog(recording: Recording, opts: DiagnoseOptions = {}) {
       const ya = valueAt(y, a.time), yb = valueAt(y, b.time);
       if (typeof ya !== "number" || typeof yb !== "number" || dt <= 0 || dt > 0.25) continue;
       const d = Math.hypot((b.value as number) - (a.value as number), yb - ya);
-      if (d > 0.4 && d / dt > 8 && enabledAt(phases, b.time))
+      // The pose is reset as auto or teleop starts (the auto's start pose); that is not a jump.
+      const justStarted = phases.some((p) => b.time >= p.start && b.time - p.start < 0.3);
+      if (d > 0.4 && d / dt > 8 && enabledAt(phases, b.time) && !justStarted)
         add({ id: `pose-jump:${x.name}`, severity: "warning", kind: "pose-jump", time: b.time,
           title: "Robot pose jumped", detail: `${round(d, 2)} m in ${round(dt, 3)} s on ${x.name.replace(/\/x$/, "")} (a reset or a bad vision update).`,
           channels: [x.name, y.name], metric: round(d, 3), next: { tool: "log_what_changed", args: { time: round(b.time), window: 0.3, filter: ["pose", "vision", "reset"] } } });

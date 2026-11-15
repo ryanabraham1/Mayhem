@@ -35,8 +35,13 @@ function run({ hunting, poseJump }: { hunting: boolean; poseJump?: boolean }): R
       series("/Arm/position", (t) => (t >= 6 && t < 12 ? Math.min(0.6, 0.2 + (t - 6)) : 0.2)),
       series("/RealOutputs/LoopTimeMS", (t) => (Math.abs(t - 10) < 0.01 ? 35 : 2)),
       events("NT:/SmartDashboard/Alerts/errors", "string[]", [[0, "[]"], [3, '["Arm encoder disconnected"]']]),
+      // Raised and cleared while disabled at boot.
+      events("NT:/SmartDashboard/Alerts/warnings", "string[]", [[0, "[]"], [0.2, '["Gyro not calibrated"]'], [0.6, "[]"]]),
+      // One loop true per waypoint: events, not flicker.
+      typed(series("Mayhem/Goals/Autonomous/reached", (t) => t > 1 && t < 5 && Math.round(t * 50) % 8 === 0), "boolean"),
       events("/RealOutputs/Superstructure/State", "string", hunting ? [[0, "IDLE"], ...flicker, [16, "IDLE"]] : [[0, "IDLE"], [15, "SHOOT"], [16, "IDLE"]]),
-      series("/RealOutputs/Drive/Pose/x", (t) => t * 0.2 + (poseJump && t > 9 ? 2 : 0)),
+      // Reset to the auto's start pose as auto begins (1 s); `poseJump` adds a real jump at 9 s.
+      series("/RealOutputs/Drive/Pose/x", (t) => (t > 1.01 ? 3 : 0) + t * 0.2 + (poseJump && t > 9 ? 2 : 0)),
       series("/RealOutputs/Drive/Pose/y", () => 1),
     ],
   };
@@ -77,6 +82,16 @@ describe("diagnoseLog", () => {
     expect(byKind("alert")[0]).toMatchObject({ severity: "error", title: "Alert: Arm encoder disconnected" });
     const ranks = d.findings.map((f) => ({ error: 0, warning: 1, info: 2 })[f.severity]);
     expect(ranks).toEqual([...ranks].sort());
+  });
+  it("reports how long an alert was up, and boot-only alerts as info", () => {
+    expect(d.findings.find((f) => f.id === "alert:Arm encoder disconnected")).toMatchObject({
+      severity: "error", evidence: { raised: 3, cleared: null, phases: ["auto", "disabled", "teleop"] },
+    });
+    expect(d.findings.find((f) => f.id === "alert:Gyro not calibrated")).toMatchObject({ severity: "info", evidence: { raised: 0.2, cleared: 0.6 } });
+  });
+  it("does not call one-loop pulses or the start-of-auto pose reset a problem", () => {
+    expect(d.findings.some((f) => f.id.includes("Goals/Autonomous/reached"))).toBe(false);
+    expect(byKind("pose-jump")).toHaveLength(0);
   });
   it("drops ignored findings by id or kind", () => {
     const kinds = new Set(diagnoseLog(run({ hunting: true }), { ignore: ["alert", "Superstructure/State"] }).findings.map((f) => f.id));
