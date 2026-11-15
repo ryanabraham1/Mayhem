@@ -134,6 +134,10 @@ export interface Analysis {
     peakCurrent?: number;
     energyWh?: number;
     averagePower?: number;
+    /** Battery plus wiring resistance (ohms), fitted from measured voltage against measured total current. */
+    batteryResistance?: number;
+    /** Median battery voltage while disabled before the first enable. */
+    restingVoltage?: number;
   };
 }
 export function suggestMapping(channels: Channel[]): PowerMapping {
@@ -145,13 +149,12 @@ export function suggestMapping(channels: Channel[]): PowerMapping {
       ),
     ),
     current: names.find((n) =>
-      /(?:totalcurrent|powerdistribution\/totalcurrent|pdh\/current|pdp\/current)$/i.test(
+      /(?:totalcurrent(?:amps)?|powerdistribution\/totalcurrent|pdh\/current|pdp\/current)$/i.test(
         n,
       ),
     ),
-    brownout: names.find((n) =>
-      /(?:brownedout|isbrownedout|brownout)$/i.test(n),
-    ),
+    // Prefer the roboRIO's own flag; skip inverted dashboard checks such as "No Brownout".
+    brownout: [/brownedout$/i, /brownout$/i].map(re => names.find(n => re.test(n) && !/(?:^|[\s/_.-])(?:no|not)[\s_-]?brown/i.test(n))).find(Boolean),
   };
 }
 export function analyze(
@@ -177,19 +180,15 @@ export function analyze(
     detail: string,
     severity: Finding["severity"],
     minDuration = 0,
-  ) => {
+    /** Episodes separated by less than this (s) are one finding, so a flickering signal reads once. */
+    mergeGap = 0,
+  ): Finding[] => {
+    const spans: [number, number][] = [];
     let start: number | undefined;
     const close = (end: number) => {
-      if (start !== undefined && end - start >= minDuration)
-        findings.push({
-          id: `${channel.name}:${start}`,
-          severity,
-          title,
-          detail,
-          start,
-          end,
-          channel: channel.name,
-        });
+      const last = spans[spans.length - 1];
+      if (last && start! - last[1] < mergeGap) last[1] = end;
+      else spans.push([start!, end]);
       start = undefined;
     };
     for (const s of channel.samples) {
@@ -197,6 +196,17 @@ export function analyze(
       else if (start !== undefined) close(s.time);
     }
     if (start !== undefined) close(recording.duration);
+    const added = spans.filter(([a, b]) => b - a >= minDuration).map(([start, end]): Finding => ({
+      id: `${channel.name}:${start}`,
+      severity,
+      title,
+      detail,
+      start,
+      end,
+      channel: channel.name,
+    }));
+    findings.push(...added);
+    return added;
   };
   const numbers = (c?: Channel) =>
     c?.samples.filter(
@@ -205,33 +215,86 @@ export function analyze(
     ) ?? [];
   const v = numbers(voltage),
     a = numbers(current);
+  const inputs = estimate?.inputs ?? recording.channels.filter(c => c.name !== mapping.current &&
+    (mapping.deviceCurrents ? mapping.deviceCurrents.includes(c.name) : isDeviceCurrentSignal(c.name) && /supplycurrent/i.test(c.name))).map(c => c.name);
+  /** Mean |value| of a channel over [start, end], holding each sample until the next. */
+  const meanOver = (name: string | undefined, start: number, end: number) => {
+    const s = numbers(channels.get(name ?? ""));
+    let charge = 0;
+    for (let i = 0; i < s.length; i++) {
+      const from = Math.max(start, s[i].time), to = Math.min(end, s[i + 1]?.time ?? end);
+      if (to > from) charge += Math.abs(s[i].value) * (to - from);
+    }
+    return end > start ? charge / (end - start) : 0;
+  };
+  /** The logged devices drawing the most over [start, end]: what to look at first. */
+  const topDraws = (start: number, end: number) => {
+    const draws = inputs.map(name => ({ name, amps: meanOver(name, start, end) })).sort((x, y) => y.amps - x.amps);
+    const listed = draws.filter(d => d.amps >= 5).slice(0, 3);
+    const logged = draws.reduce((sum, d) => sum + d.amps, 0), total = estimate ? undefined : meanOver(mapping.current, start, end);
+    return (listed.length ? ` Largest logged draws: ${listed.map(d => `${d.name} ${d.amps.toFixed(0)} A`).join(", ")}.` : "") +
+      (total !== undefined && total - logged > Math.max(20, total * 0.3)
+        ? ` Logged devices account for ${logged.toFixed(0)} of ${total.toFixed(0)} A; the rest (often the drivetrain) is not logged.` : "");
+  };
+  const lowest = (s: (Sample & { value: number })[], start: number, end: number) =>
+    s.filter(x => x.time >= start && x.time <= end).reduce<(Sample & { value: number }) | undefined>((m, x) => !m || x.value < m.value ? x : m, undefined);
   if (!v.length)
     coverage.push(
       "Battery voltage missing: voltage sag and power calculations unavailable.",
     );
   else
-    excursions(
-      voltage!,
-      (n) => typeof n === "number" && n < 9,
-      "Low battery voltage",
-      "Measured battery voltage below 9 V for at least 100 ms. Inspect simultaneous current and mechanism activity; this alone does not identify the cause.",
-      "warning",
-      0.1,
-    );
+    // Sag to 9 V on hard acceleration is normal; the roboRIO 2 disables outputs below 6.75 V.
+    for (const f of excursions(voltage!, (n) => typeof n === "number" && n < 7.5, "", "", "warning", 0, 1)) {
+      const low = lowest(v, f.start, f.end) ?? v[0];
+      const amps = valueAt(current, low.time);
+      const below = low.value < 6.75;
+      f.severity = below ? "error" : "warning";
+      f.title = below ? "Voltage below brownout level" : "Voltage near brownout";
+      const draw = typeof amps === "number" ? ` while drawing ${estimate ? "an estimated " : ""}${amps.toFixed(0)} A` : "";
+      f.detail = `Lowest ${low.value.toFixed(2)} V at ${low.time.toFixed(2)} s${draw}. A roboRIO 2 disables motor outputs below 6.75 V by default; lower the peak draw (drive supply current limits, acceleration) or use a stronger battery.${topDraws(Math.max(f.start, low.time - 0.25), low.time + 0.02)}`;
+    }
   if (estimate) coverage.push(`Total current estimated from ${estimate.inputs.length} supply/branch current signals over their common recorded span. Unlogged loads are omitted; duplicate device sources must be removed using Signal mapping. This is a partial load estimate, not a measured battery total.`);
   if (!a.length)
     coverage.push(
       "No measured total or usable supply/branch current signals: total load and energy calculations unavailable.",
     );
   else
-    excursions(
-      current!,
-      (n) => typeof n === "number" && n > 180,
-      estimate ? "High estimated current" : "High current",
-      `${estimate ? "Estimated" : "Measured"} current above 180 A for ≥250 ms. Diagnostic only.`,
-      "warning",
-      0.25,
-    );
+    // Short bursts above 180 A are normal when a swerve drive accelerates; a second or more is not.
+    for (const f of excursions(current!, (n) => typeof n === "number" && n > 180, estimate ? "Sustained high estimated current" : "Sustained high current", "", "warning", 1, 0.5)) {
+      const peak = a.filter(s => s.time >= f.start && s.time <= f.end).reduce((m, s) => Math.max(m, s.value), 0);
+      f.detail = `${estimate ? "Estimated" : "Measured"} current stayed above 180 A for ${(f.end - f.start).toFixed(1)} s (peak ${peak.toFixed(0)} A). Long stretches heat the 120 A main breaker toward a trip: look for pushing, a stalled mechanism or a missing current limit.${topDraws(f.start, f.end)}`;
+    }
+  // Battery health. Resting voltage is read while disabled before the match (an open-circuit
+  // voltage fitted from in-match data reads low). With a measured total current, fitting
+  // voltage = open-circuit - current x resistance gives the battery plus wiring resistance; a
+  // partial estimate would overstate it, so it is not used.
+  let batteryResistance: number | undefined, restingVoltage: number | undefined;
+  const enabled = recording.channels.find(c => c.type === "boolean" && /^(?:DS:enabled|\/?DriverStation\/Enabled)$/i.test(c.name));
+  const firstEnable = enabled?.samples.find(s => s.value === true)?.time;
+  if (v.length && firstEnable !== undefined) {
+    const idle = v.filter(s => s.time < firstEnable).map(s => s.value).sort((x, y) => x - y);
+    if (idle.length >= 3 && firstEnable - v[0].time >= 0.5) restingVoltage = idle[Math.floor(idle.length / 2)];
+  }
+  if (v.length && a.length && !estimate) {
+    let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, lo = Infinity, hi = -Infinity;
+    for (const s of a) {
+      const volts = valueAt(voltage, s.time);
+      if (s.value < 0 || typeof volts !== "number" || !Number.isFinite(volts)) continue;
+      n++; sx += s.value; sy += volts; sxx += s.value * s.value; sxy += s.value * volts;
+      lo = Math.min(lo, s.value); hi = Math.max(hi, s.value);
+    }
+    if (n >= 50 && hi - lo >= 60) {
+      const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+      if (-slope > 0.005 && -slope < 0.2) batteryResistance = -slope;
+    }
+  }
+  const span = { start: v[0]?.time ?? 0, end: v[v.length - 1]?.time ?? recording.duration, channel: mapping.voltage ?? "" };
+  if (batteryResistance !== undefined && batteryResistance > 0.03)
+    findings.push({ id: "battery-resistance", severity: "warning", title: "Weak battery or loose connection", ...span,
+      detail: `Voltage drops about ${(batteryResistance * 100).toFixed(1)} V per 100 A drawn (${(batteryResistance * 1000).toFixed(0)} mΩ battery plus wiring). A fresh battery with good wiring is about 20–25 mΩ. Test this battery's internal resistance, then check the main breaker, battery lugs and PDH connections.` });
+  if (restingVoltage !== undefined && restingVoltage < 12.2)
+    findings.push({ id: "battery-resting", severity: "warning", title: "Battery not fully charged", ...span,
+      detail: `Resting voltage ${restingVoltage.toFixed(2)} V while disabled before the first enable. A charged battery rests at 12.6 V or more; 12.2 V is about half charged. Swap before the next match.` });
   if (brownout)
     excursions(
       brownout,
@@ -239,6 +302,8 @@ export function analyze(
       "Robot reported a brownout",
       "The recorded brownout flag was asserted.",
       "error",
+      0,
+      1,
     );
   else
     coverage.push(
@@ -282,14 +347,18 @@ export function analyze(
       /(?:Connected|IsConnected)$/i.test(channel.name)
     ) {
       diagnosticChannels++;
-      excursions(
+      const added = excursions(
         channel,
         (v) => v === false,
         "Device reported disconnected",
         `The recorded connection flag ${channel.name} was false for at least 250 ms.`,
         "warning",
         0.25,
+        1,
       );
+      // CAN devices take a few seconds to report after boot; that is not a disconnect.
+      const bootEnd = (channel.samples[0]?.time ?? 0) + 5;
+      for (const f of added) if (f.end <= bootEnd) findings.splice(findings.indexOf(f), 1);
     }
     if (channel.type === "string" && /(?:^|\/)(?:state|currentstate)$/i.test(channel.name)) {
       diagnosticChannels++;
@@ -330,7 +399,7 @@ export function analyze(
     const channel = channels.get(rule.channel);
     if (!channel) { coverage.push(`Rule ${rule.id}: missing channel ${rule.channel}.`); continue; }
     const before = findings.length;
-    excursions(channel, v => rule.op === "eq" ? v === rule.value : typeof v === "number" && typeof rule.value === "number" && (rule.op === "lt" ? v < rule.value : v > rule.value), rule.title, rule.detail, rule.severity, rule.duration);
+    excursions(channel, v => rule.op === "eq" ? v === rule.value : typeof v === "number" && typeof rule.value === "number" && (rule.op === "lt" ? v < rule.value : v > rule.value), rule.title, rule.detail, rule.severity, rule.duration, 1);
     for (let i = before; i < findings.length; i++) findings[i].id = `rule:${rule.id}:${findings[i].start}`;
   }
   let energy = 0,
@@ -378,6 +447,8 @@ export function analyze(
       peakCurrent,
       energyWh: covered > 0 ? energy / 3600 : undefined,
       averagePower: covered > 0 ? energy / covered : undefined,
+      batteryResistance,
+      restingVoltage,
     },
   };
 }

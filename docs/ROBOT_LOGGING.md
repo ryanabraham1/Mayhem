@@ -29,6 +29,16 @@ The reviewed Robot.cpp records battery voltage but does not establish a total ba
 
 The existing optional Mayhem C++ observers add visibility when useful, and can coexist with the reference logger. Their use is not mandatory. See [SUITE_AGENTS.md](SUITE_AGENTS.md) and [lib-cpp/README.md](../lib-cpp/README.md).
 
+## Built-in power findings
+
+Calibrated against Monte Carlo runs of the 3256 physics sim (battery 12.1–12.8 V, 23–37 mΩ):
+
+- **Voltage near / below brownout**: under 7.5 V, an error under 6.75 V (the roboRIO 2 default). Dips within 1 s are one finding; the detail gives the lowest voltage, the draw at that moment, the largest logged draws and how much of a measured total the logged devices explain. Sag to 8–9 V while a swerve accelerates is normal and not reported.
+- **Weak battery or loose connection**: battery plus wiring resistance over 30 mΩ, fitted from voltage against a measured total current (not a partial estimate). Shown as `power.batteryResistance`.
+- **Battery not fully charged**: median voltage under 12.2 V while disabled before the first enable (`power.restingVoltage`). Logs that enable immediately get no resting reading.
+- **Sustained high current**: over 180 A for at least 1 s. Short bursts are ordinary acceleration.
+- Connection flags that recover within 5 s of the first sample are CAN start-up and are not reported. Every rule, including project rules, merges episodes less than 1 s apart.
+
 ## Project-owned findings
 
 Agents can put a `logRules` policy in project `extensions`; desktop imports and the CLI analyzer accept the same policy. No robot channel renaming is required. `defaultRules: false` replaces all generic findings; leave it true or omit it to add project checks. Power measurements remain available when generic findings are disabled.

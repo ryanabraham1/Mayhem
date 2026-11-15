@@ -227,16 +227,6 @@ project = {
     "routines": [routine(*a) for a in AUTOS],
     "extensions": {
         "machines": [machine],
-        "logRules": {
-            "rules": [
-                {"id": "resting-battery", "channel": "/RealOutputs/SystemStats/BatteryVoltage", "op": "lt", "value": 11.5,
-                 "duration": 2, "severity": "warning", "title": "Battery sagging for 2 s",
-                 "detail": "Battery stayed under 11.5 V for two seconds. Swap or charge before the next match."},
-                {"id": "brownout", "channel": "/RealOutputs/SystemStats/BrownedOut", "op": "eq", "value": True, "duration": 0,
-                 "severity": "error", "title": "Robot browned out",
-                 "detail": "The roboRIO reported a brownout. Check what was drawing current in the seconds before."},
-            ]
-        },
         "source": {
             "repository": "Team3256/FRC_Offseason_2026",
             "branch": "claude/friendly-tesla-o02ue3",

@@ -27,7 +27,9 @@ import {
 } from "../src/suite/core/runtime.ts";
 import {
   analyze,
+  suggestMapping,
   valueAt,
+  type Channel,
   type Recording,
 } from "../src/suite/core/analysis.ts";
 import { parseWPILog } from "../src/suite/core/wpilog.ts";
@@ -541,9 +543,10 @@ describe("power evidence", () => {
     expect(
       a.findings.some((f) => f.title === "Robot reported a brownout"),
     ).toBe(true);
-    expect(a.findings.some((f) => f.title === "Low battery voltage")).toBe(
-      true,
-    );
+    // A 0.8 s sag to 8.4 V at 205 A is ordinary acceleration on a ~23 mΩ battery, not a finding.
+    expect(a.findings.some((f) => f.title.startsWith("Voltage"))).toBe(false);
+    expect(a.power.batteryResistance).toBeGreaterThan(0.02);
+    expect(a.power.batteryResistance).toBeLessThan(0.026);
     expect(() =>
       parseWPILog(
         bytes.buffer.slice(
@@ -688,4 +691,60 @@ it("estimates missing total current by aligning device supply readings", () => {
   expect(a.power.peakCurrent).toBe(100);
   expect(a.power.energyWh).toBeCloseTo(12000 / 3600);
   expect(a.estimatedCurrent?.samples).toHaveLength(3);
+});
+
+describe("power findings", () => {
+  const series = (duration: number, f: (t: number) => number | boolean) =>
+    Array.from({ length: Math.round(duration / 0.02) + 1 }, (_, i) => ({ time: i * 0.02, value: f(i * 0.02) }));
+  /** A battery of open-circuit `ocv` and resistance `r` under a load that bursts to `burst` A. */
+  const match = (ocv: number, r: number, burst: number, extra: Channel[] = []): Recording => {
+    const amps = (t: number) => (t % 5 > 2 && t % 5 < 2.4 ? burst : 30);
+    return { name: "match", duration: 20, warnings: [], channels: [
+      { name: "DS:enabled", type: "boolean", samples: [{ time: 0, value: false }, { time: 2, value: true }] },
+      { name: "/RealOutputs/SystemStats/BatteryVoltage", type: "double", samples: series(20, t => t < 2 ? ocv : ocv - r * amps(t)) },
+      { name: "/RealOutputs/Sim/TotalCurrentAmps", type: "double", samples: series(20, t => t < 2 ? 0 : amps(t)) },
+      { name: "NT:/SmartDashboard/Checks/No Brownout", type: "boolean", samples: [{ time: 0, value: true }] },
+      { name: "/RealOutputs/SystemStats/BrownedOut", type: "boolean", samples: [{ time: 0, value: false }] },
+      ...extra,
+    ] };
+  };
+  it("maps the roboRIO brownout flag, not an inverted dashboard check, and a total current in amps", () => {
+    const m = suggestMapping(match(12.7, 0.022, 200).channels);
+    expect(m.brownout).toBe("/RealOutputs/SystemStats/BrownedOut");
+    expect(m.current).toBe("/RealOutputs/Sim/TotalCurrentAmps");
+  });
+  it("stays quiet for a healthy, charged battery under normal acceleration bursts", () => {
+    const a = analyze(match(12.7, 0.022, 200));
+    expect(a.findings).toEqual([]);
+    expect(a.power.batteryResistance).toBeCloseTo(0.022, 3);
+    expect(a.power.restingVoltage).toBeCloseTo(12.7);
+  });
+  it("flags a weak battery, a flat battery and each dip below brownout once, with the load", () => {
+    const a = analyze(match(12.1, 0.034, 200));
+    const titles = a.findings.map(f => f.title);
+    expect(titles).toContain("Weak battery or loose connection");
+    expect(titles).toContain("Battery not fully charged");
+    const dips = a.findings.filter(f => f.title === "Voltage below brownout level");
+    expect(dips).toHaveLength(4);
+    expect(dips[0].severity).toBe("error");
+    expect(dips[0].detail).toMatch(/Lowest 5\.30 V .* while drawing 200 A/);
+    expect(dips[0].detail).toContain("the rest (often the drivetrain) is not logged");
+  });
+  it("merges a flickering signal into one finding and ignores CAN start-up", () => {
+    const flicker = (t: number) => t < 3 || (t > 8 && t < 12 && Math.floor(t * 4) % 2 === 0);
+    const a = analyze(match(12.7, 0.022, 200, [
+      { name: "Drive/Connected", type: "boolean", samples: series(20, t => !flicker(t)) },
+    ]));
+    const gone = a.findings.filter(f => f.title === "Device reported disconnected");
+    expect(gone.map(f => [f.start, f.end])).toEqual([[8.02, 11.76]]);
+  });
+  it("reports current only when it stays high, naming the largest logged draws", () => {
+    const rec = match(12.7, 0.015, 200);
+    rec.channels[2] = { name: "/RealOutputs/Sim/TotalCurrentAmps", type: "double", samples: series(20, t => (t > 5 && t < 8 ? 250 : 30)) };
+    rec.channels.push({ name: "/Intake/rollerSupplyCurrent", type: "double", samples: series(20, t => (t > 5 && t < 8 ? 200 : 0)) });
+    const a = analyze(rec);
+    const high = a.findings.filter(f => f.title === "Sustained high current");
+    expect(high).toHaveLength(1);
+    expect(high[0].detail).toContain("/Intake/rollerSupplyCurrent 200 A");
+  });
 });
