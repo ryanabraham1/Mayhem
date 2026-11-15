@@ -16,6 +16,8 @@
 | `review <robot repo> [before] [after] [--json]` | The [Changes](/suite/changes) review from the command line. |
 | `sim <robot repo> [after] [--before <rev>]` | Run the [sim proof](/robot-code/scenarios). |
 | `analyze <log>` | Log findings and power summary. |
+| `diagnose <log>` | Failures in a log, ranked, each with the query that shows it (`--ignore a,b`, `--json`). |
+| `compare <before> <after>` | What a fix fixed, broke or left: findings matched by id, moved metrics (`--json`). |
 | `live <robot address> '<options>'` | Read NetworkTables values from a robot. |
 | `open <project>` | Open a project in the desktop app, linked to the file (macOS). |
 | `save <project> '<JSON>'` | Write a project atomically, with a revision check. |
@@ -39,7 +41,7 @@ node scripts/mayhem.mjs analyze logs/FRC_20261113_071603.wpilog
 | Projects | `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `open_in_app` |
 | Robot code | `export_cpp`, `vendor_cpp`, `apply_machine_spec`, `machine_spec` |
 | Review | `behavior_diff`, `run_scenarios`, `list_changes` |
-| Logs | `analyze_log`, `list_log_channels`, `log_anomalies`, `log_what_changed`, `log_table`, `log_events`, `log_states` |
+| Logs | `log_diagnose`, `log_compare`, `analyze_log`, `list_log_channels`, `log_anomalies`, `log_what_changed`, `log_table`, `log_events`, `log_states` |
 | Live robot | `inspect_live_robot` (read-only) |
 
 None of them deploy robot code or command the robot. Use your normal build and deploy tools.

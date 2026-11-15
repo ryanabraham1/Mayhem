@@ -91,6 +91,29 @@ it("returns a compact analyze_log summary and supports channel/time queries", as
   expect(full.channels).toHaveLength(2);
 });
 
+it("diagnoses a log and compares it with the run after a fix", async () => {
+  const write = async (name: string, hunting: boolean) => {
+    const file = join(directory, name);
+    const t = Array.from({ length: 500 }, (_, i) => i * 0.02);
+    const velocity = (time: number) => (time < 1 ? 0 : 50 + (hunting ? 5 * Math.sin(2 * Math.PI * 3 * time) : 0));
+    await writeFile(file, JSON.stringify({
+      name, duration: 10, warnings: [],
+      channels: [
+        { name: "/RealOutputs/Shooter/reqVelocity", type: "double", samples: t.map((time) => ({ time, value: 50 })) },
+        { name: "/Shooter/velocity", type: "double", samples: t.map((time) => ({ time, value: velocity(time) })) },
+      ],
+    }));
+    return file;
+  };
+  const before = await write("before.json", true);
+  const after = await write("after.json", false);
+  const d: any = await execute("log_diagnose", { path: before });
+  expect(d.findings.map((f: any) => f.id)).toContain("tracking-oscillates:/RealOutputs/Shooter/reqVelocity");
+  const c: any = await execute("log_compare", { before, after });
+  expect(c).toMatchObject({ verdict: "improved", new: [] });
+  expect(c.fixed.map((f: any) => f.id)).toContain("tracking-oscillates:/RealOutputs/Shooter/reqVelocity");
+});
+
 it("starts the supported MCP entry with native Node, outside Vitest's resolver", () => {
   const script = fileURLToPath(
     new URL("../../scripts/mayhem.mjs", import.meta.url),

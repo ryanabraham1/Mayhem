@@ -47,13 +47,42 @@ export function resolveChannels(recording: Recording, needles: string[] | undefi
   return { found, missing };
 }
 
+/** Elements of decoded arrays with more than `min` entries (Field2d paths, trajectories): `<parent>/<i>[/field]`. */
+const ARRAY_ELEMENT = /^(.*)\/(\d+)(\/[^/]+)?$/;
+export function largeArrayElements(recording: Recording, min = 16) {
+  const groups = new Map<string, Channel[]>();
+  for (const c of recording.channels) {
+    const m = ARRAY_ELEMENT.exec(c.name);
+    if (!m) continue;
+    const key = `${m[1]}/*${m[3] ?? ""}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(c);
+  }
+  const elements = new Map<Channel, { group: string; count: number }>();
+  for (const [group, members] of groups) if (members.length > min) for (const c of members) elements.set(c, { group, count: members.length });
+  return elements;
+}
+
 export function listChannels(
   recording: Recording,
-  opts: { filter?: string[]; type?: string; limit?: number; offset?: number } = {},
+  opts: { filter?: string[]; type?: string; limit?: number; offset?: number; expandArrays?: boolean } = {},
 ) {
   let pool = recording.channels;
   if (opts.filter?.length) pool = resolveChannels(recording, opts.filter).found;
   if (opts.type) pool = pool.filter((c) => c.type === opts.type);
+  // One row per large array (`<parent>/*`, with its element count) instead of one per element.
+  const collapsed = new Map<Channel, number>();
+  if (!opts.expandArrays) {
+    const elements = largeArrayElements(recording);
+    const seen = new Set<string>();
+    pool = pool.filter((c) => {
+      const e = elements.get(c);
+      if (!e) return true;
+      if (seen.has(e.group)) return false;
+      seen.add(e.group);
+      collapsed.set(c, e.count);
+      return true;
+    });
+  }
   const limit = Math.min(opts.limit ?? 60, 300);
   const offset = opts.offset ?? 0;
   return {
@@ -61,6 +90,8 @@ export function listChannels(
     offset,
     channels: pool.slice(offset, offset + limit).map((c) => {
       const out: Record<string, unknown> = { name: c.name, type: c.type, samples: c.samples.length };
+      const count = collapsed.get(c);
+      if (count) Object.assign(out, { name: c.name.replace(ARRAY_ELEMENT, (_, p, _i, f) => `${p}/*${f ?? ""}`), elements: count, note: `${count} array elements; stats are element ${c.name.match(ARRAY_ELEMENT)![2]}'s. expandArrays lists each.` });
       if (c.samples.length) {
         const first = c.samples[0].time;
         const last = c.samples[c.samples.length - 1].time;
@@ -143,7 +174,8 @@ export function findAnomalies(
   const sens = Math.min(Math.max(opts.sensitivity ?? 1, 0.25), 4);
   const from = opts.from ?? -Infinity;
   const to = opts.to ?? Infinity;
-  const pool = opts.channels?.length ? resolveChannels(recording, opts.channels).found : meaningful(recording);
+  const elements = largeArrayElements(recording);
+  const pool = opts.channels?.length ? resolveChannels(recording, opts.channels).found : meaningful(recording).filter((c) => !elements.has(c));
   const found: Anomaly[] = [];
   const add = (a: Anomaly) => {
     if (a.end >= from && a.start <= to && Number.isFinite(a.score)) found.push({ ...a, score: round(a.score, 2) });
@@ -270,7 +302,8 @@ export function whatChanged(
   opts: { time: number; window?: number; filter?: string[]; limit?: number },
 ) {
   const w = opts.window ?? 1;
-  const pool = opts.filter?.length ? resolveChannels(recording, opts.filter).found : recording.channels;
+  const elements = largeArrayElements(recording);
+  const pool = opts.filter?.length ? resolveChannels(recording, opts.filter).found : meaningful(recording).filter((c) => !elements.has(c));
   const rows: Record<string, unknown>[] = [];
   for (const c of pool) {
     if (!isNumeric(c) || c.samples.length < 10) continue;

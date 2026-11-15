@@ -31,6 +31,7 @@ const { simulate } = await import("../app/src/suite/core/runtime.ts");
 const { headingLints } = await import("../app/src/suite/core/headingLint.ts");
 import { analyze, parseRecordingJSON, currentBreakdown } from "../app/src/suite/core/analysis.ts";
 import { listChannels, logTable, findAnomalies, whatChanged, logEvents, machineStates } from "../app/src/suite/core/logquery.ts";
+import { diagnoseLog, compareLogs } from "../app/src/suite/core/logdiagnose.ts";
 import { NT4Observer } from "../app/src/suite/core/nt4.ts";
 import { parseWPILog } from "../app/src/suite/core/wpilog.ts";
 import { vendorCpp } from "./cpp-vendor.mjs";
@@ -249,10 +250,22 @@ const tools = [
     },
   },
   {
+    name: "log_diagnose",
+    description:
+      "Start here with a log: one call returns its failures, grouped and ranked (errors first), each with a stable `id`, evidence, the match phase, and `next` (a ready-to-run log_table/log_events/log_states/log_what_changed call that shows it). Checks: setpoints the mechanism never reaches, cannot reach, oscillates around, is slow to reach or settles off (setpoint/measured pairs found by name, e.g. reqVelocity -> motor velocity, ModuleTargets -> ModuleStates); flickering flags with the signal and threshold they follow; states and Mayhem machines switching back and forth; loop overruns; alerts and console errors; motors pinned at a current limit; pose jumps; power. `context` has the phases (disabled/auto/teleop), selected auto, state sequences, which pairs were tracked and setpoints it could not pair. `ignore` drops findings whose id contains a string, or a whole kind.",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log." }, from: { type: "number" }, to: { type: "number" }, ignore: { type: "array", items: { type: "string" } }, limit: { type: "integer", description: "Max findings (default 30)." } }, required: ["path"] },
+  },
+  {
+    name: "log_compare",
+    description:
+      "Did the fix work? Diagnose two logs of the same scenario (`before`, `after`) and line their findings up by id: `fixed`, `new` (with detail and next), and `persisting` (better/worse/same by occurrences and metric), plus metrics that moved (tracking error, loop p99, min voltage) and state sequences that differ. `verdict`: improved, regressed (a new error or a worse one), mixed or unchanged.",
+    inputSchema: { type: "object", properties: { before: { type: "string" }, after: { type: "string" }, mapping: { type: "object" }, from: { type: "number" }, to: { type: "number" }, ignore: { type: "array", items: { type: "string" } } }, required: ["before", "after"] },
+  },
+  {
     name: "list_log_channels",
     description:
-      "Search a WPILOG/recording's channels. Returns name, type, sample count, time span, rate, and min/max/mean for numeric channels. Start here to find what to look at. `filter` = case-insensitive substrings.",
-    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log (adds the estimated total current channel)." }, filter: { type: "array", items: { type: "string" } }, type: { type: "string" }, limit: { type: "integer", maximum: 300 }, offset: { type: "integer" } }, required: ["path"] },
+      "Search a WPILOG/recording's channels. Returns name, type, sample count, time span, rate, and min/max/mean for numeric channels. Find what to look at. `filter` = case-insensitive substrings. Arrays with more than 16 elements are one row (`<parent>/*`) unless `expandArrays`.",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log (adds the estimated total current channel)." }, filter: { type: "array", items: { type: "string" } }, type: { type: "string" }, limit: { type: "integer", maximum: 300 }, offset: { type: "integer" }, expandArrays: { type: "boolean" } }, required: ["path"] },
   },
   {
     name: "log_table",
@@ -329,7 +342,8 @@ async function loadLog(path, mapping) {
     hit = estimatedCurrent
       ? { ...recording, channels: [...recording.channels, estimatedCurrent] }
       : recording;
-    logCache.clear();
+    // Keep a few, so comparing two runs does not reparse either.
+    for (const k of logCache.keys()) if (k.startsWith(`${path}|`) || logCache.size >= 4) logCache.delete(k);
     logCache.set(key, hit);
   }
   return hit;
@@ -495,6 +509,10 @@ export async function execute(name, args) {
   if (name === "open_in_app") return openInApp(args.path, args.app);
   if (name === "vendor_cpp")
     return vendorCpp(args.robotDir, { dest: args.dest, snapshot: args.snapshot, check: args.check === true });
+  if (name === "log_compare") {
+    const [before, after] = [pathFor(args.before), pathFor(args.after)];
+    return compareLogs(await loadLog(before, args.mapping), await loadLog(after, args.mapping), args);
+  }
   const path = pathFor(args.path);
   if (name === "apply_machine_spec") {
     const specs = asList(args.spec, "machines");
@@ -611,6 +629,7 @@ export async function execute(name, args) {
         .map(({ time, key, node, degrees, message }) => ({ time, key, node, degrees: Math.round(degrees), message })),
     };
   }
+  if (name === "log_diagnose") return diagnoseLog(await loadLog(path, args.mapping), args);
   if (
     ["list_log_channels", "log_table", "log_anomalies", "log_what_changed", "log_events", "log_states"].includes(name)
   ) {
@@ -717,7 +736,7 @@ async function main() {
             capabilities: { tools: {} },
             serverInfo: { name: "mayhem-suite", version: "0.1.0" },
             instructions:
-              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. People review your robot code changes in the Mayhem app by behavior, per branch: work on a branch (never main), commit, then run behavior_diff and run_scenarios with base \"main\" and after \"HEAD\" before saying a change is ready; run_scenarios records the sim proof on the commit, which is what the reviewer reads. See docs/SUITE_AGENTS.md.",
+              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. People review your robot code changes in the Mayhem app by behavior, per branch: work on a branch (never main), commit, then run behavior_diff and run_scenarios with base \"main\" and after \"HEAD\" before saying a change is ready; run_scenarios records the sim proof on the commit, which is what the reviewer reads. Given a log (a sim run or a match), start with log_diagnose and run each finding's `next`; after a fix, rerun the same scenario and log_compare the two logs. See docs/SUITE_AGENTS.md.",
           };
         else if (request.method === "tools/list") result = { tools };
         else if (request.method === "tools/call") {
@@ -890,6 +909,27 @@ async function main() {
     }
     return;
   }
+  if (command === "diagnose" || command === "compare") {
+    // diagnose <log> [--json] [--ignore a,b] | compare <before log> <after log> [--json] [--ignore a,b]
+    const rest = process.argv.slice(command === "compare" ? 5 : 4);
+    const flags = { json: rest.includes("--json"), ignore: rest.includes("--ignore") ? rest[rest.indexOf("--ignore") + 1].split(",") : undefined };
+    if (command === "compare") {
+      const r = await execute("log_compare", { before: path, after: process.argv[4], ignore: flags.ignore });
+      if (flags.json) return console.log(JSON.stringify(r, null, 2));
+      console.log(`${r.verdict.toUpperCase()} · before ${r.before.counts.error}E/${r.before.counts.warning}W → after ${r.after.counts.error}E/${r.after.counts.warning}W`);
+      for (const f of r.fixed) console.log(`  ✓ fixed     ${f.title}`);
+      for (const f of r.new) console.log(`  ✗ new       [${f.severity}] ${f.title} @ ${f.at.join(", ")} s\n              ${f.detail}`);
+      for (const f of r.persisting) console.log(`  ${f.trend === "better" ? "↓" : f.trend === "worse" ? "↑" : "="} ${f.trend.padEnd(9)} [${f.severity}] ${f.title} (${f.before.occurrences}× → ${f.after.occurrences}×)`);
+      for (const m of r.metrics) console.log(`    ${m.name}: ${m.before} → ${m.after}`);
+      for (const s of r.states) console.log(`    states ${s.channel}:\n      before ${s.before}\n      after  ${s.after}`);
+      return;
+    }
+    const r = await execute("log_diagnose", { path, ignore: flags.ignore, limit: 200 });
+    if (flags.json) return console.log(JSON.stringify(r, null, 2));
+    console.log(`${r.counts.error} error(s), ${r.counts.warning} warning(s), ${r.counts.info} info · ${r.context.phases.map((p) => `${p.mode} ${p.start}-${p.end}`).join(", ")}`);
+    for (const f of r.findings) console.log(`  [${f.severity}] ${f.title} (${f.occurrences}× @ ${f.at.join(", ")} s, ${f.phases.join("/")})\n      ${f.detail}\n      id ${f.id}`);
+    return;
+  }
   if (command === "tool") {
     // tool <MCP tool name> '<JSON arguments>': any MCP tool from the shell (e.g. list_changes).
     if (!tools.some((t) => t.name === path)) throw new Error(`Unknown tool ${path}. Tools: ${tools.map((t) => t.name).join(", ")}`);
@@ -912,7 +952,7 @@ async function main() {
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | open <file> | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | diagnose <log> [--ignore a,b] [--json] | compare <before log> <after log> [--ignore a,b] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | open <file> | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")

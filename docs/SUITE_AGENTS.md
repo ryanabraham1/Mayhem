@@ -73,7 +73,7 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 }
 ```
 
-Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `run_scenarios` (see "Sim proof"), `list_changes` (see "How your changes get reviewed"), `log_states`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `run_scenarios` (see "Sim proof"), `list_changes` (see "How your changes get reviewed"), `log_diagnose`, `log_compare`, `log_states`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
 
 ## Authoring machines and routines
 
@@ -292,8 +292,8 @@ Outcomes are compared on every machine's `Mayhem/States/<id>/state` log channel,
 
 1. Change the robot code (regenerate `MayhemProject.h` with `tools/mayhem/export.sh` if you touched `robot.mayhem.json` or `machines.json`).
 2. `run_scenarios` with `after: "WORKTREE"` and either `names` (a few existing scenarios) or inline `scenarios` for the behavior you are testing. The working tree rebuilds incrementally (~45 s); a run of a few scenarios takes seconds. Each failed or changed result carries a `timeline` (every machine's states, flickering collapsed) and its log path.
-3. For a state-machine problem, `log_states` on that log: each transition with the inputs at that moment; a flickering burst names both directions and the inputs that kept both guards true. For anything else, `log_anomalies` (flickering first), then `log_what_changed` at the time, then `log_table` of the suspects.
-4. Fix and repeat. Before handing off, add the scenario that reproduces the bug to `tools/mayhem/scenarios.json` so it stays fixed, commit, and run everything on the commit: `run_scenarios {base: "main", after: "HEAD"}` (CLI: `sim <repo> HEAD --base main`).
+3. `log_diagnose` on that log (or on a log the person hands you): the failures, errors first, each with an `id`, evidence and a `next` call that shows it. Run `next`, read the code it points at, and fix the cause. For a state-machine problem, `log_states` on that log: each transition with the inputs at that moment; a flickering burst names both directions and the inputs that kept both guards true.
+4. Run the same scenario on the fix and `log_compare {before, after}` the two logs: `fixed`, `new`, `persisting` (better/worse) and the metrics that moved. Keep going until the finding you set out to fix is in `fixed` and nothing is in `new`. Fix and repeat. Before handing off, add the scenario that reproduces the bug to `tools/mayhem/scenarios.json` so it stays fixed, commit, and run everything on the commit: `run_scenarios {base: "main", after: "HEAD"}` (CLI: `sim <repo> HEAD --base main`).
 
 ### A proof belongs to a commit
 
@@ -320,16 +320,24 @@ The robot repo's build writes `src/main/deploy/mayhem-build.json` (`sha`, `branc
 
 ## Digging into logs
 
-`analyze_log` returns a compact summary (add `channels`, `from`/`to` for per-channel stats, or `detail: "full"` for everything). To investigate, use the exploration tools; all take a WPILOG path (parsed once and cached) and return small ranked results:
+Start with `log_diagnose` (CLI: `node scripts/mayhem.mjs diagnose <log>`). It finds, without configuration:
+
+- **Setpoint tracking.** Setpoints are paired with what they control by name: a setpoint leaf (`reqVelocity`, `goalPosition`, `…Setpoint`) with the same subsystem's measured channel of that quantity (sign-flipped followers allowed; pairs in different units are skipped), or two paths that differ in one segment (`ModuleTargets/0/speed` ↔ `ModuleStates/0/speed`, compared as magnitudes). For each constant hold while enabled it reports `tracking-unreachable` (pinned at the most it ever does while asked for more; a warning when that is the largest setpoint ever given, i.e. a max-speed constant above what the mechanism does), `tracking-never-reached`, `tracking-oscillates` (leaves the band 3+ times after reaching it), `tracking-slow` and `tracking-offset` (steady-state error). Indexed copies (swerve modules) are one finding. `context.tracking` lists the pairs checked and `context.unpairedSetpoints` the ones it could not check.
+- **Flickering flags** (`flag-flicker`), with the channel or tracking error and the threshold that reproduces the flag (`true when < 5.23, 97% agreement`): the signal hovering at a threshold is the cause. **States switching back and forth** (`state-flicker`, any string state channel) and **Mayhem machines fighting themselves** (`machine-flicker`, with the inputs).
+- `loop-overrun` (work time over 20 ms, or a period over 30 ms), `alert` (WPILib `Alerts/errors|warnings`), `console` errors, `current-limited` (stator current pinned at its peak for 0.5 s+: stalled or jammed), `pose-jump` (robot pose moving 0.4 m+ faster than 8 m/s), and power findings (summed motor current is `info` only, since in sim it overstates battery current).
+
+Findings are grouped by `id` (kind plus channels, never times), so the same problem in another run has the same id, with `occurrences`, the first times (`at`), the match `phases` it happened in and a `metric` (larger is worse). Only enabled time counts. `context` gives the phases (`disabled`/`auto`/`teleop`/`test` from the DS channels), the selected auto, every state channel's sequence, Mayhem machines and subsystem commands. `ignore: ["<id substring>" | "<kind>"]` drops known sim artifacts. `log_compare {before, after}` (CLI: `compare <before> <after>`) diagnoses both and returns `verdict` (`improved`, `regressed` for a new or worse error, `mixed`, `unchanged`), `fixed`, `new`, `persisting`, moved `metrics` and differing state `sequences`.
+
+`analyze_log` returns a compact power summary (add `channels`, `from`/`to` for per-channel stats, or `detail: "full"` for everything). To investigate further, use the exploration tools; all take a WPILOG path (parsed once and cached, a few at a time) and return small ranked results:
 
 1. `log_anomalies` — scan every channel for outliers, big jumps, sampling dropouts, flatlined sensors, boolean flapping, and channels that stop or start logging. Each hit has a time.
 2. `log_what_changed` — for a suspicious `time`, rank the channels that deviated most from their own normal within `window` seconds, with before/after values.
 3. `log_table` — line up to 20 channels on one clock (`step` or `points`, max 500 rows) to compare them at the same instants; up to 8 channels also returns pairwise correlation.
 4. `log_events` — merged chronological changes of state/boolean/string channels (state machines, modes, alerts); dashboard plumbing, guard flags and NetworkTables copies are skipped unless `all: true`.
 6. `log_states` — each Mayhem state machine's transitions with the inputs at each one; flickering bursts collapsed and explained.
-5. `list_log_channels` — find channel names; `filter` takes case-insensitive substrings, which also match derived `/x`, `/heading`, `/0/speed` pose and module channels.
+5. `list_log_channels` — find channel names; `filter` takes case-insensitive substrings, which also match derived `/x`, `/heading`, `/0/speed` pose and module channels. Arrays of more than 16 elements (Field2d paths, trajectories) are one `<parent>/*` row unless `expandArrays: true`; `log_anomalies` and `log_what_changed` skip their elements and dashboard plumbing unless named.
 
-Typical loop: anomalies → what changed at that time → table of the suspects → events for the state that was active. Findings are symptoms to verify, not proven causes. Struct arrays (swerve module states/positions, Pose3d lists) are decoded into per-element channels, capped at 32 elements.
+Typical loop: diagnose → run each finding's `next` → read the code → fix → compare. Without a finding to start from: anomalies → what changed at that time → table of the suspects → events for the state that was active. Findings are symptoms to verify, not proven causes. Struct arrays (swerve module states/positions, Pose3d lists) are decoded into per-element channels, capped at 32 elements.
 
 ## State-machine visibility without architectural constraints
 
