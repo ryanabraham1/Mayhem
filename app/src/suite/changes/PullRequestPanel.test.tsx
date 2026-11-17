@@ -93,3 +93,11 @@ describe("merging the reviewed branch's PR", () => {
     expect(screen.queryByRole("button", { name: /Merge…/ })).toBeNull();
   });
 });
+
+describe("a shell that doesn't know review_pr", () => {
+  it("shows a message instead of breaking the Changes page", async () => {
+    answers.review_pr = null;
+    render(<PullRequestPanel repo="/robot" branch={branch} report={report} merged={() => {}} />);
+    expect(await screen.findByText(/can't look up pull requests/)).toBeTruthy();
+  });
+});

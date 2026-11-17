@@ -35,8 +35,10 @@ function usePullRequest(repo: string, branch: BranchReview) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const value = await invoke<PrLookup>("review_pr", { repo, branch: branch.name });
-      setLookup({ key, value });
+      const value = await invoke<PrLookup | null>("review_pr", { repo, branch: branch.name });
+      // Anything else is a shell that doesn't know the command: say so instead of failing the page.
+      const known = value && (value.kind === "error" || (value.kind === "found" && Array.isArray(value.prs) && value.repo));
+      setLookup({ key, value: known ? value : { kind: "error", missing: false, message: "this version of the desktop shell can't look up pull requests" } });
     } catch (e) {
       setLookup({ key, value: { kind: "error", missing: false, message: String(e) } });
     } finally {

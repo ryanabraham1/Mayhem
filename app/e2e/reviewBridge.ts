@@ -152,6 +152,9 @@ export async function desktop(page: Page, repo: string) {
       writeFileSync(args.path, Buffer.from(args.bytes));
       return null;
     }
+    // No GitHub here: the branch has no pull request.
+    if (cmd === "review_pr")
+      return { kind: "found", prs: [], repo: { nameWithOwner: "team/robot", mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, viewerDefaultMergeMethod: "MERGE" } };
     if (cmd === "review_write_file") {
       const path = join(repo, args.path);
       let current = "";

@@ -352,7 +352,17 @@ mod tests {
         fs::create_dir_all(&base).unwrap();
         sh(&base, &["init", "-q", "--bare", "-b", "main", "origin.git"]);
         for clone in ["me", "them"] {
-            sh(&base, &["clone", "-q", "origin.git", clone]);
+            sh(
+                &base,
+                &[
+                    "clone",
+                    "-q",
+                    "--config",
+                    "core.autocrlf=false",
+                    "origin.git",
+                    clone,
+                ],
+            );
             let dir = base.join(clone);
             sh(&dir, &["config", "user.email", "t@example.com"]);
             sh(&dir, &["config", "user.name", "T"]);
