@@ -27,6 +27,7 @@ import {
 } from "../src/suite/core/runtime.ts";
 import {
   analyze,
+  shortSignalName,
   suggestMapping,
   valueAt,
   type Channel,
@@ -746,5 +747,23 @@ describe("power findings", () => {
     const high = a.findings.filter(f => f.title === "Sustained high current");
     expect(high).toHaveLength(1);
     expect(high[0].detail).toContain("/Intake/rollerSupplyCurrent 200 A");
+  });
+  it("splits a finding into shared advice, a short summary and structured draws for compact display", () => {
+    const rec = match(12.7, 0.015, 200);
+    rec.channels[2] = { name: "/RealOutputs/Sim/TotalCurrentAmps", type: "double", samples: series(20, t => (t > 5 && t < 8 ? 250 : 30)) };
+    rec.channels.push({ name: "/Intake/rollerSupplyCurrent", type: "double", samples: series(20, t => (t > 5 && t < 8 ? 200 : 0)) });
+    const [high] = analyze(rec).findings.filter(f => f.title === "Sustained high current");
+    expect(high.summary).toMatch(/^\d+\.\d s · peak 250 A$/);
+    expect(high.advice).toContain("120 A main breaker");
+    expect(high.advice).not.toMatch(/peak|\d+\.\d s/);
+    expect(high.draws?.[0]).toMatchObject({ name: "/Intake/rollerSupplyCurrent" });
+    expect(high.draws?.[0].amps).toBeCloseTo(200, 0);
+  });
+  it("shortens signal paths for draw chips", () => {
+    expect(shortSignalName("/Shooter/shooterMotorSupplyCurrents/3")).toBe("Shooter · shooterMotor 3");
+    expect(shortSignalName("/LinearSlide/leftMotorSupplyCurrent")).toBe("LinearSlide · leftMotor");
+    expect(shortSignalName("/indexer/indexerSupplyCurrentLeft")).toBe("indexer · indexerLeft");
+    expect(shortSignalName("PowerDistribution/ChannelCurrent/4")).toBe("PowerDistribution · Channel 4");
+    expect(shortSignalName("Current")).toBe("Current");
   });
 });

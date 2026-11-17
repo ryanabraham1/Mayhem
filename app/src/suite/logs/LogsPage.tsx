@@ -24,7 +24,7 @@ import {
   UploadCloud,
   Waves,
 } from "lucide-react";
-import { currentBreakdown, isDeviceCurrentSignal, parsePowerMapping, type Finding } from "../core/analysis.ts";
+import { currentBreakdown, isDeviceCurrentSignal, parsePowerMapping, shortSignalName, type Finding } from "../core/analysis.ts";
 import { PoseReplay } from "../PoseReplay";
 import { desktop, invoke } from "../native";
 import { download, type StoredLog } from "../storage";
@@ -318,6 +318,12 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
   useEffect(() => { setMappingText(null); setMappingError(""); }, [current?.id]);
   const errors = analysis?.findings.filter((f) => f.severity === "error") ?? [];
   const warnings = analysis?.findings.filter((f) => f.severity === "warning") ?? [];
+  // Repeats of the same rule share one card: the advice once, then one compact row per occurrence.
+  const findingGroups = [...[...errors, ...warnings].reduce((groups, f) => {
+    const key = `${f.severity}|${f.title}`;
+    groups.set(key, [...(groups.get(key) ?? []), f]);
+    return groups;
+  }, new Map<string, Finding[]>()).values()];
   const seek = (t: number, finding?: Finding) => {
     setPlaying(false);
     setCursor(t);
@@ -578,18 +584,39 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
                 <div className="mx-report-body">
                   {analysis.findings.length ? (
                     <div className="mx-findings">
-                      {[...errors, ...warnings].map((f) => (
-                        <button key={f.id} className={`mx-finding is-${f.severity}`} onClick={() => seek(f.start, f)}>
-                          {f.severity === "error" ? <AlertOctagon size={17} /> : <AlertTriangle size={17} />}
-                          <span>
-                            <strong>{f.title}</strong>
-                            <p>{f.detail}</p>
-                            <code>
-                              {f.start.toFixed(2)}–{f.end.toFixed(2)} s · {f.channel}
-                            </code>
-                          </span>
-                        </button>
-                      ))}
+                      {findingGroups.map((group) => {
+                        const f = group[0];
+                        const shared = f.advice ?? (group.every((g) => g.detail === f.detail) ? f.detail : undefined);
+                        return (
+                          <section key={f.id} className={`mx-finding is-${f.severity}`}>
+                            <header>
+                              {f.severity === "error" ? <AlertOctagon size={17} /> : <AlertTriangle size={17} />}
+                              <strong>{f.title}</strong>
+                              {group.length > 1 && <span className="mx-finding-count">×{group.length}</span>}
+                            </header>
+                            {shared && <p>{shared}</p>}
+                            <div className="mx-finding-rows">
+                              {group.map((g) => (
+                                <button key={g.id} className="mx-finding-row" title={g.detail} onClick={() => seek(g.start, g)}>
+                                  <code>
+                                    {g.start.toFixed(1)}–{g.end.toFixed(1)} s
+                                  </code>
+                                  <span className="mx-finding-summary">{g.summary ?? (shared ? g.channel : g.detail)}</span>
+                                  {!!g.draws?.length && (
+                                    <span className="mx-finding-draws">
+                                      {g.draws.map((d) => (
+                                        <span key={d.name} className="mx-draw" title={d.name}>
+                                          {shortSignalName(d.name)} <b>{d.amps.toFixed(0)} A</b>
+                                        </span>
+                                      ))}
+                                    </span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </section>
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="mx-ok-line">

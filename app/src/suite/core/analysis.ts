@@ -21,6 +21,25 @@ export interface Finding {
   start: number;
   end: number;
   channel: string;
+  /** Guidance shared by every occurrence of this rule, so repeats can show it once. */
+  advice?: string;
+  /** The short, per-occurrence measurement (e.g. "3.4 s · peak 391 A"). */
+  summary?: string;
+  /** Logged devices drawing the most during this occurrence, largest first. */
+  draws?: { name: string; amps: number }[];
+}
+/** A compact label for a signal path: "/Shooter/shooterMotorSupplyCurrents/3" -> "Shooter · shooterMotor 3". */
+export function shortSignalName(name: string): string {
+  const parts = name.split("/").filter(Boolean);
+  if (!parts.length) return name;
+  const index = parts.length > 1 && /^\d+$/.test(parts[parts.length - 1]) ? parts.pop() : undefined;
+  const raw = parts.pop()!;
+  let leaf = raw.replace(/supply_?currents?/i, "");
+  if (leaf === raw) leaf = raw.replace(/_?currents?$/i, "");
+  if (!leaf) leaf = raw;
+  if (index !== undefined) leaf += ` ${index}`;
+  const group = parts.pop();
+  return group ? `${group} · ${leaf}` : leaf;
 }
 export interface PowerMapping {
   voltage?: string;
@@ -232,10 +251,12 @@ export function analyze(
     const draws = inputs.map(name => ({ name, amps: meanOver(name, start, end) })).sort((x, y) => y.amps - x.amps);
     const listed = draws.filter(d => d.amps >= 5).slice(0, 3);
     const logged = draws.reduce((sum, d) => sum + d.amps, 0), total = estimate ? undefined : meanOver(mapping.current, start, end);
-    return (listed.length ? ` Largest logged draws: ${listed.map(d => `${d.name} ${d.amps.toFixed(0)} A`).join(", ")}.` : "") +
-      (total !== undefined && total - logged > Math.max(20, total * 0.3)
-        ? ` Logged devices account for ${logged.toFixed(0)} of ${total.toFixed(0)} A; the rest (often the drivetrain) is not logged.` : "");
+    const unlogged = total !== undefined && total - logged > Math.max(20, total * 0.3) ? { logged, total } : undefined;
+    const text = (listed.length ? ` Largest logged draws: ${listed.map(d => `${d.name} ${d.amps.toFixed(0)} A`).join(", ")}.` : "") +
+      (unlogged ? ` Logged devices account for ${unlogged.logged.toFixed(0)} of ${unlogged.total.toFixed(0)} A; the rest (often the drivetrain) is not logged.` : "");
+    return { text, listed, unlogged };
   };
+  const unloggedNote = (u?: { logged: number; total: number }) => u ? ` · logged devices ${u.logged.toFixed(0)} of ${u.total.toFixed(0)} A` : "";
   const lowest = (s: (Sample & { value: number })[], start: number, end: number) =>
     s.filter(x => x.time >= start && x.time <= end).reduce<(Sample & { value: number }) | undefined>((m, x) => !m || x.value < m.value ? x : m, undefined);
   if (!v.length)
@@ -251,7 +272,11 @@ export function analyze(
       f.severity = below ? "error" : "warning";
       f.title = below ? "Voltage below brownout level" : "Voltage near brownout";
       const draw = typeof amps === "number" ? ` while drawing ${estimate ? "an estimated " : ""}${amps.toFixed(0)} A` : "";
-      f.detail = `Lowest ${low.value.toFixed(2)} V at ${low.time.toFixed(2)} s${draw}. A roboRIO 2 disables motor outputs below 6.75 V by default; lower the peak draw (drive supply current limits, acceleration) or use a stronger battery.${topDraws(Math.max(f.start, low.time - 0.25), low.time + 0.02)}`;
+      const top = topDraws(Math.max(f.start, low.time - 0.25), low.time + 0.02);
+      f.advice = "A roboRIO 2 disables motor outputs below 6.75 V by default; lower the peak draw (drive supply current limits, acceleration) or use a stronger battery.";
+      f.detail = `Lowest ${low.value.toFixed(2)} V at ${low.time.toFixed(2)} s${draw}. ${f.advice}${top.text}`;
+      f.summary = `Lowest ${low.value.toFixed(2)} V${typeof amps === "number" ? ` at ${estimate ? "~" : ""}${amps.toFixed(0)} A` : ""}${unloggedNote(top.unlogged)}`;
+      f.draws = top.listed;
     }
   if (estimate) coverage.push(`Total current estimated from ${estimate.inputs.length} supply/branch current signals over their common recorded span. Unlogged loads are omitted; duplicate device sources must be removed using Signal mapping. This is a partial load estimate, not a measured battery total.`);
   if (!a.length)
@@ -262,7 +287,11 @@ export function analyze(
     // Short bursts above 180 A are normal when a swerve drive accelerates; a second or more is not.
     for (const f of excursions(current!, (n) => typeof n === "number" && n > 180, estimate ? "Sustained high estimated current" : "Sustained high current", "", "warning", 1, 0.5)) {
       const peak = a.filter(s => s.time >= f.start && s.time <= f.end).reduce((m, s) => Math.max(m, s.value), 0);
-      f.detail = `${estimate ? "Estimated" : "Measured"} current stayed above 180 A for ${(f.end - f.start).toFixed(1)} s (peak ${peak.toFixed(0)} A). Long stretches heat the 120 A main breaker toward a trip: look for pushing, a stalled mechanism or a missing current limit.${topDraws(f.start, f.end)}`;
+      const top = topDraws(f.start, f.end);
+      f.advice = `${estimate ? "Estimated" : "Measured"} current stayed above 180 A for over a second. Long stretches heat the 120 A main breaker toward a trip: look for pushing, a stalled mechanism or a missing current limit.`;
+      f.detail = `${estimate ? "Estimated" : "Measured"} current stayed above 180 A for ${(f.end - f.start).toFixed(1)} s (peak ${peak.toFixed(0)} A). Long stretches heat the 120 A main breaker toward a trip: look for pushing, a stalled mechanism or a missing current limit.${top.text}`;
+      f.summary = `${(f.end - f.start).toFixed(1)} s · peak ${peak.toFixed(0)} A${unloggedNote(top.unlogged)}`;
+      f.draws = top.listed;
     }
   // Battery health. Resting voltage is read while disabled before the match (an open-circuit
   // voltage fitted from in-match data reads low). With a measured total current, fitting

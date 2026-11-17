@@ -2492,40 +2492,97 @@ svg.mx-field {
 }
 .mx-finding {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px 14px;
   border: 1px solid var(--mx-line);
   border-left: 4px solid var(--mx-warn);
   border-radius: var(--mx-r-md);
   background: var(--mx-surface);
-  text-align: left;
 }
 .mx-finding.is-error {
   border-left-color: var(--mx-bad);
 }
-.mx-finding > svg {
+.mx-finding header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mx-finding header svg {
   flex: none;
-  margin-top: 2px;
   color: var(--mx-warn);
 }
-.mx-finding.is-error > svg {
+.mx-finding.is-error header svg {
   color: var(--mx-bad);
-}
-.mx-finding:hover {
-  border-color: var(--mx-accent-line);
 }
 .mx-finding strong {
   font-weight: 600;
 }
-.mx-finding p {
-  margin: 3px 0 6px;
-  color: var(--mx-ink-2);
-  font-size: 13px;
-  max-width: 80ch;
+.mx-finding-count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--mx-surface-2, rgba(0, 0, 0, 0.05));
+  color: var(--mx-muted);
+  font-size: 12px;
+  font-weight: 600;
 }
-.mx-finding code {
+.mx-finding p {
+  margin: 0 0 0 27px;
+  color: var(--mx-muted);
+  font-size: 12.5px;
+  max-width: 90ch;
+}
+.mx-finding-rows {
+  display: flex;
+  flex-direction: column;
+  margin-left: 27px;
+  border-top: 1px solid var(--mx-line);
+}
+.mx-finding-row {
+  display: grid;
+  grid-template-columns: 96px minmax(130px, auto) 1fr;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--mx-line);
+  background: none;
+  text-align: left;
+  font-size: 13px;
+}
+.mx-finding-row:last-child {
+  border-bottom: 0;
+}
+.mx-finding-row:hover {
+  background: var(--mx-accent-soft, rgba(124, 92, 255, 0.06));
+}
+.mx-finding-row code {
   color: var(--mx-muted);
   font-size: 11.5px;
+}
+.mx-finding-summary {
+  font-weight: 600;
+  color: var(--mx-ink);
+}
+.mx-finding-draws {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.mx-draw {
+  padding: 1px 7px;
+  border: 1px solid var(--mx-line);
+  border-radius: 999px;
+  color: var(--mx-ink-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.mx-draw b {
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .mx-finding-row {
+    grid-template-columns: 1fr;
+  }
 }
 .mx-ok-line,
 .mx-summary-line {
