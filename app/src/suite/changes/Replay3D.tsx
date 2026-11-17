@@ -3,8 +3,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import type { Recording } from "../core/analysis.ts";
-import { parseWPILog } from "../core/wpilog.ts";
+import { sampleAt, track3D, type Track3D } from "./sim3d.ts";
 import { invoke, nativeRead } from "../native";
 
 /** Robot and field models from AdvantageScope's asset folders (the team's CAD robot, the season field). */
@@ -14,19 +13,6 @@ interface Asset {
   dir: string;
   config: string;
   models: string[];
-}
-interface Pose3 {
-  t: number;
-  p: [number, number, number];
-  q: [number, number, number, number];
-}
-/** What the 3D replay draws from one simulation log. */
-export interface Track3D {
-  robot: Pose3[];
-  components: Pose3[][];
-  /** Shots in flight: per sample time, the positions of every piece in the air. */
-  flying: { t: number; points: [number, number, number][] }[];
-  duration: number;
 }
 
 const loader = new GLTFLoader();
@@ -44,72 +30,27 @@ function model(path: string) {
 let assetList: Promise<Asset[]> | undefined;
 const assets = () => (assetList ??= invoke<Asset[]>("ascope_assets", {}));
 
-/** Pose channels `<prefix>/x … /qz` sampled into a time series. */
-function poses(rec: Recording, prefix: string): Pose3[] {
-  const ch = (k: string) => rec.channels.find((c) => c.name === `${prefix}/${k}`);
-  const [x, y, z, qw, qx, qy, qz] = ["x", "y", "z", "qw", "qx", "qy", "qz"].map(ch);
-  if (!x || !y) return [];
-  const at = (c: Recording["channels"][number] | undefined, i: number, fallback: number) => (c && typeof c.samples[i]?.value === "number" ? (c.samples[i].value as number) : fallback);
-  return x.samples.map((s, i) => ({ t: s.time, p: [s.value as number, at(y, i, 0), at(z, i, 0)], q: [at(qx, i, 0), at(qy, i, 0), at(qz, i, 0), at(qw, i, 1)] }));
-}
-
-export function track3D(rec: Recording): Track3D | undefined {
-  const robot = poses(rec, "/RealOutputs/Sim/RobotPose");
-  if (!robot.length) return undefined;
-  const components: Pose3[][] = [];
-  for (let i = 0; ; i++) {
-    const c = poses(rec, `/RealOutputs/Sim/Components/${i}`);
-    if (!c.length) break;
-    components.push(c);
-  }
-  // Pieces in flight: element i's x/y/z channels, gathered per sample time.
-  const flyingX = rec.channels.filter((c) => /^\/RealOutputs\/Sim\/FlyingFuel\/\d+\/x$/.test(c.name));
-  const byTime = new Map<number, [number, number, number][]>();
-  for (const cx of flyingX) {
-    const base = cx.name.slice(0, -2);
-    const cy = rec.channels.find((c) => c.name === `${base}/y`),
-      cz = rec.channels.find((c) => c.name === `${base}/z`);
-    cx.samples.forEach((s, i) => {
-      const key = Math.round(s.time * 50) / 50;
-      const list = byTime.get(key) ?? [];
-      list.push([s.value as number, (cy?.samples[i]?.value as number) ?? 0, (cz?.samples[i]?.value as number) ?? 0]);
-      byTime.set(key, list);
-    });
-  }
-  const flying = [...byTime.entries()].sort((a, b) => a[0] - b[0]).map(([t, points]) => ({ t, points }));
-  return { robot, components, flying, duration: robot[robot.length - 1].t };
-}
-
 export async function loadTrack3D(path: string) {
-  return track3D(parseWPILog(await nativeRead(path), path.split("/").pop() ?? path));
+  return track3D(await nativeRead(path));
 }
-
-const sampleAt = <T extends { t: number }>(list: T[], t: number): T | undefined => {
-  let lo = 0,
-    hi = list.length - 1;
-  if (hi < 0) return undefined;
-  if (t <= list[0].t) return list[0];
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (list[mid].t <= t) lo = mid;
-    else hi = mid - 1;
-  }
-  return list[lo];
-};
 
 const IN = 0.0254;
+const axis = (a: string) => (a === "x" ? new THREE.Vector3(1, 0, 0) : a === "y" ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1));
+/** AdvantageScope's `rotations` list (applied in order) as one quaternion. */
+const rotations = (list: { axis: string; degrees: number }[] | undefined) =>
+  (list ?? []).reduce((q, r) => new THREE.Quaternion().setFromAxisAngle(axis(r.axis), (r.degrees * Math.PI) / 180).multiply(q), new THREE.Quaternion());
 
 /**
  * CAD and field exports come in as polished metal (the 2026 field: metalness 1, roughness 0.2),
  * which reads as glare and black patches. Make them matte, and on the field deepen the mid greys
- * (the carpet) so robots stand out. The field's staged game pieces are hidden: they would not move
- * as the simulated robot picks pieces up.
+ * (the carpet) so robots stand out. The field's staged game pieces are hidden: the simulation logs
+ * every piece itself (Sim/Fuel), where it really is.
  */
-function matte(root: THREE.Object3D, field: boolean) {
+function matte(root: THREE.Object3D, field: boolean, hide?: RegExp) {
   const seen = new Set<THREE.Material>();
   const hsl = { h: 0, s: 0, l: 0 };
   root.traverse((o) => {
-    if (field && /Fuel/i.test(o.name)) o.visible = false;
+    if (hide && hide.test(o.name)) o.visible = false;
     if (!(o instanceof THREE.Mesh)) return;
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
       if (seen.has(m) || !(m instanceof THREE.MeshStandardMaterial)) continue;
@@ -122,25 +63,78 @@ function matte(root: THREE.Object3D, field: boolean) {
   });
 }
 
+/** One instanced mesh per part of the game piece model, so hundreds of pieces draw in a few calls. */
+interface PieceMesh {
+  meshes: THREE.InstancedMesh[];
+  /** The piece model's own transform (its config rotations and position). */
+  base: THREE.Matrix4;
+}
+
+/**
+ * The season's game piece from the field asset (AdvantageScope's model_N.glb for each entry in
+ * `gamePieces`; for 2026 that is Fuel), or a plain ball when the field has none.
+ */
+async function pieceModel(field: Asset | undefined): Promise<{ parts: { geometry: THREE.BufferGeometry; material: THREE.Material }[]; base: THREE.Matrix4 }> {
+  const config = field ? JSON.parse(field.config) : {};
+  const index = Math.max(0, (config.gamePieces ?? []).findIndex((g: { name?: string }) => /fuel/i.test(g.name ?? "")));
+  const piece = config.gamePieces?.[index];
+  const file = `model_${index}.glb`;
+  if (field && piece && field.models.includes(file)) {
+    try {
+      const scene = await model(`${field.dir}/${file}`);
+      scene.updateMatrixWorld(true);
+      const parts: { geometry: THREE.BufferGeometry; material: THREE.Material }[] = [];
+      scene.traverse((o) => {
+        if (o instanceof THREE.Mesh) parts.push({ geometry: (o.geometry as THREE.BufferGeometry).clone().applyMatrix4(o.matrixWorld), material: o.material as THREE.Material });
+      });
+      matte(scene, false);
+      const base = new THREE.Matrix4().compose(new THREE.Vector3(...((piece.position as [number, number, number]) ?? [0, 0, 0])), rotations(piece.rotations), new THREE.Vector3(1, 1, 1));
+      if (parts.length) return { parts, base };
+    } catch {
+      // fall through to a plain ball
+    }
+  }
+  return { parts: [{ geometry: new THREE.SphereGeometry(0.075, 16, 12), material: new THREE.MeshStandardMaterial({ color: 0xf2a20e, roughness: 0.8 }) }], base: new THREE.Matrix4() };
+}
+
+function pieceMesh(shape: Awaited<ReturnType<typeof pieceModel>>, capacity: number): PieceMesh {
+  const meshes = shape.parts.map((p) => {
+    const m = new THREE.InstancedMesh(p.geometry, p.material, Math.max(1, capacity));
+    m.count = 0;
+    m.frustumCulled = false;
+    return m;
+  });
+  return { meshes, base: shape.base };
+}
+
 interface Rig {
   root: THREE.Group;
   components: THREE.Group[];
-  fuel: THREE.InstancedMesh;
+  /** Every game piece of this run, on the ground and in the air. */
+  pieces: PieceMesh;
+  /** The robot code's pose estimate, a see-through copy of the robot (AdvantageScope's ghost). */
+  estimate?: THREE.Group;
+  /** Which samples are drawn now, so pieces are only rewritten when they change. */
+  drawn: { fuel?: unknown; flying?: unknown };
 }
 
 /** A robot (base plus articulated components) from an AdvantageScope robot asset. */
-async function buildRobot(asset: Asset): Promise<Rig> {
+async function robotModel(asset: Asset) {
   const config = JSON.parse(asset.config);
   const root = new THREE.Group();
-  const base = (await model(`${asset.dir}/model.glb`)).clone(true);
+  const holder = new THREE.Group();
+  holder.quaternion.copy(rotations(config.rotations));
+  if (Array.isArray(config.position)) holder.position.set(...(config.position as [number, number, number]));
+  root.add(holder);
+  holder.add((await model(`${asset.dir}/model.glb`)).clone(true));
   const parts: THREE.Group[] = [];
-  root.add(base);
   const componentFiles = asset.models.filter((m) => /^model_\d+\.glb$/.test(m)).sort((a, b) => Number(a.slice(6, -4)) - Number(b.slice(6, -4)));
   for (const [i, file] of componentFiles.entries()) {
     const group = new THREE.Group();
     const mesh = (await model(`${asset.dir}/${file}`)).clone(true);
-    // AdvantageScope: the zeroed position moves the part so its joint sits at the component origin.
+    // AdvantageScope: the zeroed rotations and position move the part so its joint sits at the component origin.
     const zeroed = config.components?.[i]?.zeroedPosition ?? [0, 0, 0];
+    mesh.quaternion.copy(rotations(config.components?.[i]?.zeroedRotations));
     mesh.position.set(zeroed[0], zeroed[1], zeroed[2]);
     group.add(mesh);
     root.add(group);
@@ -151,18 +145,54 @@ async function buildRobot(asset: Asset): Promise<Rig> {
   root.traverse((o) => {
     if (o instanceof THREE.Mesh) o.userData.solid = o.material;
   });
-  const fuel = new THREE.InstancedMesh(new THREE.SphereGeometry(0.075, 12, 8), new THREE.MeshStandardMaterial({ color: 0xf2c200 }), 64);
-  fuel.count = 0;
-  return { root, components: parts, fuel };
+  return { root, components: parts };
 }
 
 const GHOST = new THREE.MeshBasicMaterial({ color: 0x9a92b8, transparent: true, opacity: 0.35, depthWrite: false });
-function setGhost(rig: Rig, ghost: boolean) {
-  if (rig.root.userData.ghost === ghost) return;
-  rig.root.userData.ghost = ghost;
-  rig.root.traverse((o) => {
-    if (o instanceof THREE.Mesh) o.material = ghost ? GHOST : o.userData.solid;
+/** AdvantageScope's default ghost colour. */
+const ESTIMATE = new THREE.MeshBasicMaterial({ color: 0x2fd36b, transparent: true, opacity: 0.3, depthWrite: false });
+function paint(root: THREE.Object3D, material: THREE.Material | undefined) {
+  if (root.userData.paint === material) return;
+  root.userData.paint = material;
+  root.traverse((o) => {
+    if (o instanceof THREE.Mesh) o.material = material ?? o.userData.solid;
   });
+}
+const setGhost = (rig: Rig, ghost: boolean) => paint(rig.root, ghost ? GHOST : undefined);
+
+async function buildRig(asset: Asset, shape: Awaited<ReturnType<typeof pieceModel>>, track: Track3D): Promise<Rig> {
+  const robot = await robotModel(asset);
+  let estimate: THREE.Group | undefined;
+  if (track.estimate.length) {
+    estimate = (await robotModel(asset)).root;
+    paint(estimate, ESTIMATE);
+    estimate.renderOrder = 1;
+  }
+  return { ...robot, pieces: pieceMesh(shape, track.maxPieces), estimate, drawn: {} };
+}
+
+const place = new THREE.Matrix4();
+function drawPieces(rig: Rig, track: Track3D, t: number, offset: THREE.Vector2) {
+  // Before a list's first sample nothing is known yet: draw none of it rather than the future.
+  const at = <T extends { t: number }>(list: T[]) => (list.length && t + 1e-6 >= list[0].t ? sampleAt(list, t) : undefined);
+  const fuel = at(track.fuel),
+    flying = at(track.flying);
+  if (rig.drawn.fuel === fuel && rig.drawn.flying === flying) return;
+  rig.drawn = { fuel, flying };
+  let n = 0;
+  for (const set of [fuel, flying]) {
+    if (!set) continue;
+    const xyz = set.xyz;
+    for (let i = 0; i + 2 < xyz.length; i += 3) {
+      place.makeTranslation(xyz[i] - offset.x, xyz[i + 1] - offset.y, xyz[i + 2]).multiply(rig.pieces.base);
+      for (const m of rig.pieces.meshes) if (n < m.instanceMatrix.count) m.setMatrixAt(n, place);
+      n++;
+    }
+  }
+  for (const m of rig.pieces.meshes) {
+    m.count = Math.min(n, m.instanceMatrix.count);
+    m.instanceMatrix.needsUpdate = true;
+  }
 }
 
 function pose(rig: Rig, track: Track3D, t: number, offset: THREE.Vector2) {
@@ -179,12 +209,12 @@ function pose(rig: Rig, track: Track3D, t: number, offset: THREE.Vector2) {
       g.quaternion.set(...c.q);
     }
   });
-  const f = sampleAt(track.flying, t);
-  const m = new THREE.Matrix4();
-  const points = f && Math.abs(f.t - t) < 0.06 ? f.points.slice(0, 64) : [];
-  points.forEach((p, i) => rig.fuel.setMatrixAt(i, m.makeTranslation(p[0] - offset.x, p[1] - offset.y, p[2])));
-  rig.fuel.count = points.length;
-  rig.fuel.instanceMatrix.needsUpdate = true;
+  const e = rig.estimate && sampleAt(track.estimate, t);
+  if (rig.estimate && e) {
+    rig.estimate.position.set(e.x - offset.x, e.y - offset.y, 0);
+    rig.estimate.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), e.heading);
+  }
+  drawPieces(rig, track, t, offset);
 }
 
 export type View3D = "side" | "overlay";
@@ -194,11 +224,14 @@ export function Replay3D({
   logs,
   time,
   view,
+  estimate = true,
   onCanvas,
 }: {
   logs: { before?: string; after?: string };
   time: number;
   view: View3D;
+  /** Draw the pose estimate as a ghost, as AdvantageScope's 3D Field tab does. */
+  estimate?: boolean;
   onCanvas?: (canvas: HTMLCanvasElement | null) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -216,6 +249,8 @@ export function Replay3D({
   timeRef.current = time;
   const viewRef = useRef(view);
   viewRef.current = view;
+  const estimateRef = useRef(estimate);
+  estimateRef.current = estimate;
   const key = useMemo(() => `${logs.before}|${logs.after}`, [logs.before, logs.after]);
 
   useEffect(() => {
@@ -263,26 +298,22 @@ export function Replay3D({
         const offset = new THREE.Vector2(((fieldConfig.widthInches ?? 651.22) * IN) / 2, ((fieldConfig.heightInches ?? 317.7) * IN) / 2);
         state.current!.offset = offset;
         const fieldModel = (await model(`${field.dir}/model.glb`)).clone(true);
-        for (const r of fieldConfig.rotations ?? []) {
-          const axis = r.axis === "x" ? new THREE.Vector3(1, 0, 0) : r.axis === "y" ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
-          fieldModel.applyQuaternion(new THREE.Quaternion().setFromAxisAngle(axis, (r.degrees * Math.PI) / 180));
-        }
+        fieldModel.applyQuaternion(rotations(fieldConfig.rotations));
         if (Array.isArray(fieldConfig.position)) fieldModel.position.set(...(fieldConfig.position as [number, number, number]));
-        matte(fieldModel, true);
+        matte(fieldModel, true, /Fuel/i);
         scene.add(fieldModel);
         const [before, after] = await Promise.all([logs.before ? loadTrack3D(logs.before) : undefined, logs.after ? loadTrack3D(logs.after) : undefined]);
         if (cancelled) return;
         if (!before && !after) throw new Error("These runs did not log a 3D robot pose (/RealOutputs/Sim/RobotPose).");
         state.current!.tracks = { before, after };
-        if (before) {
-          const rig = await buildRobot(robot);
-          scene.add(rig.root, rig.fuel);
-          state.current!.rigs.before = rig;
-        }
-        if (after) {
-          const rig = await buildRobot(robot);
-          scene.add(rig.root, rig.fuel);
-          state.current!.rigs.after = rig;
+        const shape = await pieceModel(field);
+        for (const [side, track] of [["before", before], ["after", after]] as const) {
+          if (!track) continue;
+          const rig = await buildRig(robot, shape, track);
+          if (cancelled) return;
+          scene.add(rig.root, ...rig.pieces.meshes);
+          if (rig.estimate) scene.add(rig.estimate);
+          state.current!.rigs[side] = rig;
         }
         // Start above the robot, looking at it from the middle of the field (never from inside a wall).
         const start = (after ?? before)!.robot[0];
@@ -319,8 +350,13 @@ export function Replay3D({
       }
       controls.update();
       const side = viewRef.current === "side" && s.rigs.before && s.rigs.after;
-      const show = (rig: Rig | undefined, on: boolean) => {
-        if (rig) rig.root.visible = rig.fuel.visible = on;
+      // Each run's own pieces and pose estimate; overlaid, only the after run's (the before
+      // robot is the ghost there, and two sets of pieces in one place would read as one jumble).
+      const show = (rig: Rig | undefined, on: boolean, extras = on) => {
+        if (!rig) return;
+        rig.root.visible = on;
+        for (const m of rig.pieces.meshes) m.visible = extras;
+        if (rig.estimate) rig.estimate.visible = extras && estimateRef.current;
       };
       if (side) {
         camera.aspect = w / 2 / h;
@@ -334,7 +370,7 @@ export function Replay3D({
           renderer.render(scene, camera);
         }
       } else {
-        show(s.rigs.before, true);
+        show(s.rigs.before, true, !s.rigs.after);
         show(s.rigs.after, true);
         if (s.rigs.before) setGhost(s.rigs.before, !!s.rigs.after);
         camera.aspect = w / h;

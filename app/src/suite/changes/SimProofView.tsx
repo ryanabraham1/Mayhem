@@ -11,7 +11,7 @@ import { MACHINES_FILE } from "../core/review/report.ts";
 import { ButtonMap } from "./ButtonMap";
 import type { ScenarioResult, SimProof } from "../core/review/simproof.ts";
 import { desktop, invoke } from "../native";
-import { Badge, Button, EmptyState, Segmented } from "../ui";
+import { Badge, Button, EmptyState, Segmented, Toggle } from "../ui";
 import type { Review } from "./useReview";
 
 // The 3D replay brings three.js; it loads when a replay is first shown in 3D, not with the app.
@@ -75,6 +75,7 @@ export function Replay({ result, onTime }: { result: ScenarioResult; onTime?: (t
   // 3D: the robot's own simulation drawn with the team's CAD model; record it to a video.
   const [mode, setMode] = useState<"2d" | "3d">("2d");
   const [view, setView] = useState<View3D>("side");
+  const [estimate, setEstimate] = useState(true);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const [recording, setRecording] = useState(false);
@@ -134,6 +135,7 @@ export function Replay({ result, onTime }: { result: ScenarioResult; onTime?: (t
           {mode === "3d" && result.logs.before && result.logs.after && (
             <Segmented label="Before and after" value={view} onChange={setView} options={[{ value: "side", label: "Side by side" }, { value: "overlay", label: "Overlay" }]} />
           )}
+          {mode === "3d" && <Toggle label="Pose estimate" checked={estimate} onChange={setEstimate} />}
           {mode === "3d" && (
             <Button size="sm" icon={Video} disabled={recording} onClick={recordVideo}>
               {recording ? "Recording…" : "Record clip"}
@@ -143,7 +145,7 @@ export function Replay({ result, onTime }: { result: ScenarioResult; onTime?: (t
       )}
       {mode === "3d" && has3D && (
         <Suspense fallback={<p className="mx-help">Loading the 3D view…</p>}>
-          <Replay3D logs={result.logs} time={time} view={view} onCanvas={(c) => (canvas.current = c)} />
+          <Replay3D logs={result.logs} time={time} view={view} estimate={estimate} onCanvas={(c) => (canvas.current = c)} />
         </Suspense>
       )}
       {clip && (
