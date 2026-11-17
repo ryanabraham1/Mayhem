@@ -35,9 +35,6 @@
     "category": "DeveloperTool",
     "shortDescription": "FRC autonomous, state-machine, and robot log tools",
     "longDescription": "Mayhem helps teams and coding agents build and review pose-based autos, inspect state machines, and collect and analyze robot logs.",
-    "externalBin": [
-      "binaries/mayhem-solver"
-    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -48,8 +45,7 @@
     "macOS": {
       "minimumSystemVersion": "11.0",
       "signingIdentity": "-",
-      "hardenedRuntime": true,
-      "entitlements": "./Entitlements.plist"
+      "hardenedRuntime": true
     },
     "linux": {
       "deb": {

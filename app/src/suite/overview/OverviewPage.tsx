@@ -10,8 +10,7 @@ import {
   GitCompare,
   Plus,
 } from "lucide-react";
-import { FieldArt } from "../../components/FieldArt";
-import type { Field } from "../../types";
+import { FieldArt, type FieldDrawing as Field } from "../FieldArt";
 import seasonField from "../core/rebuilt-2026.json";
 import { routeSegments } from "../core/routes.ts";
 import type { AutoRoutine, SuiteProject } from "../core/model.ts";

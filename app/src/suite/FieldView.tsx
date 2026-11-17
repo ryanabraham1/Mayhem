@@ -18,9 +18,8 @@ import {
 import { copyText, openContextMenu, type MenuItem } from "./ContextMenu";
 import { useTrackpadZoom } from "./trackpad";
 import { routeSegments, routeWarnings } from "./core/routes.ts";
-import { FieldArt } from "../components/FieldArt";
+import { FieldArt, type FieldDrawing as Field } from "./FieldArt";
 import seasonField from "./core/rebuilt-2026.json";
-import type { Field } from "../types";
 import { PATH_DEFAULTS, type AutoRoutine, type SuiteProject, type Pose } from "./core/model.ts";
 import { isIntermediate } from "./core/runtime.ts";
 import { SKETCH_DEFAULTS, simplifyStroke, type Point } from "./core/sketch.ts";

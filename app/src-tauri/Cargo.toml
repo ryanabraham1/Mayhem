@@ -43,6 +43,3 @@ strip = true
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "~2.11.0"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"

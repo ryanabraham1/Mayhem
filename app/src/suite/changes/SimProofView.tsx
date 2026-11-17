@@ -1,8 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { CircleCheck, CircleX, FileCode2, FlaskConical, Pause, Play, TriangleAlert, Video } from "lucide-react";
 import type { View3D } from "./Replay3D";
-import { FieldArt } from "../../components/FieldArt";
-import type { Field as FieldModel } from "../../types";
+import { FieldArt, type FieldDrawing as FieldModel } from "../FieldArt";
 import field from "../core/rebuilt-2026.json";
 import type { ReviewReport } from "../core/review/report.ts";
 import { stepTimeline, type Outcome, type Track } from "../core/review/scenarios.ts";

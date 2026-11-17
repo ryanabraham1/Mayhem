@@ -12,12 +12,3 @@ createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 
-if (
-  import.meta.env.DEV &&
-  new URLSearchParams(location.search).has("legacyDebug")
-) {
-  // handy for debugging from the devtools console
-  import("./store").then(({ useStore }) =>
-    Object.assign(window, { __mayhem: useStore }),
-  );
-}

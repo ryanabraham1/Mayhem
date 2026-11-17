@@ -2,9 +2,7 @@
 
 The place where people review a robot whose code is written by coding agents. You tell the agent what you want in its chat; it changes the code on a branch; you review the branch here by what the robot does, not by reading the diff. Around that: pose-based autonomous tools, state-machine inspection, and robot log playback/analysis.
 
-The new suite is in active development. This checkout contains the overhaul; check the assets and notes of a published release before assuming it includes the suite.
-
-## New suite (development)
+## What's in it
 
 - **Overview:** the branches waiting for your review, every routine as a field thumbnail, the latest logs with their red flags, and setup checks.
 - **Changes:** every branch that isn't in `main` yet, and what each one does, read from the code instead of the diff: driver controls, state machines, values, hardware, autos, any other code that changed. Each shows the sim proof recorded on its newest commit (both versions run in the robot's own simulation), and after the merge whether it is on the robot and in a log.
@@ -21,7 +19,7 @@ pnpm install
 pnpm dev
 ```
 
-Open http://localhost:5173. The browser suite needs no Python solver. For desktop builds, see [docs/BUILDING.md](docs/BUILDING.md).
+Open http://localhost:5173. Editing, previews and log import work in the browser. For desktop builds, see [docs/BUILDING.md](docs/BUILDING.md).
 
 Start with the [suite user guide](docs/USER_GUIDE.md) for project switching, autonomous previews, state inspection, and log collection. Suite projects use `.mayhem.json`.
 
@@ -58,13 +56,8 @@ the update when you click **Install & restart**.
 ## Tests
 
 ```bash
-cd solver && uv run pytest -q
-```
-
-```bash
-cd lib && ./gradlew test
-```
-
-```bash
-cd app && pnpm test
+cd app && pnpm test            # unit tests
+cd app && pnpm test:e2e        # browser tests (Playwright)
+cd app/src-tauri && cargo test
+cmake -S lib-cpp -B lib-cpp/build -DBUILD_TESTING=ON && cmake --build lib-cpp/build && ctest --test-dir lib-cpp/build
 ```

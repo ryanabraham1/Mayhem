@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FieldArt } from "../components/FieldArt";
-import type { Field as FieldModel } from "../types";
+import { FieldArt, type FieldDrawing as FieldModel } from "./FieldArt";
 import field from "./core/rebuilt-2026.json";
 import type { Recording } from "./core/analysis.ts";
 import { poseTrail } from "./core/plot.ts";

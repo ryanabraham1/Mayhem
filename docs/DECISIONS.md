@@ -1,55 +1,43 @@
 # Decisions
 
-Standing product and engineering decisions for Mayhem. Check here before changing scope, UI direction or file formats; these were settled with the team and shouldn't be re-litigated without a reason. The original plan is in [PLAN.md](../PLAN.md).
+Standing product and engineering decisions for Mayhem. Check here before changing scope, UI direction or file formats; these were settled with the team and shouldn't be re-litigated without a reason.
+
+## What Mayhem is
+
+- The place where people review a robot whose code is written by coding agents. People tell the agent what they want in the agent's own chat; the agent changes the code on a branch; people review that branch in Mayhem by what the robot does, not by reading the diff.
+- No work tracking inside the app: no task queue, plan approval, driver form, pit notes, "make this an agent task" buttons or in-app agent launcher. The Tasks page was removed on purpose after v0.9.45.
+- The unit of review is a git branch. `main` is the known-good version; there are no separate known-good marks.
+- Evidence people see is recorded by the tool or app that produced it (behavior review read from code, sim proof stored as a git note on the commit), never typed by an agent. Risk labels come from the diff, not from agent claims.
+- No named-person sign-off. Safety changes are marked red; nothing gates on a signature.
+- People may edit plain values (CAN IDs, current limits, brake/coast, directions, ratios) in the app; only that literal is rewritten in the working copy.
 
 ## Scope and targets
 
-- **Season:** 2026, game REBUILT, WPILib 2026 on roboRIO 2 (Java 17). SystemCore / WPILib 2027 comes later; nothing may depend on 2027.
-- **Robot:** CTRE Phoenix 6 swerve (Tuner X `CommandSwerveDrivetrain`), AprilTag-fused pose, no coprocessor.
-- **Platforms:** macOS, Windows (x64, NSIS installer) and Linux. On Windows the solver runs solve jobs as child processes instead of multiprocessing, and the app stops the solver with a `shutdown` request rather than killing it, so updates can replace `mayhem-solver.exe`.
-- **Libraries:** use popular, maintained libraries (CasADi + IPOPT, shapely, networkx, pydantic). Don't write our own optimizer.
+- **Season:** 2026, game REBUILT, WPILib 2026 on roboRIO 2. SystemCore / WPILib 2027 comes later; nothing may depend on 2027.
+- **Robot code:** C++ (the team's robot), with the header-only MayhemCpp library in `lib-cpp/`. The Java MayhemLib and the Python trajectory solver were removed after v0.9.59.
+- **Platforms:** macOS, Windows (x64, NSIS installer) and Linux.
 
-## Why Mayhem exists
+## Autos
 
-Choreo fails to generate paths with obstacles and long multi-waypoint paths. Beating it on those two cases is the priority; path time comes before solve time.
+- Pose-to-pose goals with a measured-arrival controller (ported from BLine-Lib; see THIRD_PARTY_NOTICES.md), not time-parameterized trajectories.
+- The browser preview uses the BLine-Web-derived engine; see [PATH_PREVIEW_PARITY.md](PATH_PREVIEW_PARITY.md).
+- Agents may write arbitrary C++ and custom action callbacks; the visual model documents behavior, it does not limit what robot code can do.
 
-## Solver
+## Robot logs
 
-- **Physics:** motor torque-speed curve, stator current limit, friction, mass and moment of inertia.
-- **Obstacles:** polygons drawn in the UI, customizable preloaded field geometry, the true rotating bumper rectangle, keep-in zones and walls.
-- **Intake extended:** when the constraint is active, the solver keeps the deployed intake clear of obstacles and walls (v0.5.0).
-- **Route candidates:** candidate 0 is the shortest route from either the any-heading or the inscribed-circle roadmap, so tight gaps like the trench are offered. All candidates run to completion; no early cancel, since it occasionally dropped the winner (v0.5.1).
-- **User limit rows:** max angular velocity and straight-line distance are two linear rows each (`±value / limit − 1 ≤ 0`), not `value² / limit² − 1`. The squared form's curvature (2e4 at 0.01 rad/s) stalled IPOPT until the time limit. Velocity and acceleration caps stay squared: they bound a 2D norm, and the sqrt and polygon forms were no faster in testing. After polishing, every solve re-checks the user limits on its samples and fails if one is broken by more than 1%.
-- **Sleipnir refinement** is optional and off by default on 2026 hardware.
-
-## On-robot recovery (MayhemLib)
-
-- Detect the bump, then rejoin the trajectory with the **fastest feasible bridge** and catch up.
-- **No obstacle avoidance during recovery** (2026-09-27): the roboRIO is too weak. Don't re-add collision checks or roadmap routing on the robot.
-- MayhemLib exposes an `intakeExtended()` trigger and intake spans instead.
-
-## Features
-
-In scope: event markers, alliance flipping, split segments, sim playback (no AdvantageScope export), point-at, speed zones, waypoint types, tolerance waypoints, pose variables, straight-line constraint, path folders, rough terrain.
-
-**Fuel sim** (app only, playback): a 2D ball sim of the field's `fuel` decorations, run once per change and scrubbed from recorded frames. Our robot uses its solved path and intake spans; other robots (allies/opponents) follow Catmull-Rom curves with a trapezoidal speed profile. Intakes are rate-limited (token bucket), so they push what they can't swallow. Setup lives in `project.fuelSim` (not part of the input hash, so it never stales paths); the on/off toggle is a local app preference. FUEL constants come from the 2026 Scoring Element Testing Report; the carpet-loss term is uncalibrated. Each obstacle's `fuelCollision` (`paths` = follow `enabled`, `block`, `pass`) decides whether fuel bounces off it, so bumps can stop fuel while paths drive over them; it is excluded from the input hash. It runs in a Web Worker (`fuelsim.worker.ts`, falling back to the UI thread where workers are unavailable) and the balls are drawn on a canvas layer between the field art SVG and the editor SVG, so dragging and playback never wait on it or repaint hundreds of SVG circles.
-
-Editing behaviour: Choreo-style Pose / Translation / Guide tools; new waypoints append at the end; drag-and-drop reorder; one Constraint menu (pick a type, then click the first and last waypoint). No auto-generate.
-
-## File formats
-
-- Clean break from Choreo: Mayhem uses its own formats (`.mtraj` etc.).
-- `solver/src/mayhem_solver/models.py` is the source of truth. To change a format: edit `models.py`, regenerate the schema (`uv run mayhem-solver schema ../schemas`), update `app/src/types.ts`, and update `lib/.../TrajectoryLoader.java` if the output changed. Bump `FORMAT_VERSION` for breaking changes.
-- Don't rename or reshape existing fields. New fields must be optional with a default.
+- Log analysis (`app/src/suite/core/{analysis,wpilog,plot}.ts`) is shared with the team site's `/logs` page; see the repo's CLAUDE.md for the sync rule.
+- Original log files are kept unchanged; analysis reads them.
 
 ## Desktop app UI
 
-- **Layout follows Choreo:** sidebar lists, top tool strip, big field, floating properties panel, bottom timeline.
+- Suite navigation is a top bar, not a permanent sidebar.
 - **Theme:** mostly white with a purple accent, card-based; light is the default and dark is opt-in.
+- No walls of raw text, huge red banners or glossary-style hand-holding; prefer visuals (lanes, cards, spec-sheet rows) and small chips.
 - **No "AI landing page" look:** no big hero headlines, eyebrow labels or stat cards.
 
 ## Distribution
 
-- The repo is public (github.com/ryanabraham1/Mayhem). Pushing a `v*` tag builds and publishes a release via GitHub Actions.
+- The repo is public (github.com/ryanabraham1/Mayhem). Pushing a `v*` tag builds and publishes a release via GitHub Actions; while Actions is unavailable, releases are built locally (see [BUILDING.md](BUILDING.md)).
 - The app updates itself from GitHub Releases but installs only when the user clicks (v0.6.0). The updater signing key must stay backed up; see [BUILDING.md](BUILDING.md).
-- MayhemLib is a hosted vendordep: the release workflow publishes its maven repo and `MayhemLib.json` to GitHub Pages (`gh-pages` branch), so users install and update it from one URL. Hosted versions are immutable; bump the lib version to ship library changes.
+- MayhemCpp is a hosted vendordep on GitHub Pages (`gh-pages`). Hosted versions are immutable; bump the version to ship library changes.
+- Every release's notes start with a "New in vX" changelog.

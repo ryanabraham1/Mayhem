@@ -36,9 +36,6 @@ importers:
       '@tauri-apps/plugin-updater':
         specifier: ~2.11.0
         version: 2.11.0
-      immer:
-        specifier: ^11.1.18
-        version: 11.1.18
       lucide-react:
         specifier: ^1.48.0
         version: 1.48.0(react@19.3.0)
@@ -51,9 +48,6 @@ importers:
       three:
         specifier: 0.170.0
         version: 0.170.0
-      uplot:
-        specifier: ^1.6.32
-        version: 1.6.32
       zustand:
         specifier: ^5.0.15
         version: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)
@@ -905,9 +899,6 @@ packages:
     resolution: {integrity: sha512-XtuDWVdqTLr3NAxm2ly9/hU6kUsJOgGh1RASzMBbsw6aWCOaQzHdW+QQDfdERjfJ2V5vL5pRPa4RetO9UfivDg==}
     engines: {node: '>=22.19.0'}
 
-  uplot@1.6.32:
-    resolution: {integrity: sha512-KIMVnG68zvu5XXUbC4LQEPnhwOxBuLyW1AHtpm6IKTXImkbLgkMy+jabjLgSLMasNuGGzQm/ep3tOkyTxpiQIw==}
-
   vite@8.3.3:
     resolution: {integrity: sha512-cTAldKPImjg6c+gk48U19POPn3GCBzZwpdsN8ZMEEcbpes+6/wvfqUd0C2y3qYY4wsj8PwgFwrZ/1jBPVttMSg==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1434,7 +1425,8 @@ snapshots:
     transitivePeerDependencies:
       - '@noble/hashes'
 
-  immer@11.1.18: {}
+  immer@11.1.18:
+    optional: true
 
   is-potential-custom-element-name@1.0.1: {}
 
@@ -1653,8 +1645,6 @@ snapshots:
       '@typescript/typescript-win32-x64': 7.0.2
 
   undici@8.12.2: {}
-
-  uplot@1.6.32: {}
 
   vite@8.3.3:
     dependencies:

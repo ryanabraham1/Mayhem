@@ -2007,7 +2007,6 @@ dependencies = [
 name = "mayhem"
 version = "0.9.59"
 dependencies = [
- "libc",
  "reqwest",
  "serde",
  "serde_json",

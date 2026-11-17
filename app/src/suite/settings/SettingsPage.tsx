@@ -1,4 +1,4 @@
-import { History, Keyboard, LifeBuoy, Monitor, Moon, Palette, RefreshCw, Route, Sun } from "lucide-react";
+import { History, Keyboard, LifeBuoy, Monitor, Moon, Palette, RefreshCw, Sun } from "lucide-react";
 import { recoverySnapshot, download } from "../storage";
 import { Button, PageHeader, Panel, Segmented } from "../ui";
 import { shortcutGroups } from "../autos/ShortcutSheet";
@@ -11,14 +11,12 @@ export type ThemeChoice = "light" | "dark" | "system";
 export function SettingsPage({
   theme,
   setTheme,
-  openLegacy,
   notify,
   version,
   s,
 }: {
   theme: ThemeChoice;
   setTheme: (t: ThemeChoice) => void;
-  openLegacy: () => void;
   notify: (m: string) => void;
   version: string;
   s: SuiteState;
@@ -67,7 +65,7 @@ export function SettingsPage({
                 Install {u.version}
               </Button>
             ) : (
-              <Button icon={RefreshCw} disabled={busy} onClick={() => void checkForUpdate(true)}>
+              <Button icon={RefreshCw} disabled={busy} onClick={() => void checkForUpdate(true, notify)}>
                 {u.phase === "checking"
                   ? "Checking…"
                   : u.phase === "downloading"
@@ -97,13 +95,6 @@ export function SettingsPage({
             >
               Export recovery snapshot
             </Button>
-          </Panel>
-          <Panel title="Classic trajectory planner" icon={Route}>
-            <p className="mx-help">
-              The original time-optimal trajectory solver from Mayhem 0.8. New autos should use pose goals; the classic
-              planner stays available for existing paths.
-            </p>
-            <Button onClick={openLegacy}>Open classic planner</Button>
           </Panel>
         </div>
       </div>

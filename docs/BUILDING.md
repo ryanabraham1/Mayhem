@@ -1,24 +1,27 @@
 # Building Mayhem
 
-Mayhem contains the development suite plus the solver sidecar and Java library that releases still package:
-
 | Part | Path | Toolchain |
 |------|------|-----------|
-| Solver sidecar (CasADi + IPOPT) | `solver/` | Python 3.12 via [uv](https://docs.astral.sh/uv/) |
 | Desktop app (UI + Tauri shell) | `app/`, `app/src-tauri/` | Node 22+ / pnpm, Rust (stable) |
-| Java robot library (vendordep) | `lib/` | JDK 17+, Gradle wrapper |
+| C++ library and physics sim (MayhemCpp vendordep) | `lib-cpp/` | C++17 / CMake |
+| CLI and MCP server | `scripts/mayhem.mjs` | Node 24+ |
 
-The suite also includes the C++ pose controller in `lib-cpp/` (C++17/CMake) and the Node CLI/MCP entry point `scripts/mayhem.mjs`. See [the user guide](USER_GUIDE.md), [C++ setup](../lib-cpp/README.md) and [suite agent tools](SUITE_AGENTS.md).
+See [the user guide](USER_GUIDE.md), [C++ setup](../lib-cpp/README.md) and [suite agent tools](SUITE_AGENTS.md).
 
-The desktop app is a Tauri 2 shell around the Vite/React UI. It bundles the frozen solver as a Tauri
-**sidecar** (`binaries/mayhem-solver`, `serve` subcommand, stdio, newline-delimited JSON-RPC).
+The desktop app is a Tauri 2 shell around the Vite/React UI. The Rust side (`app/src-tauri/src/`)
+holds the native commands: robot log transfer, project files, the robot repo review, the sim proof
+and deploys.
+
+The Python trajectory solver, the classic planner UI and the Java MayhemLib were removed after
+v0.9.59. Releases up to v0.9.59 still carry them, and the MayhemLib versions already hosted on
+GitHub Pages stay there.
 
 ## Prerequisites
 
-- uv (it installs Python 3.12 for you)
 - Node 22+ and pnpm (`corepack enable` or `npm i -g pnpm`)
 - Rust stable (`rustup` or Homebrew)
-- JDK 17+ for `lib/`
+- CMake and a C++ compiler, for `lib-cpp/` and the archive checks
+- Python 3.12+, for the packaging scripts
 - Linux only, for Tauri: `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev build-essential file`
 - Windows only: WebView2 (preinstalled on Windows 10 and 11), the MSVC build tools
   ("Desktop development with C++" in the Visual Studio installer) and PowerShell 7 (`pwsh`)
@@ -35,86 +38,29 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:5173`. No Python solver is needed for suite editing, preview or log import.
+Open `http://localhost:5173`. Editing, preview and log import all work in the browser.
 
 ### Desktop dev (`tauri dev`)
 
-The desktop shell always runs the **frozen** sidecar, so build it once (and again whenever
-solver code changes):
-
 ```sh
-scripts/build-sidecar.sh          # -> app/src-tauri/binaries/mayhem-solver-<target-triple>
 cd app && pnpm tauri dev          # starts `pnpm dev` itself, then opens the window
 ```
-
-On Windows, run `pwsh scripts/build-sidecar.ps1` instead of the `.sh` script.
 
 If a Vite dev server is already running on 5173, reuse it:
 `pnpm tauri dev --config '{"build":{"beforeDevCommand":""}}'`.
 
-## The solver sidecar
-
-`solver/packaging/mayhem-solver.spec` is a PyInstaller spec that produces a single-file
-executable (Tauri's `bundle.externalBin` needs a single file per platform). What it includes:
-
-- all of `casadi` via `collect_all`. CasADi `dlopen()`s its solver plugins
-  (`libcasadi_nlpsol_ipopt`, `libcasadi_linsol_mumps`, ...) and IPOPT/MUMPS/METIS/gfortran at
-  runtime, so import analysis can't find them. Static archives, headers and cmake/pkgconfig
-  files are dropped.
-- `shapely`, `networkx`, `pydantic`, `websockets` (their submodules too, because they import
-  lazily)
-- the field presets `mayhem_solver/fields/*.json` (read with `importlib.resources`)
-
-The entry point `solver/packaging/entry.py` calls `mayhem_solver.cli.main`, which runs
-`multiprocessing.freeze_support()` before anything else. Solves run in `spawn` worker processes
-that re-exec the frozen binary, and that call is what routes those workers to their target.
-
-`scripts/build-sidecar.sh` (on Windows, `scripts/build-sidecar.ps1`) builds the spec, copies the
-result to `app/src-tauri/binaries/mayhem-solver-<triple>[.exe]` (triple from `rustc -vV`,
-override with `--target`), then runs `scripts/smoke-sidecar.py`. The smoke test checks the
-time to the `ready` line, `ping`, `listFields`, `defaultProject`, and a real `solve`, which has to
-end in a successful `solveDone`. Skip it with `--no-smoke`.
-
-Numbers on an M-series Mac: the binary is about 64 MB, `ready` arrives 0.8 to 1.6 s after
-launch, and the smoke solve finishes in about 2 to 4 s.
-
-Set `MAYHEM_PYI_ONEDIR=1` to get an unpacked onedir build under `solver/build/pyinstaller/`
-when you want to see exactly what was collected.
-
-### Shutdown
-
-A onefile binary is a bootloader process that unpacks into a temp dir (`_MEIxxxx`) and runs
-Python as its child. tauri-plugin-shell SIGKILLs its children on exit, and that would leave
-the temp dir behind. To prevent this, `app/src-tauri/src/sidecar.rs` registers a small plugin
-ahead of the shell plugin. On `RunEvent::Exit` it sends SIGINT to its own `mayhem-solver`
-children, and SIGTERM to any still running after 1.5 s. Python gets `KeyboardInterrupt`,
-cancels the running solve jobs and exits, and the bootloader removes the temp dir. Separately,
-the server always exits when its stdin closes, so a crashed or force-killed app doesn't leave
-solvers running either.
-
-Windows has no SIGINT for this, and tauri-plugin-shell's `TerminateProcess` would leave the
-temp dir behind. The updater also exits the app there without running `RunEvent::Exit` hooks,
-and a still-running `mayhem-solver.exe` makes the installer fail. So the UI stops the solver
-itself: closing the window and installing an update both call `Backend.shutdown()`
-(`app/src/backend.ts`), which sends a `shutdown` request. The server cancels its solve jobs,
-waits for them, replies and exits. This runs on every platform; the SIGINT hook covers exits
-the UI doesn't see, such as Cmd+Q on macOS.
-
 ## Release builds
 
-Everything at once (sidecar, then desktop bundles, then MayhemLib), with artifact paths printed
-at the end:
+The desktop bundles, with artifact paths printed at the end:
 
 ```sh
-scripts/build-all.sh                        # --skip-sidecar / --skip-app / --skip-lib / --bundles ...
+scripts/build-all.sh                        # --bundles app,dmg | appimage,deb | nsis
 ```
 
-Or one piece at a time:
+or directly:
 
 ```sh
-scripts/build-sidecar.sh
 cd app && pnpm tauri build                  # macOS: --bundles app,dmg   Linux: --bundles appimage,deb   Windows: --bundles nsis
-cd lib && ./gradlew build vendordepJson publishJavaPublicationToLocalRepository
 ```
 
 Outputs:
@@ -122,24 +68,22 @@ Outputs:
 - `app/src-tauri/target/release/bundle/macos/Mayhem.app`, `dmg/Mayhem_<ver>_<arch>.dmg`
 - `.../bundle/appimage/*.AppImage`, `.../bundle/deb/*.deb`
 - `.../bundle/nsis/Mayhem_<ver>_x64-setup.exe`
-- `lib/build/repos/releases/` (maven repo; `build-all.sh` also zips it to `lib/build/repos/MayhemLib-maven.zip`),
-  `lib/build/vendordeps/MayhemLib.json`
+
+The C++ vendordep: `python3 scripts/build-cpp-vendordep.py --output <dir>` writes
+`<dir>/MayhemCpp.json` and the maven repo `<dir>/repos/releases/`.
 
 Notes:
 
 - **macOS DMG from a terminal without Automation permission.** `bundle_dmg.sh` scripts Finder to
   lay out the DMG window and fails with "Not authorized to send Apple events to Finder". Either
   allow it when prompted or run with `CI=true`, which skips that step.
-- **Signing.** Bundles are ad-hoc signed (`signingIdentity: "-"`) with the hardened runtime
-  and `app/src-tauri/Entitlements.plist`. `disable-library-validation` is required because the
-  sidecar loads libpython/CasADi from its temp dir, and without it the sidecar won't start
-  under the hardened runtime. The app isn't notarized, so users who download it have to clear
-  quarantine (`xattr -dr com.apple.quarantine /Applications/Mayhem.app`) or right-click and pick
-  Open. To notarize, set `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`,
-  `APPLE_TEAM_ID` (or the API-key variables) in CI. The entitlements already cover it.
-- **Linux AppImage.** Build with `NO_STRIP=true` (`build-all.sh` and CI already set it).
-  linuxdeploy strips the binaries it bundles, and stripping a PyInstaller onefile binary cuts
-  off its embedded archive.
+- **Signing.** Bundles are ad-hoc signed (`signingIdentity: "-"`) with the hardened runtime. The
+  app isn't notarized, so users who download it have to clear quarantine
+  (`xattr -dr com.apple.quarantine /Applications/Mayhem.app`) or right-click and pick Open. To
+  notarize, set `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` (or the
+  API-key variables) in CI.
+- **Linux AppImage.** `build-all.sh` and CI build with `NO_STRIP=true`, as every release so far
+  has; linuxdeploy then leaves the bundled binaries unstripped.
 - **Tauri versions.** The Tauri CLI won't build when the `tauri` crate and `@tauri-apps/api`
   differ in major.minor. Both are on 2.11. `app/src-tauri/Cargo.toml` pins the tauri crate
   family (`tauri`, `tauri-runtime(-wry)`, `tauri-utils`, `tauri-macros`, `tauri-build`) to
@@ -147,10 +91,7 @@ Notes:
 - **Windows installer.** Releases ship the NSIS installer only. It installs per user, needs no
   admin rights, installs WebView2 if it's missing, and is what the updater runs. It isn't
   code-signed, so SmartScreen warns on first run.
-- **Windows file encoding.** The solver reads and writes project files as UTF-8 and switches its
-  stdio to UTF-8. Python's default on Windows is the ANSI code page, which garbles non-ASCII names.
-- **Cross-compiling.** Not supported. Each platform's sidecar has to be frozen on that
-  platform, which is why CI uses a build matrix.
+- **Cross-compiling.** Not supported; CI builds each platform on that platform.
 
 ## CI
 
@@ -159,13 +100,11 @@ Notes:
 | Job | What it runs |
 |-----|--------------|
 | `workflows` | Actionlint validates workflow syntax, expressions and reusable-workflow calls |
-| `solver` | `uv run pytest -q` on Ubuntu, macOS and Windows |
-| `java` | `./gradlew test` on JDK 17 |
 | `frontend` | `pnpm test`, then `pnpm build` (`tsc -b` typecheck + Vite build) |
 | `cpp` | CMake/CTest, installation and independent `find_package` consumer on Linux, macOS and Windows |
 | `tools` | Build/extract CLI/MCP and C++ archives; verify hashes, CLI simulation, MCP stdio, C++ tests and compilation of Node-generated routines on Linux, macOS and Windows |
 | `browser` | Playwright against the production build: author/preview/export/reopen an auto, switch projects, import/persist/replay WPILOG through its worker, simulate state inputs, and navigate all suite pages in both themes |
-| `desktop` | Real frozen sidecar + stdio smoke solve/shutdown; real frontend; Rust tests and strict Clippy; unsigned Tauri bundles and packaged-process startup on Linux, Windows, and both macOS architectures |
+| `desktop` | Real frontend; Rust tests and strict Clippy; unsigned Tauri bundles and packaged-process startup on Linux, Windows, and both macOS architectures |
 | `ready` | Stable `CI ready` check; fails if any validation job fails, is cancelled or is skipped |
 
 Desktop CI disables updater artifact signing so PRs need no signing secrets. The release workflow
@@ -188,22 +127,20 @@ manual dispatch with an existing tag:
 1. `resolve-tag` resolves the tag to an immutable commit SHA. `validate` calls the same CI workflow
    against that SHA. Only after every job passes does `create-release` create/reuse a draft release.
    All packaging jobs check out that validated SHA.
-2. `desktop` is a matrix build that freezes and smoke-tests the sidecar, sets the app version
-   from the tag, and builds bundles with `tauri-apps/tauri-action`, which uploads them to the
+2. `desktop` is a matrix build that sets the app version from the tag and builds bundles with `tauri-apps/tauri-action`, which uploads them to the
    draft. The same files are also kept as workflow artifacts.
    - macOS arm64 (`macos-latest`): `.app` (tar.gz) + `.dmg`
    - macOS x64 (`macos-15-intel`, since GitHub retired `macos-13`): `.app` + `.dmg`
    - Linux x64 (`ubuntu-22.04`, for older glibc): `.AppImage` + `.deb`
    - Windows x64 (`windows-latest`): NSIS `-setup.exe`
-3. `mayhemlib` runs `./gradlew build vendordepJson publishJavaPublicationToLocalRepository`,
-   attaches `MayhemLib-maven.zip` and `MayhemLib.json` (for offline installs), and, unless the tag is
-   an `-rc`, hosts the maven repo and `MayhemLib.json` on GitHub Pages
-   (`scripts/publish-pages.sh`; see "Hosting MayhemLib" below).
-4. `mcp` runs the solver/MCP tests and attaches the Python wheel and source package.
-   `suite-tools` builds and independently verifies `Mayhem-suite-tools-<tag>.zip`,
+3. `mayhemcpp` builds the header-only C++ vendordep (`scripts/build-cpp-vendordep.py`), attaches
+   `MayhemCpp-maven.zip` and `MayhemCpp.json` (for offline installs), and, unless the tag is an
+   `-rc`, hosts the maven repo and `MayhemCpp.json` on GitHub Pages (`scripts/publish-pages.sh`;
+   see "Hosting MayhemCpp" below).
+4. `suite-tools` builds and independently verifies `Mayhem-suite-tools-<tag>.zip`,
    `Mayhem-cpp-<tag>.zip`, and `Mayhem-suite-SHA256SUMS.txt`. The CLI/MCP archive needs Node 24+
    but no npm installation. Keep its directory structure intact. The C++ archive contains the
-   header-only library, CMake setup and tests; it is separate from the Java vendordep.
+   header-only library, CMake setup and tests.
 5. `publish` checks that the tag still points at the validated SHA and all installers/library/tool
    assets are present, writes the
    auto-update manifest `latest.json` from the uploaded `.sig` files, then publishes the
@@ -224,13 +161,11 @@ installed apps are not offered it. The app inside reports the plain version (`0.
 
 ## Auto-update
 
-The desktop app updates itself with `tauri-plugin-updater` (UI in `app/src/updater.ts` and
-`app/src/components/UpdateBanner.tsx`). It checks
+The desktop app updates itself with `tauri-plugin-updater` (state in `app/src/updater.ts`; the banner
+is in `app/src/suite/SuiteApp.tsx`). It checks
 `https://github.com/ryanabraham1/Mayhem/releases/latest/download/latest.json` a few seconds
 after launch and every 6 hours, shows a banner when a newer version exists, and installs only
-when the user clicks **Install & restart**. Before restarting it stops running generations
-and saves pending edits. Settings, About & updates, and the Welcome screen have a manual
-check. Dev builds (`tauri dev`) skip the automatic check.
+when the user clicks **Install & restart**. Settings, Updates has a manual check. Dev builds (`tauri dev`) skip the automatic check.
 
 Every update is verified against the public key in `app/src-tauri/tauri.conf.json`
 (`plugins.updater.pubkey`). The release workflow signs with the matching private key from two
@@ -266,33 +201,19 @@ pointing at its `Mayhem.app.tar.gz` + `.sig`. Then build an "old" version with
 `--config '{"version":"0.0.1","plugins":{"updater":{"endpoints":["http://127.0.0.1:8799/latest.json"],"dangerousInsecureTransportProtocol":true}}}'`
 and launch it.
 
-## Hosting MayhemLib
+## Hosting MayhemCpp
 
-Users install MayhemLib with **Install new libraries (online)** and
-`https://ryanabraham1.github.io/Mayhem/MayhemLib.json`. That URL, and the maven repo the JSON points
+Users install the C++ library with **Install new libraries (online)** and
+`https://ryanabraham1.github.io/Mayhem/MayhemCpp.json`. That URL, and the maven repo the JSON points
 at (`https://ryanabraham1.github.io/Mayhem/maven/`), are served by GitHub Pages from the `gh-pages`
-branch. The release workflow's `mayhemlib` job pushes to that branch with
-`scripts/publish-pages.sh`; nobody edits the branch by hand.
+branch. The release workflow's `mayhemcpp` job (or `scripts/release-local-extras.sh` for a local
+release) pushes to that branch with `scripts/publish-pages.sh`; nobody edits the branch by hand.
+The same branch still serves the Java `MayhemLib.json` and its maven files from earlier releases.
 
-**One-time setup (repo owner).** The branch doesn't exist until the first non-rc release publishes
-it. After that run finishes, open the repo's Settings, Pages, set Source to "Deploy from a branch",
-branch `gh-pages`, folder `/ (root)`. Then check that
-`https://ryanabraham1.github.io/Mayhem/MayhemLib.json` loads.
-
-**Versions.** The version is `version` in `lib/build.gradle` (override with `-PmayhemVersion`). A
-published version is never overwritten, because Gradle caches artifacts by version and an in-place
-change would leave users with stale jars. If a release's version is already hosted, the script logs a
-notice and leaves the branch alone. So when the library changes, bump `version` in `lib/build.gradle`
-before tagging; app-only releases can leave it. WPILib's "Check for updates" offers the new version to
-users from the JSON at `jsonUrl`.
-
-**Forks.** Pass `-PpagesUrl=https://<owner>.github.io/<repo>` to `vendordepJson` to bake a
-different host into the generated JSON (and update the URLs in the workflow's release notes).
-
-**Offline.** The release also carries `MayhemLib-maven.zip` (unzip into `~/wpilib/2026/maven`) and
-`MayhemLib.json` for machines without internet. From a checkout,
-`cd lib && ./gradlew installVendordep -ProbotProject=/path/to/robot` publishes into that same
-directory and writes the JSON, which is handy while developing the library.
+**Versions.** The version is `MAYHEM_CPP_VERSION` in `lib-cpp/include/mayhem/version.hpp`. A
+published version is never overwritten, because build tools cache artifacts by version. If a
+release's version is already hosted, the script logs a notice and leaves the branch alone, so bump
+the version before tagging when the library changes; app-only releases can leave it.
 
 ## Documentation site
 
@@ -303,8 +224,6 @@ cd site && pnpm install && pnpm dev     # live preview at http://localhost:5173/
 cd site && pnpm build                   # static output in site/.vitepress/dist
 ```
 
-`.github/workflows/docs.yml` builds the site on pull requests that touch `site/` and, on a push to `main`, publishes it with `scripts/publish-docs.sh`. The script replaces everything at the root of the `gh-pages` branch except `maven/` and `MayhemLib.json`, which `scripts/publish-pages.sh` owns (see "Hosting MayhemLib"), and the two workflows share the `mayhemlib-pages` concurrency group so pushes to the branch never race. The docs and the MayhemLib files live on the same Pages site, so no extra Pages setup is needed once the branch is serving.
+`.github/workflows/docs.yml` builds the site on pull requests that touch `site/` and, on a push to `main`, publishes it with `scripts/publish-docs.sh`. The script replaces everything at the root of the `gh-pages` branch except `maven/`, `MayhemCpp.json` and `MayhemLib.json`, which `scripts/publish-pages.sh` owns (see "Hosting MayhemCpp"), and the two workflows share the `mayhemlib-pages` concurrency group so pushes to the branch never race. The docs and the vendordep files live on the same Pages site, so no extra Pages setup is needed once the branch is serving.
 
-The API reference (`/api/`) is generated: `./gradlew apiJson` in `lib/` runs the doclet in `lib/src/doclet`, which writes `site/api/mayhemlib.json`, and `site/.vitepress/api.ts` turns that into the API sidebar, one page per class (the dynamic route `site/api/[pkg]/[cls].md`) and local-search entries. The docs workflow sets up JDK 17, regenerates the JSON, builds the site and copies the standard Javadoc (`./gradlew javadoc`) to `/javadoc/`. It also runs on changes under `lib/src/main/`, so Javadoc edits republish the site. Commit the regenerated JSON with Javadoc changes so local previews match.
-
-`site/` repeats material from `docs/USER_GUIDE.md` and `lib/README.md`; update both when behavior changes.
+`site/` repeats material from `docs/USER_GUIDE.md` and `lib-cpp/README.md`; update both when behavior changes.

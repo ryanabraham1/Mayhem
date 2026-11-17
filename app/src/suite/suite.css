@@ -388,29 +388,6 @@
   background: var(--mx-bad-soft);
   color: var(--mx-bad);
 }
-.mx-loading {
-  display: grid;
-  place-items: center;
-  height: 100vh;
-  color: var(--mx-muted);
-}
-.mx-legacy-return {
-  position: fixed;
-  right: 14px;
-  bottom: 14px;
-  z-index: 100;
-}
-.mx-legacy-return button {
-  border: 1px solid var(--border, #ddd);
-  background: var(--panel, #fff);
-  color: var(--text, #222);
-  border-radius: 999px;
-  padding: 8px 14px;
-  font: inherit;
-  cursor: pointer;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-}
-
 /* ---------- Primitives ---------- */
 .mx-btn {
   display: inline-flex;

@@ -37,8 +37,7 @@ def main():
          "CLI and MCP setup: docs/SUITE_AGENTS.md\n"
          "Keep the archive's directory structure intact.\n"),
         ("cpp", cpp, "Header-only C++17 library; optional WPILib adapters require C++20.\n"
-         "Build/install instructions: lib-cpp/README.md\n"
-         "This is separate from the Java MayhemLib vendordep.\n"),
+         "Build/install instructions: lib-cpp/README.md\n"),
     ]:
         stem = f"Mayhem-{name}-{args.version}"
         archive = args.output / f"{stem}.zip"

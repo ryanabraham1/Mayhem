@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
   ArrowUpCircle,
@@ -33,7 +33,6 @@ import { installUpdate, startUpdateChecks, useUpdater } from "../updater";
 import "./suite.css";
 import appPackage from "../../package.json";
 
-const LegacyApp = lazy(() => import("../App"));
 let updateChecksStarted = false;
 
 export type Page =
@@ -135,7 +134,6 @@ function Shell({
     load<Page>(PAGE_KEY, ["overview", "changes", "autos", "states", "logs", "robot", "settings"], "overview"),
   );
   const [projectPicker, setProjectPicker] = useState(false);
-  const [legacy, setLegacy] = useState(false);
   // Picking the robot code folder shows that robot: its own project file (autos, state machines)
   // opens and stays linked. A folder already chosen at launch is left to the Overview's prompt.
   const [repo] = useRobotRepo();
@@ -157,16 +155,6 @@ function Shell({
       localStorage.setItem(PAGE_KEY, p);
     } catch {}
   };
-
-  if (legacy)
-    return (
-      <Suspense fallback={<div className="mx-loading">Opening the classic planner…</div>}>
-        <div className="mx-legacy-return">
-          <button onClick={() => setLegacy(false)}>← Back to Mayhem</button>
-        </div>
-        <LegacyApp />
-      </Suspense>
-    );
 
   return (
     <div className="mx-app" data-page={page}>
@@ -287,7 +275,6 @@ function Shell({
           <SettingsPage
             theme={theme}
             setTheme={setTheme}
-            openLegacy={() => setLegacy(true)}
             notify={s.notify}
             s={s}
             version={appPackage.version}

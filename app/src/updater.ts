@@ -7,8 +7,7 @@ import { create } from "zustand";
 import { getVersion } from "@tauri-apps/api/app";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { backend, isTauri } from "./backend";
-import { flushSaves, useStore } from "./store";
+import { desktop } from "./suite/native";
 
 export const RELEASES_URL = "https://github.com/ryanabraham1/Mayhem/releases";
 
@@ -42,9 +41,9 @@ let pending: Update | null = null;
 
 const busy = () => ["checking", "downloading", "restarting"].includes(useUpdater.getState().phase);
 
-/** `manual` checks report "up to date" and errors; background checks stay quiet. */
-export async function checkForUpdate(manual = false) {
-  if (!isTauri() || busy()) return;
+/** `manual` checks report "up to date" and errors through `notify`; background checks stay quiet. */
+export async function checkForUpdate(manual = false, notify?: (message: string) => void) {
+  if (!desktop || busy()) return;
   useUpdater.setState({ phase: "checking", error: null });
   try {
     const update = await check({ timeout: 20_000 });
@@ -61,13 +60,13 @@ export async function checkForUpdate(manual = false) {
       }));
     } else {
       useUpdater.setState({ phase: "idle", version: null, lastChecked: Date.now() });
-      if (manual) useStore.getState().toast("success", `Mayhem ${useUpdater.getState().current ?? ""} is up to date`);
+      if (manual) notify?.(`Mayhem ${useUpdater.getState().current ?? ""} is up to date`);
     }
   } catch (e: any) {
     const message = String(e?.message ?? e);
     // A failed background check (offline at an event, GitHub hiccup) keeps offering a known update.
     useUpdater.setState({ phase: pending ? "available" : manual ? "error" : "idle", error: manual ? message : null });
-    if (manual) useStore.getState().toast("error", `Could not check for updates: ${message}`);
+    if (manual) notify?.(`Could not check for updates: ${message}`);
     else console.warn("update check failed:", message);
   }
 }
@@ -76,25 +75,16 @@ export async function checkForUpdate(manual = false) {
 export async function installUpdate() {
   const update = pending;
   if (!update || busy()) return;
-  const app = useStore.getState();
-  if (app.generatingAll || Object.values(app.solves).some((s) => s.status === "solving")) app.cancelGeneration();
   useUpdater.setState({ phase: "downloading", downloaded: 0, total: null, error: null, dismissed: false });
-  let solverStopped = false;
   try {
-    await flushSaves();
     await update.download((ev) => {
       if (ev.event === "Started") useUpdater.setState({ total: ev.data.contentLength ?? null });
       else if (ev.event === "Progress") useUpdater.setState((s) => ({ downloaded: s.downloaded + ev.data.chunkLength }));
     });
     useUpdater.setState({ phase: "restarting" });
-    // The Windows installer can't replace mayhem-solver.exe while it runs, and install() exits
-    // the app there without the usual shutdown hooks, so stop the solver first.
-    await backend.shutdown();
-    solverStopped = true;
     await update.install();
     await relaunch();
   } catch (e: any) {
-    if (solverStopped) void backend.connect();
     useUpdater.setState({ phase: "error", error: String(e?.message ?? e) });
   }
 }
@@ -110,7 +100,7 @@ export function reopenUpdate() {
 const RECHECK_MS = 6 * 60 * 60 * 1000;
 
 export function startUpdateChecks() {
-  if (!isTauri()) return;
+  if (!desktop) return;
   void getVersion().then((current) => useUpdater.setState({ current }));
   // Dev builds report the repo's version; don't nag while developing. Manual checks still work.
   if (import.meta.env.DEV) return;

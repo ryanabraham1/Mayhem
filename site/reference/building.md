@@ -17,7 +17,7 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:5173`. To run the desktop app, build the bundled sidecar once with `scripts/build-sidecar.sh` (`pwsh scripts/build-sidecar.ps1` on Windows), then run `pnpm tauri dev`.
+Open `http://localhost:5173`. To run the desktop app, run `pnpm tauri dev` in `app/`.
 
 ## Tests
 

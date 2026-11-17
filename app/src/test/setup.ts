@@ -24,7 +24,7 @@ if (typeof window !== "undefined") {
     Object.assign(window, { PointerEvent: PointerEventStub });
   }
 
-  // uPlot reads the device pixel ratio through matchMedia when it loads.
+  // Theme and layout code read matchMedia.
   window.matchMedia ??= ((query: string) => ({
     matches: false, media: query, onchange: null, addListener() {}, removeListener() {},
     addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false,

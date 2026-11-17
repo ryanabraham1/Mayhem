@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 const field = JSON.parse(
   await readFile(
     new URL(
-      "../solver/src/mayhem_solver/fields/rebuilt-2026.json",
+      "../app/src/suite/core/rebuilt-2026.json",
       import.meta.url,
     ),
     "utf8",
@@ -19,7 +19,7 @@ const styles = {
   blue: { fill: "#2d56d6", stroke: "#2d56d6", opacity: 0.12 },
   red: { fill: "#cf3434", stroke: "#cf3434", opacity: 0.12 },
 };
-let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${field.length} ${field.width}"><desc>Mayhem 2026 REBUILT vector field. Generated from solver/src/mayhem_solver/fields/rebuilt-2026.json.</desc><g transform="translate(0 ${field.width}) scale(1 -1)"><rect width="${field.length}" height="${field.width}" fill="white"/>`;
+let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${field.length} ${field.width}"><desc>Mayhem 2026 REBUILT vector field. Generated from app/src/suite/core/rebuilt-2026.json.</desc><g transform="translate(0 ${field.width}) scale(1 -1)"><rect width="${field.length}" height="${field.width}" fill="white"/>`;
 for (const d of field.decorations) {
   const style = styles[d.style] ?? {};
   const attrs = `fill="${d.kind === "line" ? "none" : (style.fill ?? "none")}" stroke="${style.stroke ?? "none"}" opacity="${style.opacity ?? 1}" stroke-width="${d.kind === "line" ? d.width : 0.015}"`;

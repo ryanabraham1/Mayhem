@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Navigation } from "lucide-react";
-import { FieldArt } from "../../components/FieldArt";
-import type { Field as FieldModel } from "../../types";
+import { FieldArt, type FieldDrawing as FieldModel } from "../FieldArt";
 import field from "../core/rebuilt-2026.json";
 import type { DrivenPath, RoutineDiff } from "../core/review/autos.ts";
 import type { ReviewReport } from "../core/review/report.ts";

@@ -1,5 +1,12 @@
 import { memo } from "react";
-import type { Decoration, Field, Vec2 } from "../types";
+/** An [x, y] point in meters. */
+type Vec2 = number[];
+/** One painted shape; `style` is a DECO_STYLE key (blueZone, tape, fuel, structure, ...). */
+export interface Decoration {
+  kind: string; points: Vec2[]; center: Vec2; radius: number; style: string; width: number;
+}
+/** The season field drawing (core/rebuilt-2026.json): its size in meters and what's painted on it. */
+export interface FieldDrawing { length: number; width: number; decorations?: Decoration[] }
 const pts = (p: Vec2[]) => p.map(([x, y]) => `${x},${y}`).join(" ");
 const DECO_STYLE: Record<
   string,
@@ -24,7 +31,7 @@ export const FieldArt = memo(function FieldArt({
   field,
   hideFuel,
 }: {
-  field: Field;
+  field: FieldDrawing;
   hideFuel?: boolean;
 }) {
   const d = (field.decorations ?? []).filter(

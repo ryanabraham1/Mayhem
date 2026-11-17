@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
-# Publish MayhemLib to the gh-pages branch, which GitHub Pages serves at
+# Publish a vendordep to the gh-pages branch, which GitHub Pages serves at
 # https://<owner>.github.io/<repo>/ :
-#   maven/...         maven repo (what MayhemLib.json's mavenUrls points at)
-#   MayhemLib.json    vendordep JSON (its jsonUrl; WPILib's "Install new libraries (online)" and
+#   maven/...         maven repo (what the vendordep JSON's mavenUrls points at)
+#   <name>.json       vendordep JSON (its jsonUrl; WPILib's "Install new libraries (online)" and
 #                     "Check for updates" read it)
 #
-# Usage: scripts/publish-pages.sh <maven-repo-dir> <MayhemLib.json> <version>
-#   <maven-repo-dir>  lib/build/repos/releases   (./gradlew publishJavaPublicationToLocalRepository)
-#   <MayhemLib.json>  lib/build/vendordeps/MayhemLib.json   (./gradlew vendordepJson)
+# Usage: scripts/publish-pages.sh <maven-repo-dir> <vendordep.json> <version>
+#   For MayhemCpp: scripts/build-cpp-vendordep.py --output <dir> writes <dir>/repos/releases and
+#   <dir>/MayhemCpp.json; pass ARTIFACT_DIR=mayhemlib/MayhemCpp-cpp.
 # Environment:
 #   PAGES_REMOTE  git remote URL to push to (CI sets this to an authenticated https URL)
 #   PAGES_BRANCH  default gh-pages
-#   ARTIFACT_DIR  maven path of the artifact, default mayhemlib/MayhemLib-java. The header-only
-#                 C++ vendordep uses mayhemlib/MayhemCpp-cpp with MayhemCpp.json
-#                 (scripts/build-cpp-vendordep.py builds both).
+#   ARTIFACT_DIR  maven path of the artifact, default mayhemlib/MayhemLib-java (the Java vendordep
+#                 published up to v0.9.59, still hosted). MayhemCpp uses mayhemlib/MayhemCpp-cpp.
 #
 # A published version is never overwritten: Gradle caches artifacts by version, so changing one in
 # place would leave users with stale or mismatched jars. If <version> is already hosted this does
-# nothing; bump `version` in lib/build.gradle (or pass -PmayhemVersion) to ship library changes.
+# nothing; bump the library's version (lib-cpp/include/mayhem/version.hpp for MayhemCpp) to ship changes.
 set -euo pipefail
 
 [[ $# -eq 3 ]] || { echo "usage: $0 <maven-repo-dir> <MayhemLib.json> <version>" >&2; exit 2; }
@@ -59,7 +58,7 @@ if [[ -d "maven/$ARTIFACT_DIR/$VERSION" ]]; then
 fi
 
 # Only this version (a local build/repos/releases can hold older ones), plus the artifact's
-# maven-metadata.xml. maven/mayhemlib/MayhemLib-java matches the publication in lib/build.gradle.
+# maven-metadata.xml. ARTIFACT_DIR must match the groupId/artifactId the vendordep JSON names.
 [[ -d "$REPO_DIR/$ARTIFACT_DIR/$VERSION" ]] || { echo "no $ARTIFACT_DIR/$VERSION under $REPO_DIR" >&2; exit 1; }
 mkdir -p "maven/$ARTIFACT_DIR"
 cp -R "$REPO_DIR/$ARTIFACT_DIR/$VERSION" "maven/$ARTIFACT_DIR/"
