@@ -1,8 +1,8 @@
 # Mayhem suite user guide
 
-The rebuilt app combines pose-based autonomous editing, state-machine inspection, and log analysis. It opens to **Overview**; the top bar switches between Autonomous, State machines, Logs, Robot and Agents. The gear opens Settings, including Light / Dark / Match system themes and the classic planner.
+The rebuilt app combines pose-based autonomous editing, state-machine inspection, and log analysis. It opens to **Overview**; the top bar switches between Autonomous, State machines, Logs, Robot and Agents. The gear opens Settings, including Light / Dark / Match system themes.
 
-This guide describes the development suite in this checkout. See [suite status](SUITE_STATUS.md) for verification history and release gaps. The [classic planner guide](CLASSIC_PLANNER.md) covers existing solver projects.
+This guide describes the development suite in this checkout. See [suite status](SUITE_STATUS.md) for verification history and release gaps.
 
 ## Start and manage projects
 
@@ -18,7 +18,7 @@ Open `http://localhost:5173`. Pose editing, preview, state simulation and import
 
 Click the **project name** in the top bar to create, rename, duplicate, open, or switch saved projects. Each project contains its robot limits, routines, typed inputs and state-machine manifests. Local copies are saved on this computer; use **Autonomous → Export project** for a portable JSON backup.
 
-Suite files use the `mayhem-suite` version 1 JSON format, conventionally `name.mayhem.json`. They are separate from classic `project.mayhem` / `.mtraj` files and the Java trajectory-library workflow. There is no automatic conversion between them.
+Suite files use the `mayhem-suite` version 1 JSON format, conventionally `name.mayhem.json`.
 
 In the desktop app, **Agents → Save project file** creates a live file link in your robot repository. External edits reload with revision checks; app edits save back. If a conflict banner appears, export your current work before reopening and reconciling the linked file. Browser downloads are snapshots, without live file linking. **Settings → Export recovery snapshot** retrieves a recovery copy when available.
 
@@ -107,6 +107,5 @@ For **Team upload**, enter the team website and a device upload token obtained f
 - [Suite agent guide](SUITE_AGENTS.md): revision-safe editing, CLI commands and MCP tools.
 - [C++ integration](../lib-cpp/README.md): pose controller, executor, callbacks and optional WPILib adapters. Exporting a header does not deploy or register callbacks on the robot.
 - [Team 3256 example](../examples/suite/team3256/README.md): robot simulation recordings and known findings.
-- [Classic planner](CLASSIC_PLANNER.md): Python solver, `.mtraj` generation and the Java MayhemLib workflow.
 
 The new controller still needs physical robot testing. Native collection, updater installation and cross-platform packages need their own checks; browser preview alone does not establish release readiness.

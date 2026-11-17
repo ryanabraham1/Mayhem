@@ -42,7 +42,14 @@ export const syncDefaults: SyncConfig = {
 const MOVED_SITES: Record<string, string> = {
   "https://3256tools.vercel.app": "https://www.warriorb.org",
 };
-export const teamSite = (site: string) => MOVED_SITES[site.trim().replace(/\/+$/, "")] ?? site;
+export function teamSite(site: string): string {
+  const trimmed = site.trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  const address = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  // Use the canonical team host so authenticated requests don't need a redirect.
+  if (/^https:\/\/(?:www\.)?warriorb\.org$/i.test(address)) return syncDefaults.site;
+  return MOVED_SITES[address] ?? address;
+}
 export function loadSyncConfig(): SyncConfig {
   try {
     const saved = JSON.parse(localStorage.getItem(SYNC_KEY) ?? "{}");
@@ -107,7 +114,7 @@ export interface TeamCloud {
 }
 const cloudEmpty: TeamCloud = { logs: [], next: null, loading: false, loaded: false, error: "" };
 export const cloudLink = (site: string, sha256: string) =>
-  new URL(`/logs?log=${sha256}`, site).toString();
+  new URL(`/logs?log=${sha256}`, teamSite(site)).toString();
 
 /**
  * Robot log collection and team upload. Runs at app level so collection
@@ -132,6 +139,7 @@ export function useLogSync({
   notify: (message: string) => void;
 }) {
   const [config, setConfig] = useState(loadSyncConfig);
+  const site = teamSite(config.site);
   const [token, setTokenState] = useState(() => {
     try {
       return loadSyncConfig().rememberToken
@@ -203,7 +211,7 @@ export function useLogSync({
   useEffect(() => {
     cloudRequest.current++;
     setCloud(cloudEmpty);
-  }, [config.site, token]);
+  }, [site, token]);
 
   const refreshCloud = useCallback(
     async (more = false) => {
@@ -215,7 +223,7 @@ export function useLogSync({
       setCloud((c) => ({ ...c, loading: true, error: "" }));
       try {
         const page = await invoke<{ logs: TeamLog[]; next: string | null }>("list_team_logs", {
-          site: config.site,
+          site,
           token,
           before: more ? cloud.next : null,
         });
@@ -235,7 +243,7 @@ export function useLogSync({
         setCloud((c) => ({ ...c, loading: false, loaded: true, error: String(e) }));
       }
     },
-    [config.site, token, cloud.next],
+    [site, token, cloud.next],
   );
 
   /** Download a team recording, verify it, and add it to the local library. */
@@ -244,7 +252,7 @@ export function useLogSync({
     setSaving((s) => [...s, log.sha256]);
     try {
       const path = await invoke<string>("download_team_log", {
-        site: config.site,
+        site,
         token,
         sha256: log.sha256,
         name: log.name,
@@ -255,8 +263,8 @@ export function useLogSync({
       });
       await updateLog(log.sha256, {
         upload: "uploaded",
-        uploadSite: config.site,
-        cloudUrl: cloudLink(config.site, log.sha256),
+        uploadSite: site,
+        cloudUrl: cloudLink(site, log.sha256),
         uploadError: undefined,
         retryAt: undefined,
       });
@@ -285,7 +293,7 @@ export function useLogSync({
                 expectedSize: log.size,
               });
           await received(await nativeRead(path), log.name, path, {
-            queueSite: config.autoUpload ? config.site : undefined,
+            queueSite: config.autoUpload ? site : undefined,
             source: sourceKey(origin, log),
             background,
           });
@@ -302,7 +310,7 @@ export function useLogSync({
       if (failures.length && !background)
         notify(failures.slice(0, 3).join("\n"));
     },
-    [host, origin, fromFolder, config.autoUpload, config.site, received, notify],
+    [host, origin, fromFolder, config.autoUpload, site, received, notify],
   );
 
   const refresh = useCallback(
@@ -414,7 +422,7 @@ export function useLogSync({
       const log = logs.find(
         (log) =>
           log.nativePath &&
-          (!log.uploadSite || teamSite(log.uploadSite) === config.site) &&
+          (!log.uploadSite || teamSite(log.uploadSite) === site) &&
           (log.upload === "queued" || log.upload === "error") &&
           (log.retryAt ?? 0) <= Date.now(),
       );
@@ -424,14 +432,14 @@ export function useLogSync({
       try {
         const cloudUrl = await invoke<string>("upload_team_log", {
           path: log.nativePath,
-          site: config.site,
+          site,
           token,
           name: log.name,
           expectedHash: log.id,
         });
         await updateLog(log.id, {
           upload: "uploaded",
-          uploadSite: config.site,
+          uploadSite: site,
           cloudUrl,
           uploadError: undefined,
           retryAt: undefined,
@@ -455,7 +463,7 @@ export function useLogSync({
       void upload();
     }, 5000);
     return () => clearInterval(timer);
-  }, [logs, token, config.site, config.cloudPaused, updateLog, notify]);
+  }, [logs, token, site, config.cloudPaused, updateLog, notify]);
 
   const queued = logs.filter(
     (l) => l.upload === "queued" || l.upload === "error",

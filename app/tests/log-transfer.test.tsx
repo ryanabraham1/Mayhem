@@ -6,7 +6,7 @@ vi.mock("../src/suite/native", () => ({
   nativeRead: vi.fn(async () => new Uint8Array([1]).buffer),
 }));
 import { invoke } from "../src/suite/native";
-import { useLogSync, POLL_MS, SYNC_KEY, forgetSources, loadSyncConfig } from "../src/suite/logSync";
+import { useLogSync, POLL_MS, SYNC_KEY, forgetSources, loadSyncConfig, teamSite, cloudLink } from "../src/suite/logSync";
 import { LogActions, TeamCloud } from "../src/suite/logs/LogsPage";
 import type { StoredLog } from "../src/suite/storage";
 
@@ -38,6 +38,30 @@ it("moves a team website saved under the old address to the new domain", () => {
   expect(loadSyncConfig().site).toBe("https://www.warriorb.org");
   localStorage.setItem(SYNC_KEY, JSON.stringify({ site: "https://example.org" }));
   expect(loadSyncConfig().site).toBe("https://example.org");
+});
+
+it("accepts bare team domains and whitespace without changing explicit protocols", () => {
+  expect(teamSite("  warriorb.org/  ")).toBe("https://www.warriorb.org");
+  expect(teamSite("www.warriorb.org")).toBe("https://www.warriorb.org");
+  expect(teamSite("team.example:8443/")).toBe("https://team.example:8443");
+  expect(teamSite("http://team.example")).toBe("http://team.example");
+  expect(teamSite("  ")).toBe("");
+  expect(cloudLink("warriorb.org", "abc")).toBe("https://www.warriorb.org/logs?log=abc");
+  localStorage.setItem(SYNC_KEY, JSON.stringify({ site: "warriorb.org" }));
+  expect(loadSyncConfig().site).toBe("https://www.warriorb.org");
+});
+
+it("normalizes a typed bare domain before requesting the team library", async () => {
+  vi.mocked(invoke).mockResolvedValue({ logs: [], next: null });
+  const { view } = setup();
+  act(() => {
+    view.result.current.update({ site: "warriorb.org" });
+    view.result.current.setToken("test-device-token");
+  });
+  await act(() => view.result.current.refreshCloud());
+  expect(invoke).toHaveBeenCalledWith("list_team_logs", expect.objectContaining({
+    site: "https://www.warriorb.org",
+  }));
 });
 
 it("keeps polling through library updates and skips robot recordings already saved in prior sessions", async () => {

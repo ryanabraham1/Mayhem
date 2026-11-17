@@ -1,19 +1,17 @@
 # Building Mayhem
 
-Mayhem contains the development suite and the classic trajectory-planning stack:
+Mayhem contains the development suite plus the solver sidecar and Java library that releases still package:
 
 | Part | Path | Toolchain |
 |------|------|-----------|
-| Classic solver (CasADi + IPOPT) | `solver/` | Python 3.12 via [uv](https://docs.astral.sh/uv/) |
+| Solver sidecar (CasADi + IPOPT) | `solver/` | Python 3.12 via [uv](https://docs.astral.sh/uv/) |
 | Desktop app (UI + Tauri shell) | `app/`, `app/src-tauri/` | Node 22+ / pnpm, Rust (stable) |
-| Classic Java robot library (vendordep) | `lib/` | JDK 17+, Gradle wrapper |
+| Java robot library (vendordep) | `lib/` | JDK 17+, Gradle wrapper |
 
 The suite also includes the C++ pose controller in `lib-cpp/` (C++17/CMake) and the Node CLI/MCP entry point `scripts/mayhem.mjs`. See [the user guide](USER_GUIDE.md), [C++ setup](../lib-cpp/README.md) and [suite agent tools](SUITE_AGENTS.md).
 
-The desktop app is a Tauri 2 shell around the Vite/React UI. The classic planner talks to the solver over
-newline-delimited JSON-RPC: inside the desktop app it spawns the frozen solver as a Tauri
-**sidecar** (`binaries/mayhem-solver`, `serve` subcommand, stdio). In a plain browser it
-connects to `ws://127.0.0.1:8765` instead (override with `VITE_SOLVER_WS`).
+The desktop app is a Tauri 2 shell around the Vite/React UI. It bundles the frozen solver as a Tauri
+**sidecar** (`binaries/mayhem-solver`, `serve` subcommand, stdio, newline-delimited JSON-RPC).
 
 ## Prerequisites
 
@@ -38,18 +36,6 @@ pnpm dev
 ```
 
 Open `http://localhost:5173`. No Python solver is needed for suite editing, preview or log import.
-
-For **Settings → Classic trajectory planner**, use two terminals:
-
-```sh
-# 1: solver over WebSocket, straight from source
-cd solver && uv run mayhem-solver serve --ws 8765
-
-# 2: UI with hot reload
-cd app && pnpm install && pnpm dev     # http://localhost:5173
-```
-
-Solver changes need a restart of terminal 1.
 
 ### Desktop dev (`tauri dev`)
 

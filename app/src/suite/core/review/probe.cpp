@@ -16,7 +16,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <optional>
 #include <string>
+#include <type_traits>
 
 #include <gtest/gtest.h>
 #include <wpi/json.h>
@@ -57,6 +59,19 @@ void SetAxis(XSim& c, const std::string& axis, double value) {
   else if (axis == "rightY") c.SetRightY(value);
   else FAIL() << "Unknown axis " << axis;
 }
+
+// Older robot revisions have RobotHarness(bool red) with no simulated-field flag; a template
+// keeps the unused constructor call out of the build so the probe compiles against both.
+template <typename H>
+H& MakeHarness(std::optional<H>& slot, bool red, bool field) {
+  if constexpr (std::is_constructible_v<H, bool, bool>) {
+    slot.emplace(red, field);
+  } else {
+    (void)field;
+    slot.emplace(red);
+  }
+  return *slot;
+}
 }  // namespace
 
 TEST(MayhemReviewProbe, Scenario) {
@@ -66,7 +81,9 @@ TEST(MayhemReviewProbe, Scenario) {
   }
   std::ifstream in{path};
   const wpi::json scenario = wpi::json::parse(in);
-  RobotHarness h{scenario.value("alliance", std::string{"blue"}) == "red", scenario.value("field", false)};
+  std::optional<RobotHarness> harness;
+  RobotHarness& h = MakeHarness(harness, scenario.value("alliance", std::string{"blue"}) == "red",
+                                scenario.value("field", false));
   double t = 0;
   for (const auto& step : scenario.at("steps")) {
     const std::string kind = step.at("kind");

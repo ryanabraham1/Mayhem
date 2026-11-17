@@ -15,6 +15,7 @@ import {
 import { desktop } from "../native";
 import { robotAddresses, useRobot } from "../robot";
 import { useLogLibrary } from "../logLibrary";
+import { teamSite } from "../logSync";
 import { SignalsEditor } from "../SignalsEditor";
 import { RobotNow } from "./RobotNow";
 import { RobotValues } from "./RobotValues";
@@ -273,7 +274,13 @@ function UploadPanel() {
         onChange={(autoUpload) => sync.update({ autoUpload })}
       />
       <Field label="Team website">
-        <input aria-label="Team website" value={c.site} onChange={(e) => sync.update({ site: e.target.value })} />
+        <input
+          aria-label="Team website"
+          placeholder="https://www.warriorb.org"
+          value={c.site}
+          onChange={(e) => sync.update({ site: e.target.value })}
+          onBlur={() => sync.update({ site: teamSite(c.site) })}
+        />
       </Field>
       <Field
         label="Device upload token"
@@ -285,7 +292,7 @@ function UploadPanel() {
               type="button"
               className="mx-link"
               onClick={() => {
-                const url = `${c.site.replace(/\/+$/, "")}/logs`;
+                const url = `${teamSite(c.site)}/logs`;
                 if (desktop) void import("@tauri-apps/plugin-shell").then((m) => m.open(url));
                 else window.open(url, "_blank", "noopener");
               }}

@@ -40,7 +40,7 @@ Verification: 321 frontend/core/CLI tests, TypeScript and production build, 34 P
 
 ## Documentation for the overhaul
 
-[USER_GUIDE.md](USER_GUIDE.md) is the suite workflow guide: projects and file links, pose editing, preview modes, state inspection, log analysis, robot collection and agent handoff. Existing solver instructions are preserved in [CLASSIC_PLANNER.md](CLASSIC_PLANNER.md). The README, build instructions and VitePress site now route readers to the appropriate suite or classic workflow; classic screenshots are labeled. Documentation changes do not change the validation or release status recorded below.
+[USER_GUIDE.md](USER_GUIDE.md) is the suite workflow guide: projects and file links, pose editing, preview modes, state inspection, log analysis, robot collection and agent handoff. The README, build instructions and VitePress site cover the suite only. Documentation changes do not change the validation or release status recorded below.
 
 ## main is the known-good version; agent skill (2026-11-13, v0.9.37)
 
