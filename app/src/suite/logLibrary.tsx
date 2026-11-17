@@ -81,9 +81,11 @@ function useLogLibraryState({
   );
 
   useEffect(() => {
+    // The library can close before storage answers (a page change, a test ending).
+    let open = true;
     listLogs()
-      .then(setLogs)
-      .catch((e) => notify(`Log storage unavailable: ${String(e)}`));
+      .then((found) => open && setLogs(found))
+      .catch((e) => open && notify(`Log storage unavailable: ${String(e)}`));
     const instance = new Worker(new URL("./log.worker.ts", import.meta.url), {
       type: "module",
     });
@@ -102,6 +104,7 @@ function useLogLibraryState({
     };
     const pendingRequests = requests.current;
     return () => {
+      open = false;
       instance.terminate();
       worker.current = null;
       for (const pending of pendingRequests.values())
