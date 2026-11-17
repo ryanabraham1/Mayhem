@@ -29,7 +29,8 @@ import { desktop, invoke, nativeRead } from "./native";
 import { forgetSources, loadSyncConfig, teamSite, useLogSync } from "./logSync";
 import { buildOf } from "./core/review/build.ts";
 
-export const MAX_LOG_BYTES = 250 * 1024 * 1024;
+/** Largest log read in the app (the robot download and disk limit in src-tauri/src/logs.rs match). */
+export const MAX_LOG_BYTES = 512 * 1024 * 1024;
 type Parsed = { recording: Recording; analysis: Analysis };
 
 export function summarize({ recording, analysis }: Parsed): LogSummary {
@@ -136,7 +137,7 @@ function useLogLibraryState({
       options: ReceiptOptions = {},
     ) => {
       if (buffer.byteLength > MAX_LOG_BYTES)
-        throw new Error("Logs larger than 250 MB can't be imported yet.");
+        throw new Error("Logs larger than 512 MB can't be imported yet.");
       const result = await parse(buffer, name);
       const digest = await crypto.subtle.digest("SHA-256", buffer);
       const id = [...new Uint8Array(digest)]

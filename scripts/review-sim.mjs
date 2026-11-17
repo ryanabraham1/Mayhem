@@ -146,7 +146,8 @@ export async function nodeRunner(repo) {
     },
     async readLog(path) {
       const buffer = await readFile(path);
-      return parseWPILog(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength), path.split("/").pop());
+      // Agents read whole logs; Node has room for far more samples than the app window.
+      return parseWPILog(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength), path.split("/").pop(), { maxSamples: 10_000_000 });
     },
   };
 }

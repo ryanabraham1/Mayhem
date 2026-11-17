@@ -10,7 +10,11 @@ use std::{
 };
 use tauri::Manager;
 
-const MAX_LOG: u64 = 250 * 1024 * 1024;
+/// Largest log read from disk or downloaded from the robot.
+const MAX_LOG: u64 = 512 * 1024 * 1024;
+/// Largest file the team website stores (its bucket limit, `MAX_STORED_BYTES` in 3256-Tools). Uploads are
+/// gzipped (WPILOGs shrink about 3x), so logs up to `MAX_LOG` fit once compressed.
+const MAX_CLOUD_LOG: u64 = 250 * 1024 * 1024;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteLog {
@@ -179,7 +183,7 @@ fn log_file(path: &str) -> Result<PathBuf, String> {
         return Err("Select a WPILOG or recording JSON file.".into());
     }
     if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_LOG {
-        return Err("Log exceeds the current 250 MB limit.".into());
+        return Err("Log exceeds the current 512 MB limit.".into());
     }
     Ok(path)
 }
@@ -223,7 +227,7 @@ fn archive_file(source: &Path, directory: &Path, expected_hash: &str) -> Result<
             }
             total += n as u64;
             if total > MAX_LOG {
-                return Err("Log exceeds the 250 MB limit".into());
+                return Err("Log exceeds the 512 MB limit".into());
             }
             hasher.update(&chunk[..n]);
             output.write_all(&chunk[..n]).map_err(|e| e.to_string())?;
@@ -560,27 +564,94 @@ pub async fn list_team_logs(
 struct SignedFile {
     url: String,
 }
-/** Copy at most `MAX_LOG` bytes to `partial`, returning its size and SHA-256. */
-fn save_verified(mut source: impl Read, partial: &Path) -> Result<(u64, String), String> {
+/// Fails a read once more than `left` bytes came through, with `message` as the error.
+struct Capped<R> {
+    inner: R,
+    left: u64,
+    message: &'static str,
+}
+impl<R: Read> Read for Capped<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        if n as u64 > self.left {
+            return Err(std::io::Error::other(self.message));
+        }
+        self.left -= n as u64;
+        Ok(n)
+    }
+}
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+/** Save a team-library download to `partial`, returning the recording's size and SHA-256. The website stores
+ * gzipped logs (older uploads are plain WPILOG); either way `partial` gets the original WPILOG. At most
+ * `MAX_CLOUD_LOG` bytes are downloaded and `MAX_LOG` written. */
+fn save_verified(source: impl Read, partial: &Path) -> Result<(u64, String), String> {
     use sha2::{Digest, Sha256};
+    let mut source = Capped { inner: source, left: MAX_CLOUD_LOG, message: "Cloud recording is larger than 250 MB." };
+    let mut head = Vec::with_capacity(2);
+    while head.len() < 2 {
+        let mut byte = [0u8; 1];
+        match source.read(&mut byte) {
+            Ok(0) => break,
+            Ok(_) => head.push(byte[0]),
+            Err(e) => return Err(read_failure(&e)),
+        }
+    }
+    let gzipped = head == GZIP_MAGIC;
+    let stream = std::io::Cursor::new(head).chain(source);
+    let mut reader: Box<dyn Read> = if gzipped {
+        Box::new(Capped {
+            inner: flate2::read::GzDecoder::new(stream),
+            left: MAX_LOG,
+            message: "Cloud recording is larger than 512 MB once unpacked.",
+        })
+    } else {
+        Box::new(stream)
+    };
     let mut file = fs::File::create(partial).map_err(|e| e.to_string())?;
     let mut hasher = Sha256::new();
     let mut chunk = [0u8; 65536];
     let mut size = 0u64;
     loop {
-        let n = source.read(&mut chunk).map_err(|_| "The download was interrupted. Try again.")?;
+        let n = reader.read(&mut chunk).map_err(|e| read_failure(&e))?;
         if n == 0 {
             break;
         }
         size += n as u64;
-        if size > MAX_LOG {
-            return Err("Cloud recording is larger than 250 MB.".into());
-        }
         hasher.update(&chunk[..n]);
         file.write_all(&chunk[..n]).map_err(|e| e.to_string())?;
     }
     file.sync_all().map_err(|e| e.to_string())?;
     Ok((size, format!("{:x}", hasher.finalize())))
+}
+fn read_failure(e: &std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::Other => e.to_string(),
+        std::io::ErrorKind::InvalidData | std::io::ErrorKind::InvalidInput | std::io::ErrorKind::UnexpectedEof => {
+            "The downloaded recording is damaged. Try again.".into()
+        }
+        _ => "The download was interrupted. Try again.".into(),
+    }
+}
+/// Deletes a temporary file when dropped.
+struct TempFile(PathBuf);
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+/** Gzip `path` into a temporary file next to the system's temp files. */
+fn gzip_copy(path: &Path, hash: &str) -> Result<(TempFile, u64), String> {
+    let target = TempFile(std::env::temp_dir().join(format!("mayhem-upload-{hash}-{}.wpilog.gz", std::process::id())));
+    let output = fs::File::create(&target.0).map_err(|e| e.to_string())?;
+    let mut encoder = flate2::write::GzEncoder::new(std::io::BufWriter::new(output), flate2::Compression::default());
+    std::io::copy(&mut fs::File::open(path).map_err(|e| e.to_string())?, &mut encoder).map_err(|e| e.to_string())?;
+    encoder
+        .finish()
+        .and_then(|w| w.into_inner().map_err(|e| e.into_error()))
+        .and_then(|f| f.sync_all())
+        .map_err(|e| e.to_string())?;
+    let size = fs::metadata(&target.0).map_err(|e| e.to_string())?.len();
+    Ok((target, size))
 }
 /** Download one team recording into Mayhem's incoming folder after checking its SHA-256. */
 #[tauri::command]
@@ -648,6 +719,8 @@ pub async fn download_team_log(
 struct UploadPlan {
     upload_url: Option<String>,
     already_uploaded: Option<bool>,
+    /// The website takes the gzipped file (sites from before compression leave this out).
+    compressed: Option<bool>,
 }
 #[tauri::command]
 pub async fn upload_team_log(
@@ -682,6 +755,10 @@ pub async fn upload_team_log(
             );
         }
         let size = fs::metadata(&path).map_err(|e| e.to_string())?.len();
+        let (packed, stored_size) = gzip_copy(&path, &hash)?;
+        if stored_size > MAX_CLOUD_LOG {
+            return Err("This log is larger than 250 MB even compressed, the team website's limit.".into());
+        }
         let client = reqwest::blocking::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(180))
@@ -690,7 +767,7 @@ pub async fn upload_team_log(
         let request = client
             .post(endpoint.clone())
             .bearer_auth(&token)
-            .json(&serde_json::json!({"name":name,"size":size,"sha256":hash}))
+            .json(&serde_json::json!({"name":name,"size":size,"sha256":hash,"storedSize":stored_size,"encoding":"gzip"}))
             .send()
             .map_err(|_| "Could not reach the team website")?;
         if !request.status().is_success() {
@@ -708,10 +785,18 @@ pub async fn upload_team_log(
             if upload.scheme() != "https" {
                 return Err("Upload URL must use HTTPS".into());
             }
+            // A website from before compression stores the plain file and checks its size.
+            let body = if plan.compressed == Some(true) {
+                &packed.0
+            } else if size <= MAX_CLOUD_LOG {
+                &path
+            } else {
+                return Err("This log is over 250 MB. Update the team website so it accepts compressed uploads.".into());
+            };
             let response = client
                 .put(upload)
                 .header("content-type", "application/octet-stream")
-                .body(fs::File::open(&path).map_err(|e| e.to_string())?)
+                .body(fs::File::open(body).map_err(|e| e.to_string())?)
                 .send()
                 .map_err(|_| "Cloud file transfer failed; the queue will retry")?;
             if !response.status().is_success() {
@@ -801,6 +886,39 @@ mod tests {
         assert!(team_site("https://user:pw@example.com").is_err());
     }
     #[test]
+    fn uploads_are_gzipped_copies() {
+        use std::io::Read as _;
+        let root = std::env::temp_dir().join(format!("mayhem-gzip-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let source = root.join("match.wpilog");
+        let original = b"WPILOG\x00\x01 a recording with repeated content ".repeat(2000);
+        fs::write(&source, &original).unwrap();
+        let path = {
+            let (packed, size) = gzip_copy(&source, &"a".repeat(64)).unwrap();
+            assert!(size < original.len() as u64 / 4, "{size}");
+            let mut unpacked = Vec::new();
+            flate2::read::GzDecoder::new(fs::File::open(&packed.0).unwrap()).read_to_end(&mut unpacked).unwrap();
+            assert_eq!(unpacked, original);
+            packed.0.clone()
+        };
+        assert!(!path.exists(), "the compressed copy is removed after the upload");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn gzip_downloads_stop_at_the_unpacked_limit() {
+        // About 520 MB of zeros compresses to well under a megabyte.
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        let block = vec![0u8; 1 << 20];
+        for _ in 0..(MAX_LOG / (1 << 20) + 8) {
+            gz.write_all(&block).unwrap();
+        }
+        let packed = gz.finish().unwrap();
+        let partial = std::env::temp_dir().join(format!("mayhem-bomb-{}.partial", std::process::id()));
+        let err = save_verified(&packed[..], &partial).unwrap_err();
+        assert!(err.contains("512 MB"), "{err}");
+        let _ = fs::remove_file(partial);
+    }
+    #[test]
     fn team_downloads_are_hashed_and_bounded() {
         use sha2::{Digest, Sha256};
         let root = std::env::temp_dir().join(format!("mayhem-team-{}", std::process::id()));
@@ -810,8 +928,21 @@ mod tests {
         assert_eq!(size, 12);
         assert_eq!(hash, format!("{:x}", Sha256::digest(b"WPILOG cloud")));
         assert_eq!(fs::read(&partial).unwrap(), b"WPILOG cloud");
-        let huge = std::io::repeat(0).take(MAX_LOG + 1);
+        let huge = std::io::repeat(0).take(MAX_CLOUD_LOG + 1);
         assert!(save_verified(huge, &root.join("b.partial")).is_err());
+        // Gzipped uploads come back as the original WPILOG, hashed as such.
+        let original = b"WPILOG cloud recording, compressed on upload".repeat(50);
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&original).unwrap();
+        let packed = gz.finish().unwrap();
+        assert!(packed.len() < original.len());
+        let (size, hash) = save_verified(&packed[..], &root.join("c.partial")).unwrap();
+        assert_eq!(size, original.len() as u64);
+        assert_eq!(hash, format!("{:x}", Sha256::digest(&original)));
+        assert_eq!(fs::read(root.join("c.partial")).unwrap(), original);
+        // A damaged archive is reported, not saved as a recording.
+        let err = save_verified(&packed[..packed.len() - 9], &root.join("d.partial")).unwrap_err();
+        assert!(err.contains("damaged"), "{err}");
         let _ = fs::remove_dir_all(&root);
     }
     #[test]

@@ -10,7 +10,7 @@ Import a `.wpilog` with the upload button, or let [log collection](/suite/robot#
 
 **Team cloud** (desktop) lists recordings your teammates uploaded to the team site. Download one into your library with its cloud button. It needs a device token; **Add token** takes you to [Team upload](/suite/robot#team-upload).
 
-Supported: WPILOG 1.0 scalars, numeric and boolean arrays, and common WPILib structs. Unknown types are reported, not dropped silently. Limit: 250 MB and two million samples per file.
+Supported: WPILOG 1.0 scalars, arrays, and structs from the schemas in the log (AdvantageKit and custom structs too). Unknown types are reported, not dropped silently. Files open up to 512 MB. Past two million samples, repeated values collapse (nothing visible changes), then high-rate signals are thinned keeping their lows and highs; battery voltage, total current and loop timing stay whole, and **Log coverage** lists what was thinned. Team uploads are gzipped to save storage.
 
 ## The report
 
