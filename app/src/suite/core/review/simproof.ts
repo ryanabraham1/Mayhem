@@ -37,11 +37,12 @@ export interface SimProof {
 }
 
 /**
- * How many scenario processes to run at once. Each run is one CPU-bound process (most of it the
- * robot sim's start-up), so use every core but one, leaving the app responsive.
+ * How many scenario processes to run at once. A run spends most of its time waiting rather than
+ * computing (about 5 s of a ~10 s run is Phoenix's start-up wait), so twice the cores keeps the CPU
+ * busy: measured on 10 cores, 20 at once ran about twice as many scenarios a second as 9.
  */
 export function defaultParallel(cores = (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency) {
-  return Math.max(2, Math.min(16, (cores ?? 5) - 1));
+  return Math.max(2, Math.min(32, 2 * (cores ?? 4)));
 }
 
 /**

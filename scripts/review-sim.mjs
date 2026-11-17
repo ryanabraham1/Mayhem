@@ -2,7 +2,8 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, copyFile, cp, mkdir, readdir, readFile, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,19 +24,48 @@ async function javaHome() {
   return years.map((y) => join(homedir(), "wpilib", y, "jdk")).find(existsSync);
 }
 
+const PROBE_PATH = "src/test/cpp/MayhemReviewProbe.cpp";
+
+/**
+ * Copies `paths` (relative to `from`) into `to`, rewriting only files whose content changed so
+ * Gradle stays incremental, and deletes files an earlier sync copied that are gone now (`manifest`
+ * lists them). Returns whether anything changed; without a manifest, always true.
+ */
+export async function syncFiles(from, paths, to, manifest) {
+  const before = await readFile(manifest, "utf8").catch(() => null);
+  let changed = before === null;
+  const synced = [];
+  for (const path of paths) {
+    if (path === PROBE_PATH) continue; // written separately
+    const text = await readFile(join(from, path)).catch(() => null);
+    if (!text) continue;
+    synced.push(path);
+    const dest = join(to, path);
+    if ((await readFile(dest).catch(() => null))?.equals(text)) continue;
+    changed = true;
+    await mkdir(dirname(dest), { recursive: true });
+    await writeFile(dest, text);
+    await stat(join(from, path)).then((s) => chmod(dest, s.mode), () => {});
+  }
+  const kept = new Set(synced);
+  for (const gone of (before ?? "").split("\0").filter((p) => p && !kept.has(p))) {
+    if (await unlink(join(to, gone)).then(() => true, () => false)) changed = true;
+  }
+  await mkdir(to, { recursive: true });
+  await writeFile(manifest, synced.join("\0"));
+  return changed;
+}
+
+async function writeProbe(src, probe) {
+  const path = join(src, PROBE_PATH);
+  if ((await readFile(path, "utf8").catch(() => null)) === probe) return;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, probe);
+}
+
+/** Copies a commit's files into `dest`. */
 async function exportRevision(root, rev, dest) {
   await mkdir(dest, { recursive: true });
-  if (rev === WORKTREE) {
-    const listed = (await git(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])).split("\0").filter(Boolean);
-    for (const path of listed) {
-      const from = join(root, path), to = join(dest, path);
-      const text = await readFile(from).catch(() => null);
-      if (!text || (await readFile(to).catch(() => null))?.equals(text)) continue;
-      await mkdir(dirname(to), { recursive: true });
-      await copyFile(from, to);
-    }
-    return;
-  }
   await new Promise((done, fail) => {
     const archive = spawn("git", ["-C", root, "archive", "--format=tar", rev]);
     const tar = spawn("tar", ["-x", "-C", dest]);
@@ -43,6 +73,45 @@ async function exportRevision(root, rev, dest) {
     tar.on("close", (code) => (code ? fail(new Error(`Could not export ${rev}`)) : done()));
     archive.on("error", fail);
   });
+}
+
+/**
+ * Holds `<dir>/lock` while building in a folder the app and the CLI share (creating a folder is
+ * atomic); returns the release. A lock older than any build is left over from a crash.
+ */
+async function lockDir(dir) {
+  const STALE = 20 * 60 * 1000, lock = join(dir, "lock"), start = Date.now();
+  await mkdir(dir, { recursive: true });
+  for (;;) {
+    try {
+      await mkdir(lock);
+      return () => rmdir(lock).catch(() => {});
+    } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      const age = await stat(lock).then((s) => Date.now() - s.mtimeMs, () => 0);
+      if (age > STALE) await rmdir(lock).catch(() => {});
+      else if (Date.now() - start > STALE) throw new Error(`Another sim proof has been building in ${dir} for too long.`);
+      else await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+}
+
+async function gradleBuild(src, sha) {
+  const env = { ...process.env, MAYHEM_BUILD_SHA: sha, MAYHEM_BUILD_BRANCH: "sim proof", ...((await javaHome()) ? { JAVA_HOME: await javaHome() } : {}) };
+  const gradlew = process.platform === "win32" ? "gradlew.bat" : "./gradlew";
+  if (!existsSync(join(src, gradlew))) throw new Error(`No Gradle wrapper (${gradlew}) at the top of the robot repository: the sim proof builds from ${src}.`);
+  const task = `installFrcUserProgramTest${platform[0]}ReleaseGoogleTestExe`;
+  let log = "";
+  for (const offline of [true, false]) {
+    try {
+      const out = await run(gradlew, [task, "-q", ...(offline ? ["--offline"] : [])], { cwd: src, env, maxBuffer: 64 << 20 });
+      log = out.stdout + out.stderr;
+      if (existsSync(exePath(src))) return;
+    } catch (e) {
+      log = `${e.stdout ?? ""}${e.stderr ?? e.message}`;
+    }
+  }
+  throw new Error(`The robot code did not build:\n${log.split("\n").slice(-40).join("\n")}`);
 }
 
 /** Marks a sim folder as in use now, so a prune elsewhere leaves it alone. */
@@ -67,7 +136,8 @@ async function prune(dir) {
     if (!(await stat(path).then((s) => s.isDirectory(), () => false))) continue;
     // A folder without the mark is still being set up: its own age counts.
     const used = await stat(join(path, "used")).catch(() => stat(path)).then((s) => s.mtimeMs, () => 0);
-    entries.push({ path, used, worktree: name.startsWith("worktree-") });
+    // One per repo, not per commit: kept until unused for MAX_AGE.
+    entries.push({ path, used, worktree: name.startsWith("worktree-") || name.startsWith("build-") });
   }
   entries.sort((a, b) => b.used - a.used);
   let kept = 1;
@@ -89,31 +159,54 @@ export async function nodeRunner(repo) {
       const sha = rev === WORKTREE ? WORKTREE : (await git(root, ["rev-parse", "--verify", `${rev}^{commit}`])).trim();
       const dir = join(homedir(), ".mayhem/review-sim", rev === WORKTREE ? `worktree-${hash(root)}` : sha);
       const src = join(dir, "src"), stamp = join(dir, "probe.sha");
-      if (rev !== WORKTREE && existsSync(exePath(src)) && (await readFile(stamp, "utf8").catch(() => "")) === hash(probe)) {
+      const ready = async () => existsSync(exePath(src)) && (await readFile(stamp, "utf8").catch(() => "")) === hash(probe);
+      await touch(dir);
+      if (rev === WORKTREE) {
+        // Built in place, incrementally. Same files as last time: keep the build and its runs.
+        const paths = (await git(root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])).split("\0").filter(Boolean);
+        const changed = await syncFiles(root, paths, src, join(dir, "files"));
+        if (!changed && (await ready())) {
+          await prune(dir);
+          return { dir, cached: true };
+        }
+        await rm(stamp, { force: true });
+        // Earlier runs of the working tree came from other code.
+        await rm(join(dir, "runs"), { recursive: true, force: true });
+        await writeProbe(src, probe);
+        await gradleBuild(src, sha);
+        await writeFile(stamp, hash(probe));
+        await prune(dir);
+        return { dir, cached: false };
+      }
+      if (await ready()) {
         await prune(dir);
         return { dir, cached: true };
       }
-      await touch(dir);
-      await exportRevision(root, rev, src);
-      await writeFile(join(src, "src/test/cpp/MayhemReviewProbe.cpp"), probe);
-      const env = { ...process.env, MAYHEM_BUILD_SHA: sha, MAYHEM_BUILD_BRANCH: "sim proof", ...((await javaHome()) ? { JAVA_HOME: await javaHome() } : {}) };
-      const gradlew = process.platform === "win32" ? "gradlew.bat" : "./gradlew";
-      if (!existsSync(join(src, gradlew))) throw new Error(`No Gradle wrapper (${gradlew}) at the top of the robot repository: the sim proof builds from ${src}.`);
-      const task = `installFrcUserProgramTest${platform[0]}ReleaseGoogleTestExe`;
-      let log = "";
-      for (const offline of [true, false]) {
-        try {
-          const out = await run(gradlew, [task, "-q", ...(offline ? ["--offline"] : [])], { cwd: src, env, maxBuffer: 64 << 20 });
-          log = out.stdout + out.stderr;
-          if (existsSync(exePath(src))) break;
-        } catch (e) {
-          log = `${e.stdout ?? ""}${e.stderr ?? e.message}`;
-        }
+      await rm(stamp, { force: true });
+      await exportRevision(root, sha, src);
+      // Compile in the repo's one commit build folder, where only the files that differ from the
+      // last commit built are recompiled (Gradle's C++ builds track absolute paths, so a fresh
+      // folder is a full build), then copy the program next to this commit's files.
+      const shared = join(homedir(), ".mayhem/review-sim", `build-${hash(root)}`), sharedSrc = join(shared, "src");
+      const release = await lockDir(shared);
+      try {
+        await touch(shared);
+        const paths = (await git(root, ["ls-tree", "-r", "-z", "--name-only", sha])).split("\0").filter(Boolean);
+        await syncFiles(src, paths, sharedSrc, join(shared, "files"));
+        await writeProbe(sharedSrc, probe);
+        await gradleBuild(sharedSrc, sha);
+        const install = (s) => join(s, "build/install/frcUserProgramTest");
+        await rm(install(src), { recursive: true, force: true });
+        await cp(install(sharedSrc), install(src), { recursive: true, mode: constants.COPYFILE_FICLONE });
+        // The build stamp the robot logs at boot (written by the build, not committed).
+        const buildJson = "src/main/deploy/mayhem-build.json";
+        if (existsSync(join(sharedSrc, buildJson))) await copyFile(join(sharedSrc, buildJson), join(src, buildJson)).catch(() => {});
+      } finally {
+        await release();
       }
-      if (!existsSync(exePath(src))) throw new Error(`The robot code did not build:\n${log.split("\n").slice(-40).join("\n")}`);
+      await writeProbe(src, probe);
       await writeFile(stamp, hash(probe));
       await prune(dir);
-      if (rev === WORKTREE) await rm(join(dir, "runs"), { recursive: true, force: true });
       return { dir, cached: false };
     },
     async run(dir, id, scenario) {

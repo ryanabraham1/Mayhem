@@ -42,9 +42,9 @@ describe("runSimProof", () => {
     await expect(runSimProof(runner, { before: "before", after: "after" }, [1, 2, 3].map(scenario), [], () => {}, 2)).rejects.toThrow("did not build");
   });
 
-  it("uses every core but one", () => {
-    expect(defaultParallel(10)).toBe(9);
-    expect(defaultParallel(2)).toBe(2);
-    expect(defaultParallel(64)).toBe(16);
+  it("runs twice as many processes as cores", () => {
+    expect(defaultParallel(10)).toBe(20);
+    expect(defaultParallel(1)).toBe(2);
+    expect(defaultParallel(64)).toBe(32);
   });
 });

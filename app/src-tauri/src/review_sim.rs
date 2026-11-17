@@ -1,6 +1,7 @@
 //! Sim proof: build a revision of the robot repo with Mayhem's probe test added, then run scripted
 //! scenarios through the robot's own simulation, one process each. Builds and runs of a commit are
-//! cached in ~/.mayhem/review-sim/<sha>; the working tree is rebuilt incrementally in one folder.
+//! cached in ~/.mayhem/review-sim/<sha> (compiled incrementally in the repo's build-<repo> folder);
+//! the working tree is rebuilt incrementally in one folder, and not at all when no file changed.
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -45,29 +46,138 @@ fn exe_path(src: &Path) -> PathBuf {
     src.join("build/install/frcUserProgramTest").join(dir).join("release").join(name)
 }
 
-/// Copies the revision's files (tracked, or tracked plus new for the working tree) into `dest`.
-pub(crate) fn export(root: &str, rev: &str, dest: &Path) -> Result<(), String> {
-    fs::create_dir_all(dest).map_err(|e| e.to_string())?;
-    if rev == WORKTREE {
-        let listed = git(root, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"])?;
-        for path in listed.split('\0').filter(|p| !p.is_empty()) {
-            let from = Path::new(root).join(path);
-            let to = dest.join(path);
-            let Ok(text) = fs::read(&from) else { continue };
-            if fs::read(&to).ok().as_deref() == Some(&text[..]) {
-                continue; // unchanged: keep the timestamp so Gradle stays incremental
-            }
-            if let Some(parent) = to.parent() {
-                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-            fs::write(&to, text).map_err(|e| e.to_string())?;
-            #[cfg(unix)]
-            if let Ok(meta) = fs::metadata(&from) {
-                let _ = fs::set_permissions(&to, meta.permissions());
+/// Copies `paths` (relative to `from`) into `to`, rewriting only files whose content changed so
+/// Gradle stays incremental, and deletes files an earlier sync copied that are gone now (`manifest`
+/// lists them). Returns whether anything changed; without a manifest, always true.
+fn sync_files(from: &Path, paths: &[&str], to: &Path, manifest: &Path) -> Result<bool, String> {
+    let before = fs::read_to_string(manifest).ok();
+    let mut changed = before.is_none();
+    let mut synced = Vec::new();
+    for &path in paths {
+        if path == PROBE_PATH {
+            continue; // written separately
+        }
+        let source = from.join(path);
+        let Ok(text) = fs::read(&source) else { continue };
+        synced.push(path);
+        let dest = to.join(path);
+        if fs::read(&dest).ok().as_deref() == Some(&text[..]) {
+            continue;
+        }
+        changed = true;
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::write(&dest, text).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        if let Ok(meta) = fs::metadata(&source) {
+            let _ = fs::set_permissions(&dest, meta.permissions());
+        }
+    }
+    let kept: std::collections::HashSet<&str> = synced.iter().copied().collect();
+    for gone in before.iter().flat_map(|b| b.split('\0')).filter(|p| !p.is_empty() && !kept.contains(p)) {
+        if fs::remove_file(to.join(gone)).is_ok() {
+            changed = true;
+        }
+    }
+    fs::create_dir_all(to).map_err(|e| e.to_string())?;
+    fs::write(manifest, synced.join("\0")).map_err(|e| e.to_string())?;
+    Ok(changed)
+}
+
+/// Writes the probe test into `src` unless it is already there.
+fn write_probe(src: &Path, probe: &str) -> Result<(), String> {
+    let path = src.join(PROBE_PATH);
+    if fs::read_to_string(&path).ok().as_deref() != Some(probe) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::write(&path, probe).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let dest = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &dest)?;
+        } else {
+            fs::copy(entry.path(), dest)?; // a clone on APFS: no time or space
+        }
+    }
+    Ok(())
+}
+
+/// Holds `<dir>/lock` while building in a folder the app and the CLI share (creating a folder is
+/// atomic). A lock older than any build is left over from a crash and taken over.
+struct DirLock(PathBuf);
+const LOCK_STALE: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+impl DirLock {
+    fn take(dir: &Path) -> Result<Self, String> {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let lock = dir.join("lock");
+        let start = std::time::Instant::now();
+        loop {
+            match fs::create_dir(&lock) {
+                Ok(()) => return Ok(DirLock(lock)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let age = fs::metadata(&lock).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
+                    if age.is_some_and(|a| a > LOCK_STALE) {
+                        let _ = fs::remove_dir(&lock);
+                    } else if start.elapsed() > LOCK_STALE {
+                        return Err(format!("Another sim proof has been building in {} for too long.", dir.display()));
+                    } else {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    }
+                }
+                Err(e) => return Err(format!("Could not lock {}: {e}", dir.display())),
             }
         }
-        return Ok(());
     }
+}
+impl Drop for DirLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir(&self.0);
+    }
+}
+
+/// Builds the probe test program in `src`; returns the last lines of Gradle's output.
+fn gradle_build(src: &Path, sha: &str) -> Result<String, String> {
+    let (task_platform, _) = platform();
+    let task = format!("installFrcUserProgramTest{task_platform}ReleaseGoogleTestExe");
+    let gradlew = if cfg!(target_os = "windows") { "gradlew.bat" } else { "./gradlew" };
+    if !src.join(gradlew).exists() {
+        return Err(format!("No Gradle wrapper ({gradlew}) at the top of the robot repository: the sim proof builds from {}.", src.display()));
+    }
+    let mut log = String::new();
+    for offline in [true, false] {
+        let mut cmd = Command::new(gradlew);
+        cmd.current_dir(src).arg(&task).arg("-q").env("MAYHEM_BUILD_SHA", sha).env("MAYHEM_BUILD_BRANCH", "sim proof");
+        if offline {
+            cmd.arg("--offline");
+        }
+        if let Some(java) = java_home() {
+            cmd.env("JAVA_HOME", java);
+        }
+        let out = cmd.output().map_err(|e| format!("Could not run Gradle in {}: {e}", src.display()))?;
+        log = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        if out.status.success() && exe_path(src).exists() {
+            return Ok(tail(&log, 40));
+        }
+    }
+    Err(format!("The robot code did not build:\n{}", tail(&log, 40)))
+}
+
+fn tail(text: &str, lines: usize) -> String {
+    text.lines().rev().take(lines).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
+}
+
+/// Copies a commit's files into `dest`.
+pub(crate) fn export(root: &str, rev: &str, dest: &Path) -> Result<(), String> {
+    fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     let mut archive = Command::new("git")
         .args(["-C", root, "archive", "--format=tar", rev])
         .stdout(Stdio::piped())
@@ -117,7 +227,8 @@ pub(crate) fn prune(dir: &Path) {
     let mut kept_commits = 1; // `dir` itself
     for (when, path) in builds {
         let age = now.duration_since(when).unwrap_or_default();
-        let worktree = path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("worktree-"));
+        // One per repo, not per commit: kept until unused for MAX_AGE.
+        let worktree = path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("worktree-") || n.to_string_lossy().starts_with("build-"));
         if age < BUSY {
             if !worktree {
                 kept_commits += 1;
@@ -162,48 +273,56 @@ pub async fn review_sim_prepare(repo: String, rev: String, probe: String) -> Res
         let src = dir.join("src");
         let stamp = dir.join("probe.sha");
         let probe_hash = hash(probe.as_bytes());
-        if rev != WORKTREE && exe_path(&src).exists() && fs::read_to_string(&stamp).ok().as_deref() == Some(probe_hash.as_str()) {
+        let ready = || exe_path(&src).exists() && fs::read_to_string(&stamp).ok().as_deref() == Some(probe_hash.as_str());
+        let done = |cached: bool, log: String| {
             prune(&dir);
-            return Ok(Prepared { dir: dir.display().to_string(), sha, cached: true, log: String::new() });
-        }
+            Ok(Prepared { dir: dir.display().to_string(), sha: sha.clone(), cached, log })
+        };
         touch(&dir);
-        export(&root, &rev, &src)?;
-        fs::write(src.join(PROBE_PATH), &probe).map_err(|e| e.to_string())?;
-        let (task_platform, _) = platform();
-        let task = format!("installFrcUserProgramTest{task_platform}ReleaseGoogleTestExe");
-        let gradlew = if cfg!(target_os = "windows") { "gradlew.bat" } else { "./gradlew" };
-        let mut log = String::new();
-        let mut built = false;
-        for offline in [true, false] {
-            let mut cmd = Command::new(gradlew);
-            cmd.current_dir(&src).arg(&task).arg("-q").env("MAYHEM_BUILD_SHA", &sha).env("MAYHEM_BUILD_BRANCH", "sim proof");
-            if offline {
-                cmd.arg("--offline");
-            }
-            if let Some(java) = java_home() {
-                cmd.env("JAVA_HOME", java);
-            }
-            if !src.join(gradlew).exists() {
-                return Err(format!("No Gradle wrapper ({gradlew}) at the top of the robot repository: the sim proof builds from {}.", src.display()));
-            }
-            let out = cmd.output().map_err(|e| format!("Could not run Gradle in {}: {e}", src.display()))?;
-            log = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-            if out.status.success() && exe_path(&src).exists() {
-                built = true;
-                break;
-            }
-        }
-        let tail: String = log.lines().rev().take(40).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-        if !built {
-            return Err(format!("The robot code did not build:\n{tail}"));
-        }
-        fs::write(&stamp, &probe_hash).map_err(|e| e.to_string())?;
-        prune(&dir);
-        // Earlier runs of the working tree came from other code.
         if rev == WORKTREE {
+            // Built in place, incrementally. Same files as last time: keep the build and its runs.
+            let listed = git(&root, &["ls-files", "-z", "--cached", "--others", "--exclude-standard"])?;
+            let paths: Vec<&str> = listed.split('\0').filter(|p| !p.is_empty()).collect();
+            let changed = sync_files(Path::new(&root), &paths, &src, &dir.join("files"))?;
+            if !changed && ready() {
+                return done(true, String::new());
+            }
+            let _ = fs::remove_file(&stamp);
+            // Earlier runs of the working tree came from other code.
             let _ = fs::remove_dir_all(dir.join("runs"));
+            write_probe(&src, &probe)?;
+            let log = gradle_build(&src, &sha)?;
+            fs::write(&stamp, &probe_hash).map_err(|e| e.to_string())?;
+            return done(false, log);
         }
-        Ok(Prepared { dir: dir.display().to_string(), sha, cached: false, log: tail })
+        if ready() {
+            return done(true, String::new());
+        }
+        let _ = fs::remove_file(&stamp);
+        export(&root, &sha, &src)?;
+        // Compile in the repo's one commit build folder, where only the files that differ from the
+        // last commit built are recompiled (Gradle's C++ builds track absolute paths, so a fresh
+        // folder is a full build), then copy the program next to this commit's files.
+        let shared = home().join(".mayhem/review-sim").join(format!("build-{}", hash(root.as_bytes())));
+        let _lock = DirLock::take(&shared)?;
+        touch(&shared);
+        let shared_src = shared.join("src");
+        let listed = git(&root, &["ls-tree", "-r", "-z", "--name-only", &sha])?;
+        let paths: Vec<&str> = listed.split('\0').filter(|p| !p.is_empty()).collect();
+        sync_files(&src, &paths, &shared_src, &shared.join("files"))?;
+        write_probe(&shared_src, &probe)?;
+        let log = gradle_build(&shared_src, &sha)?;
+        let install = |s: &Path| s.join("build/install/frcUserProgramTest");
+        let _ = fs::remove_dir_all(install(&src));
+        copy_tree(&install(&shared_src), &install(&src)).map_err(|e| format!("Could not copy the sim build: {e}"))?;
+        // The build stamp the robot logs at boot (written by the build, not committed).
+        let build_json = "src/main/deploy/mayhem-build.json";
+        if shared_src.join(build_json).exists() {
+            let _ = fs::copy(shared_src.join(build_json), src.join(build_json));
+        }
+        write_probe(&src, &probe)?;
+        fs::write(&stamp, &probe_hash).map_err(|e| e.to_string())?;
+        done(false, log)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -256,7 +375,7 @@ pub async fn review_sim_run(dir: String, id: String, scenario: String) -> Result
             .output()
             .map_err(|e| e.to_string())?;
         let text = format!("{}{}", String::from_utf8_lossy(&run.stdout), String::from_utf8_lossy(&run.stderr));
-        let output: String = text.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+        let output = tail(&text, 30);
         let ok = run.status.success();
         if ok {
             fs::write(out.join("done"), "").map_err(|e| e.to_string())?;
@@ -284,6 +403,45 @@ mod tests {
         for name in ["commit0", "commit1", "commit2", "commit3", "commit4", "building"] {
             assert!(root.join(name).exists(), "{name} was deleted while in use");
         }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn prune_keeps_the_repo_build_folder() {
+        let root = std::env::temp_dir().join(format!("mayhem-prune-build-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for name in ["build-repo", "a", "b", "c", "d", "e"] {
+            touch(&root.join(name));
+            let old = std::time::SystemTime::now() - BUSY - std::time::Duration::from_secs(60);
+            fs::File::options().write(true).open(root.join(name).join("used")).unwrap().set_modified(old).unwrap();
+        }
+        touch(&root.join("now"));
+        prune(&root.join("now"));
+        assert!(root.join("build-repo").exists(), "the shared build folder counts as a commit build");
+        let commits = ["a", "b", "c", "d", "e"].iter().filter(|n| root.join(n).exists()).count();
+        assert_eq!(commits, KEEP - 1);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sync_rewrites_only_changes_and_removes_deleted_files() {
+        let root = std::env::temp_dir().join(format!("mayhem-sync-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (from, to, manifest) = (root.join("from"), root.join("to"), root.join("files"));
+        fs::create_dir_all(from.join("d")).unwrap();
+        fs::write(from.join("a.cpp"), "a").unwrap();
+        fs::write(from.join("d/b.cpp"), "b").unwrap();
+        assert!(sync_files(&from, &["a.cpp", "d/b.cpp"], &to, &manifest).unwrap());
+        assert!(!sync_files(&from, &["a.cpp", "d/b.cpp"], &to, &manifest).unwrap(), "nothing changed");
+        // A file the build wrote (not synced) is left alone; a deleted source is removed.
+        fs::write(to.join("generated.json"), "{}").unwrap();
+        fs::remove_file(from.join("d/b.cpp")).unwrap();
+        assert!(sync_files(&from, &["a.cpp", "d/b.cpp"], &to, &manifest).unwrap());
+        assert!(!to.join("d/b.cpp").exists());
+        assert!(to.join("generated.json").exists());
+        fs::write(from.join("a.cpp"), "a2").unwrap();
+        assert!(sync_files(&from, &["a.cpp"], &to, &manifest).unwrap());
+        assert_eq!(fs::read_to_string(to.join("a.cpp")).unwrap(), "a2");
         let _ = fs::remove_dir_all(&root);
     }
 }
