@@ -96,7 +96,9 @@ export function listChannels(
         const first = c.samples[0].time;
         const last = c.samples[c.samples.length - 1].time;
         out.span = [round(first, 3), round(last, 3)];
-        if (c.samples.length > 1 && last > first) out.hz = round((c.samples.length - 1) / (last - first), 1);
+        const recorded = c.sourceSamples ?? c.samples.length;
+        if (recorded > 1 && last > first) out.hz = round((recorded - 1) / (last - first), 1);
+        if (c.sourceSamples) Object.assign(out, { sourceSamples: c.sourceSamples, note: `${[out.note, "Large log: repeats collapsed or thinned (lows and highs kept), so gaps between samples are not dropouts."].filter(Boolean).join(" ")}` });
         if (isNumeric(c)) {
           const v = c.samples.map((s) => s.value as number);
           let min = Infinity, max = -Infinity, sum = 0;
@@ -200,7 +202,9 @@ export function findAnomalies(
     // Channels logged only on change have irregular spacing; gaps/stops/flatlines mean nothing there.
     const sortedDts = [...dts].sort((a, b) => a - b);
     const regular = dt > 0 && sortedDts[Math.floor(sortedDts.length * 0.9)] <= 3 * dt;
-    if (dt > 0 && n > 50 && regular)
+    // A large log's collapsed or thinned signal has gaps by design.
+    const reduced = c.sourceSamples !== undefined;
+    if (dt > 0 && n > 50 && regular && !reduced)
       c.samples.forEach((s, i) => {
         if (!i) return;
         const gap = s.time - c.samples[i - 1].time;
@@ -236,7 +240,7 @@ export function findAnomalies(
         const diffs = v.slice(1).map((x, i) => x - v[i]);
         const diffRaw = baseline(diffs);
         const diffBase = { median: diffRaw.median, scale: Math.max(diffRaw.scale, range * 0.01) };
-        if (diffBase.scale > 0)
+        if (diffBase.scale > 0 && !reduced)
           diffs.forEach((d, i) => {
             const z = Math.abs(d - diffBase.median) / diffBase.scale;
             // Must be both statistically rare and a large step for this channel (>= 15% of its range).
@@ -245,12 +249,13 @@ export function findAnomalies(
                 detail: `Changed by ${round(d)} (${round(v[i])} -> ${round(v[i + 1])}) in ${round(c.samples[i + 1].time - c.samples[i].time, 4)} s.` });
           });
         // Stuck sensor: lots of distinct values overall, but one long constant stretch.
-        if (regular && new Set(v.map((x) => round(x, 6))).size >= 20) {
+        if ((regular || reduced) && new Set(v.map((x) => round(x, 6))).size >= 20) {
           let start = 0;
           for (let i = 1; i <= n; i++)
             if (i === n || v[i] !== v[start]) {
               const len = c.samples[i - 1].time - c.samples[start].time;
-              if (i - start >= 10 && len >= Math.max(1, recording.duration * 0.04) * sens ** -1)
+              // A collapsed run keeps only its first and last sample.
+              if ((reduced ? i - start >= 2 : i - start >= 10) && len >= Math.max(1, recording.duration * 0.04) * sens ** -1)
                 add({ channel: c.name, kind: "flatline", start: c.samples[start].time, end: c.samples[i - 1].time, score: len / 2,
                   detail: `Stayed at ${round(v[start])} for ${round(len, 2)} s (${i - start} samples) although it varies elsewhere.` });
               start = i;

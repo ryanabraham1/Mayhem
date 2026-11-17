@@ -6,6 +6,9 @@ export interface Channel {
   name: string;
   type: string;
   samples: Sample[];
+  /** Set when a large log was thinned: how many samples the file had for this signal.
+   * The kept samples still include each run's lowest and highest values. */
+  sourceSamples?: number;
 }
 export interface Recording {
   name: string;

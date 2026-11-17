@@ -90,7 +90,7 @@ In **Logs**, import a `.wpilog` recording, then select it in the library. Origin
 
 Export the original or the analysis report from the recording header. In the desktop app, the **AdvantageScope** button opens the selected original in an installed viewer; set its application path on **Robot** if automatic detection fails.
 
-Imports support WPILOG 1.0 scalars, numeric/boolean arrays and selected common WPILib structs. Unknown types and missing diagnostic coverage are reported. Limits are 250 MB and two million decoded samples per file. Findings depend on available signals and should be checked against their evidence; real match diagnostic accuracy remains unvalidated.
+Imports support WPILOG 1.0 scalars, numeric/boolean/string arrays and structs, read from the schemas the log carries (AdvantageKit and custom structs included; common WPILib types keep their `/x`, `/y`, `/heading` names). Unknown types and missing diagnostic coverage are reported. Files open up to 512 MB. Above two million decoded samples, runs of repeated values collapse to their first and last sample, which changes nothing you can see; if that isn't enough, high-rate signals are thinned keeping each stretch's lowest and highest values. Battery voltage, total current and loop timing are never thinned, and Log coverage names the signals that were. Agent tools (CLI/MCP) read up to ten million samples before thinning. Uploads to the team website are gzipped (about a third of the size), so logs up to 512 MB fit its 250 MB storage limit. Findings depend on available signals and should be checked against their evidence; real match diagnostic accuracy remains unvalidated.
 
 ## Connect and collect recordings
 

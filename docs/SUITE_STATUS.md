@@ -8,11 +8,11 @@ What works, and what has not been verified yet. Release notes on [GitHub Release
 | Sim proof | Both versions built and run in the robot's own simulation on the full field (every button, every auto, the team's `tools/mayhem/scenarios.json`), recorded as a git note on the commit; 2D and 3D replay | Windows/Linux GradleRIO test task names; per-motor configuration readback from the simulation (still read from source) |
 | Autonomous | Pose-to-pose routines on the REBUILT field, BLine-derived preview, inspector, undo/redo, C++ export | Dynamic-goal authoring, target-selection helpers, the controller driven on a physical robot |
 | State machines | Layered graph, simulated inputs, live NT4 subscription, log replay | Larger graph layouts, source navigation |
-| Logs | WPILOG parsing in a worker, verdict and findings, Health / Power / Signals / Field tabs, current ranking, battery sag, `log_diagnose` for agents | Diagnostics checked against real match logs (only sim logs so far); run-to-run comparison for people; team-configurable rules and power budgets |
+| Logs | WPILOG parsing in a worker (structs from the log's schemas, files up to 512 MB, large logs collapsed then thinned with peaks kept), verdict and findings, Health / Power / Signals / Field tabs, current ranking, battery sag, `log_diagnose` for agents | Diagnostics checked against real match logs (only sim logs so far); run-to-run comparison for people; team-configurable rules and power budgets; protobuf (`proto:`) entries |
 | Robot | Build stamp on the robot vs `main`, every value editable, SFTP and folder log collection, team upload with retry | Stamp download, "Put main back on the robot" deploy and SFTP collection against a physical roboRIO |
 | Agents | Node CLI and MCP (`scripts/mayhem.mjs`), project brief, file link, `behavior_diff`, `run_scenarios`, log tools | Schema version migration policy |
 | C++ (`lib-cpp/`) | Header-only controller, executor, WPILib command, log/NT observers, `mayhem::sim` physics; CMake/CTest on three platforms; MayhemCpp vendordep | Physical robot testing |
-| Team cloud | 3256-Tools `/logs` library, private storage, hosted AdvantageScope Lite with selected-log handoff | Real match log validation, storage retention controls |
+| Team cloud | 3256-Tools `/logs` library, private storage (uploads gzipped, about a third of the size), hosted AdvantageScope Lite with selected-log handoff | Real match log validation, storage retention controls |
 | Release | Desktop installers for macOS (arm64, x64), Windows and Linux from the Release workflow; self-update | Apple notarization and Windows code signing; Windows/Linux packages installed and used by hand |
 
 ## Operating boundaries

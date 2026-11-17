@@ -331,6 +331,11 @@ function channelStats(channel, from, to, maxSamples) {
   return out;
 }
 const logCache = new Map();
+/** Agents read whole logs: Node has room for far more samples than the app window (about 80 bytes each). */
+const AGENT_LOG_SAMPLES = 10_000_000;
+/** Parsed logs kept for reuse, by total samples, so comparing two big runs stays well under Node's heap. */
+const LOG_CACHE_SAMPLES = 20_000_000;
+const samplesIn = (recording) => recording.channels.reduce((n, c) => n + c.samples.length, 0);
 async function loadLog(path, mapping) {
   const { mtimeMs } = await stat(path);
   const key = `${path}|${mtimeMs}|${JSON.stringify(mapping ?? null)}`;
@@ -338,14 +343,20 @@ async function loadLog(path, mapping) {
   if (!hit) {
     const bytes = await readFile(path);
     const recording = path.toLowerCase().endsWith(".wpilog")
-      ? parseWPILog(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), path)
+      ? parseWPILog(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), path, { maxSamples: AGENT_LOG_SAMPLES })
       : parseRecordingJSON(bytes.toString("utf8"));
     const { estimatedCurrent } = analyze(recording, mapping);
     hit = estimatedCurrent
       ? { ...recording, channels: [...recording.channels, estimatedCurrent] }
       : recording;
     // Keep a few, so comparing two runs does not reparse either.
-    for (const k of logCache.keys()) if (k.startsWith(`${path}|`) || logCache.size >= 4) logCache.delete(k);
+    for (const k of logCache.keys()) if (k.startsWith(`${path}|`)) logCache.delete(k);
+    let cached = [...logCache.values()].reduce((n, r) => n + samplesIn(r), samplesIn(hit));
+    for (const [k, r] of logCache) {
+      if (logCache.size < 4 && cached <= LOG_CACHE_SAMPLES) break;
+      logCache.delete(k);
+      cached -= samplesIn(r);
+    }
     logCache.set(key, hit);
   }
   return hit;
@@ -693,6 +704,7 @@ export async function execute(name, args) {
             bytes.byteOffset + bytes.byteLength,
           ),
           path,
+          { maxSamples: AGENT_LOG_SAMPLES },
         )
       : parseRecordingJSON(bytes.toString("utf8"));
     const result = analyze(recording, args.mapping, args.policy);

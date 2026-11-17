@@ -45,6 +45,7 @@ import {
 import type { Recording } from "../core/analysis.ts";
 import { download } from "../storage";
 import { useRobot } from "../robot";
+import { MAX_LOG_BYTES } from "../logLibrary";
 import type { SuiteState } from "../useSuiteProject";
 import {
   Badge,
@@ -287,7 +288,7 @@ export function StatesPage({ s, openAutos }: { s: SuiteState; openAutos: () => v
   const importLog = async (file?: File) => {
     if (!file) return;
     try {
-      if (file.size > 250 * 1024 * 1024) throw new Error("Logs larger than 250 MB can't be replayed yet.");
+      if (file.size > MAX_LOG_BYTES) throw new Error("Logs larger than 512 MB can't be replayed yet.");
       setBusy(true);
       setPlaying(false);
       const buffer = await file.arrayBuffer();
