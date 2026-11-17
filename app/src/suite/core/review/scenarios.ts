@@ -390,3 +390,35 @@ export function compareOutcomes(before: Outcome, after: Outcome, tolerance = 0.1
   if (worst.gap > 0.25) differences.push(`Path: up to ${worst.gap.toFixed(2)} m from the old path (at ${worst.time.toFixed(1)} s)`);
   return { same: differences.length === 0, differences };
 }
+
+/** A scenario's steps as what happens when: "Teleop" at 0 s, "Tap X" at 0.5 s, … (waits only move the clock). */
+export function stepTimeline(lines: string[]): { time: number; text: string }[] {
+  const out: { time: number; text: string }[] = [];
+  let t = 0;
+  for (const raw of lines) {
+    const [verb, ...rest] = raw.trim().split(/\s+/);
+    const v = verb?.toLowerCase();
+    const at = (text: string) => out.push({ time: Math.round(t * 100) / 100, text });
+    if (v === "wait") t += Number(rest[0]) || 0;
+    else if (v === "teleop") at("Teleop");
+    else if (v === "auto") at("Auto starts");
+    else if (v === "disabled") at("Disabled");
+    else if (v === "select") at(`Choose ${rest.slice(1).join(" ")}`);
+    else if (v === "press") {
+      at(`Tap ${rest[0]}`);
+      t += 0.06;
+    } else if (v === "hold") {
+      at(`Hold ${rest[0]} for ${rest[1]} s`);
+      t += Number(rest[1]) || 0;
+    } else if (v === "down") at(`Press and keep holding ${rest[0]}`);
+    else if (v === "up") at(`Let go of ${rest[0]}`);
+    else if (v === "stick") at(`${rest[0] === "left" ? "Left" : "Right"} stick to ${rest[1]}, ${rest[2]}`);
+    else if (raw.trim()) at(raw.trim());
+  }
+  return out;
+}
+
+/** Sim proof differences about one machine: "<machine>: …" lines, with the scenario they came from. */
+export function machineDifferences(results: { scenario: Scenario; differences: string[] }[], machine: string) {
+  return results.flatMap((r) => r.differences.filter((d) => d.startsWith(`${machine}: `)).map((d) => ({ scenario: r.scenario, text: d.slice(machine.length + 2) })));
+}

@@ -93,20 +93,69 @@ function Press({ result, kind, names, nameOf }: { result?: ScenarioResult; kind:
   );
 }
 
+/** A machine's value every 50 ms from just before the press to the end, as one string. */
+function timeline(o: Outcome | undefined, name: string) {
+  const track = o?.tracks.find((t) => t.name === name);
+  if (!o || !track) return "";
+  const out: string[] = [];
+  for (let t = PRESS - 0.05, i = -1; t <= o.duration; t += 0.05) {
+    while (i + 1 < track.changes.length && track.changes[i + 1].time <= t) i++;
+    out.push(i >= 0 ? track.changes[i].value : "");
+  }
+  return out.join("|");
+}
+
+/**
+ * What each machine does after a press whatever the button: the timeline most button runs share
+ * (by tap or hold, before or after). A shooter that spins up on its own a second into teleop
+ * looks the same after every press, so it is the robot's own behavior, not the button's.
+ */
+export function backgroundOf(results: ScenarioResult[]) {
+  const common = new Map<string, string>();
+  const counts = new Map<string, Map<string, number>>();
+  for (const r of results) {
+    const kind = r.scenario.id.startsWith("tap-") ? "tap" : "hold";
+    for (const side of ["before", "after"] as const)
+      for (const t of r[side]?.tracks ?? []) {
+        const key = `${kind}|${side}|${t.name}`;
+        const line = timeline(r[side], t.name);
+        const c = counts.get(key) ?? counts.set(key, new Map()).get(key)!;
+        c.set(line, (c.get(line) ?? 0) + 1);
+      }
+  }
+  for (const [key, c] of counts) {
+    const [line, n] = [...c].sort((a, b) => b[1] - a[1])[0];
+    // Shared by at least three buttons and by more than any other timeline.
+    if (n >= 3 && [...c.values()].filter((x) => x === n).length === 1) common.set(key, line);
+  }
+  return (r: ScenarioResult | undefined, side: "before" | "after", name: string) => {
+    const o = r?.[side];
+    if (!r || !o?.tracks.some((t) => t.name === name)) return false;
+    const kind = r.scenario.id.startsWith("tap-") ? "tap" : "hold";
+    const usual = common.get(`${kind}|${side}|${name}`);
+    if (usual !== undefined) return timeline(o, name) !== usual;
+    return o.tracks.some((t) => t.name === name && t.changes.some((c) => c.time >= PRESS - 0.05));
+  };
+}
+
 /** Every controller button as pictures: what each part of the robot does over time when it is tapped or held. */
 export function ButtonMap({ results, machines }: { results: ScenarioResult[]; machines: MachineManifest[] }) {
   const stateNames = new Map(machines.flatMap((m) => m.states.map((s) => [s.id, s.name] as const)));
   const nameOf = (v: string) => stateNames.get(v) ?? v.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
   const what = purposes(machines);
   const buttons = [...new Set(results.map((r) => r.scenario.id.replace(/^(tap|hold)-/, "")))];
+  const doesSomething = backgroundOf(results);
   const rows = buttons.map((button) => {
     const tap = results.find((r) => r.scenario.id === `tap-${button}`);
     const hold = results.find((r) => r.scenario.id === `hold-${button}`);
-    // Machines that do something after the press, in either version (not the auto's own state).
+    // Machines the press changes, in either version: not the auto's own state, and not what the
+    // robot does after any press (that is its own behavior, the same for every button).
     const names = [
       ...new Set(
         [tap, hold].flatMap((r) =>
-          [r?.before, r?.after].flatMap((o) => o?.tracks.filter((t) => !/^Auto|^Autonomous$/.test(t.name) && t.changes.some((c) => c.time >= PRESS - 0.05)).map((t) => t.name) ?? []),
+          (["before", "after"] as const).flatMap((side) =>
+            (r?.[side]?.tracks ?? []).filter((t) => !/^Auto|^Autonomous$/.test(t.name) && doesSomething(r, side, t.name)).map((t) => t.name),
+          ),
         ),
       ),
     ];

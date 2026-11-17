@@ -5,7 +5,7 @@ import { FieldArt } from "../../components/FieldArt";
 import type { Field as FieldModel } from "../../types";
 import field from "../core/rebuilt-2026.json";
 import type { ReviewReport } from "../core/review/report.ts";
-import type { Outcome, Track } from "../core/review/scenarios.ts";
+import { stepTimeline, type Outcome, type Track } from "../core/review/scenarios.ts";
 import { parseMachineSpecs } from "../core/review/machines.ts";
 import { MACHINES_FILE } from "../core/review/report.ts";
 import { ButtonMap } from "./ButtonMap";
@@ -212,16 +212,54 @@ export function Replay({ result, onTime }: { result: ScenarioResult; onTime?: (t
   );
 }
 
+/** What the scenario does, when, and the verdict in one line. */
+function ScenarioHead({ r }: { r: ScenarioResult }) {
+  const steps = stepTimeline(r.scenario.steps).filter((s) => s.text !== "Disabled" || s.time > 0);
+  const failing = r.checks.find((c) => !c.pass);
+  const verdict = r.error
+    ? { tone: "bad", text: "The simulation stopped early" }
+    : failing
+      ? { tone: "bad", text: `Fails: ${failing.text}` }
+      : r.differences.length
+        ? { tone: "warn", text: `Behaves differently than before in ${r.differences.length} way${r.differences.length === 1 ? "" : "s"}, listed below` }
+        : r.before
+          ? { tone: "good", text: "Same as before: every machine, the drive and the path match the before version" }
+          : { tone: "good", text: "Ran on the after version only" };
+  return (
+    <div className="mx-scenario-head">
+      <strong>{r.scenario.name.replace(/^Auto: /, "")}</strong>
+      <p className={`mx-scenario-verdict is-${verdict.tone}`}>{verdict.text}</p>
+      {steps.length > 0 && (
+        <ol className="mx-scenario-steps" aria-label="What the scenario does">
+          {steps.map((s, i) => (
+            <li key={i}>
+              <span className="mx-mono">{s.time.toFixed(1)} s</span> {s.text}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function Status({ r }: { r: ScenarioResult }) {
   if (r.failed) return <Badge tone="bad">{r.error ? "crashed" : "fails"}</Badge>;
   if (r.differences.length) return <Badge tone="warn">different</Badge>;
   return <Badge tone="good">same</Badge>;
 }
 
-export function SimProofView({ report, review }: { report: ReviewReport; review: Review }) {
+export function SimProofView({ report, review, focus }: { report: ReviewReport; review: Review; focus?: string }) {
   const proof: SimProof | undefined = review.sim.proof;
-  const [group, setGroup] = useState<"custom" | "auto" | "button">("auto");
-  const [picked, setPicked] = useState<string>();
+  const focused = proof?.results.find((r) => r.scenario.id === focus)?.scenario;
+  const [group, setGroup] = useState<"custom" | "auto" | "button">(focused?.group ?? "auto");
+  const [picked, setPicked] = useState<string | undefined>(focused?.id);
+  // Another tab (State machines) asked for a scenario: show it.
+  useEffect(() => {
+    if (!focused) return;
+    setGroup(focused.group);
+    setPicked(focused.id);
+  }, [focused]);
+  const [compareSame, setCompareSame] = useState(false);
   const results = useMemo(() => proof?.results.filter((r) => r.scenario.group === group) ?? [], [proof, group]);
   const selected = results.find((r) => r.scenario.id === picked) ?? results.find((r) => r.failed || r.differences.length) ?? results[0];
   const staticAutos = new Map(report.routines.map((r) => [r.id, r.kind]));
@@ -329,15 +367,35 @@ export function SimProofView({ report, review }: { report: ReviewReport; review:
           ) : (
             <div className="mx-autos-diff">
               <nav className="mx-rail" aria-label="Scenarios">
-                {results.map((r) => (
-                  <button key={r.scenario.id} type="button" className={r === selected ? "is-active" : ""} onClick={() => setPicked(r.scenario.id)}>
-                    <span>{r.scenario.name.replace(/^Auto: /, "")}</span>
-                    <Status r={r} />
-                  </button>
-                ))}
+                {/* What needs a look first; scenarios that behave as before are folded away. */}
+                {results
+                  .filter((r) => r.failed || r.differences.length || !r.before)
+                  .map((r) => (
+                    <button key={r.scenario.id} type="button" className={r === selected ? "is-active" : ""} onClick={() => setPicked(r.scenario.id)}>
+                      <span>{r.scenario.name.replace(/^Auto: /, "")}</span>
+                      <Status r={r} />
+                    </button>
+                  ))}
+                {(() => {
+                  const same = results.filter((r) => !r.failed && !r.differences.length && r.before);
+                  if (!same.length) return null;
+                  return (
+                    <details className="mx-rail-same" open={same.length === results.length || same.includes(selected!)}>
+                      <summary>
+                        Same as before <Badge tone="good">{same.length}</Badge>
+                      </summary>
+                      {same.map((r) => (
+                        <button key={r.scenario.id} type="button" className={r === selected ? "is-active" : ""} onClick={() => setPicked(r.scenario.id)}>
+                          <span>{r.scenario.name.replace(/^Auto: /, "")}</span>
+                        </button>
+                      ))}
+                    </details>
+                  );
+                })()}
               </nav>
               {selected && (
                 <div className="mx-autos-main">
+                  <ScenarioHead r={selected} />
                   {selected.scenario.routine && staticAutos.get(selected.scenario.routine) === "changed" && !selected.differences.length && selected.before && (
                     <div className="mx-callout is-warn">
                       <TriangleAlert size={16} />
@@ -347,6 +405,7 @@ export function SimProofView({ report, review }: { report: ReviewReport; review:
                       </span>
                     </div>
                   )}
+                  {selected.checks.length > 0 && <h4 className="mx-scenario-label">What it checks (on the after version)</h4>}
                   {selected.checks.length > 0 && (
                     <ul className="mx-change-list">
                       {selected.checks.map((c) => (
@@ -356,6 +415,7 @@ export function SimProofView({ report, review }: { report: ReviewReport; review:
                       ))}
                     </ul>
                   )}
+                  {selected.differences.length > 0 && <h4 className="mx-scenario-label">What changed from before</h4>}
                   {selected.differences.length > 0 && (
                     <ul className="mx-change-list">
                       {selected.differences.map((d) => (
@@ -369,7 +429,25 @@ export function SimProofView({ report, review }: { report: ReviewReport; review:
                   {selected.after?.physics?.hits?.length ? (
                     <p className="mx-help is-bad">Collisions: {selected.after.physics.hits.join("; ")}</p>
                   ) : null}
-                  {(selected.before || selected.after) && <Replay key={selected.scenario.id} result={selected} />}
+                  {(selected.before || selected.after) &&
+                    (() => {
+                      // Identical runs: one replay is enough; comparing stays one click away.
+                      const same = !!selected.before && !selected.failed && !selected.differences.length;
+                      const shown = same && !compareSame ? { ...selected, before: undefined, logs: { after: selected.logs.after } } : selected;
+                      return (
+                        <>
+                          {same && (
+                            <p className="mx-help">
+                              {compareSame ? "Before and after, side by side." : "Showing the after run; the before run did exactly the same."}{" "}
+                              <button type="button" className="mx-link" onClick={() => setCompareSame(!compareSame)}>
+                                {compareSame ? "Show one run" : "Compare with before anyway"}
+                              </button>
+                            </p>
+                          )}
+                          <Replay key={`${selected.scenario.id}:${shown === selected}`} result={shown} />
+                        </>
+                      );
+                    })()}
                 </div>
               )}
             </div>

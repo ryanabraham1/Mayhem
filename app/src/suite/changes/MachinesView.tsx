@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { GitBranch } from "lucide-react";
+import { FlaskConical, GitBranch } from "lucide-react";
 import { machineGraph } from "../core/machines.ts";
 import type { MachineDiff } from "../core/review/machines.ts";
 import type { ReviewReport } from "../core/review/report.ts";
 import { StateGraph } from "../states/StateGraph";
-import { Badge, EmptyState, type Tone } from "../ui";
+import { machineDifferences } from "../core/review/scenarios.ts";
+import type { SimProof } from "../core/review/simproof.ts";
+import { Badge, Button, EmptyState, type Tone } from "../ui";
 
 const TONE: Record<string, Tone> = { added: "good", removed: "bad", changed: "warn", same: "neutral" };
 
@@ -44,7 +46,60 @@ function ChangeList({ m }: { m: MachineDiff }) {
   );
 }
 
-export function MachinesView({ report }: { report: ReviewReport }) {
+/** What the sim proof saw this machine do differently, scenario by scenario. */
+function Behavior({ m, proof, running, run, open }: { m: MachineDiff; proof?: SimProof; running?: boolean; run?: () => void; open: (scenario: string) => void }) {
+  if (!proof)
+    return (
+      <div className="mx-machine-behavior">
+        <strong>Behavior</strong>
+        <p className="mx-help">
+          {m.kind === "same" ? "This machine's graph didn't change, but other code can still change what it does." : "The graph above is what the code says."} Run the sim proof to see what
+          the machine actually does differently, button by button and auto by auto.
+        </p>
+        {run && (
+          <Button size="sm" icon={FlaskConical} disabled={running} onClick={run}>
+            {running ? "Running…" : "Run sim proof"}
+          </Button>
+        )}
+      </div>
+    );
+  const found = machineDifferences(proof.results, m.name);
+  return (
+    <div className="mx-machine-behavior">
+      <strong>Behavior in the sim proof</strong>
+      {found.length ? (
+        <ul>
+          {found.map((d) => (
+            <li key={`${d.scenario.id}:${d.text}`}>
+              <button type="button" className="mx-link" onClick={() => open(d.scenario.id)}>
+                {d.scenario.name.replace(/^Auto: /, "Auto ")}
+              </button>
+              <span>{d.text}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mx-help">
+          Same in all {proof.results.length} scenarios: every button, every auto and the team's scenarios move {m.name} through the same states at the same times as before.
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function MachinesView({
+  report,
+  proof,
+  running,
+  run,
+  openScenario,
+}: {
+  report: ReviewReport;
+  proof?: SimProof;
+  running?: boolean;
+  run?: () => void;
+  openScenario: (id: string) => void;
+}) {
   const machines = report.machines;
   const [picked, setPicked] = useState(() => (machines.find((m) => m.kind !== "same") ?? machines[0])?.id);
   const [state, setState] = useState("");
@@ -61,12 +116,17 @@ export function MachinesView({ report }: { report: ReviewReport }) {
         {machines.map((x) => (
           <button key={x.id} type="button" className={x.id === picked ? "is-active" : ""} onClick={() => setPicked(x.id)}>
             <span>{x.name}</span>
-            {x.kind !== "same" && <Badge tone={x.controls ? "bad" : TONE[x.kind]}>{x.controls ? "controls" : x.kind}</Badge>}
+            {x.kind !== "same" ? (
+              <Badge tone={x.controls ? "bad" : TONE[x.kind]}>{x.controls ? "controls" : x.kind}</Badge>
+            ) : proof && machineDifferences(proof.results, x.name).length ? (
+              <Badge tone="warn">acts differently</Badge>
+            ) : null}
           </button>
         ))}
       </nav>
       {m && (
         <div className="mx-machine-diff-main">
+          <Behavior m={m} proof={proof} running={running} run={run} open={openScenario} />
           <div className="mx-legend" aria-label="Legend">
             <span className="is-added">Added</span>
             <span className="is-changed">Changed</span>
@@ -88,7 +148,7 @@ export function MachinesView({ report }: { report: ReviewReport }) {
               />
             </div>
           )}
-          {m.kind === "same" ? <p className="mx-help">No changes to this machine.</p> : <ChangeList m={m} />}
+          {m.kind === "same" ? <p className="mx-help">No changes to this machine's graph.</p> : <ChangeList m={m} />}
         </div>
       )}
     </div>

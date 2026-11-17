@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowRight,
+  ArrowLeftRight,
   Cpu,
   FileCode2,
   FileSearch,
@@ -32,7 +32,8 @@ import { SimProofView } from "./SimProofView";
 import { CommitsPanel } from "./CommitsPanel";
 import { BranchRow, DeliveryLane, ProofLine } from "./ReviewParts";
 import { useCommitProof, useReviews } from "./reviewList";
-import { useReview, type Review } from "./useReview";
+import { RevisionPicker } from "./RevisionPicker";
+import { useReview } from "./useReview";
 import "./changes.css";
 
 type Tab = "summary" | Exclude<Area, "generated" | "code"> | "sim";
@@ -46,37 +47,6 @@ const TABS: { value: Tab; label: string; icon: typeof Cpu }[] = [
   { value: "sim", label: "Sim proof", icon: FlaskConical },
 ];
 const LEVEL_TONE: Record<Level, Tone> = { red: "bad", yellow: "warn", green: "good", none: "neutral" };
-
-function RevisionPicker({ review, side, named }: { review: Review; side: "before" | "after"; named?: string }) {
-  const value = side === "before" ? review.before : review.after;
-  const set = side === "before" ? review.setBefore : review.setAfter;
-  const info = review.info;
-  const group = (kind: string) => info?.revisions.filter((r) => r.kind === kind) ?? [];
-  const known = value === WORKTREE || value === "HEAD" || info?.revisions.some((r) => r.rev === value);
-  return (
-    <label className="mx-rev-picker">
-      <span>{side === "before" ? "Before" : "After"}</span>
-      <select value={value} onChange={(e) => set(e.target.value)} aria-label={`${side === "before" ? "Before" : "After"} version`}>
-        <option value={WORKTREE}>
-          This computer (not committed){info?.dirty.length ? ` · ${info.dirty.length} file${info.dirty.length === 1 ? "" : "s"} edited` : ""}
-        </option>
-        <option value="HEAD">Last commit{info ? ` on ${info.branch}` : ""}</option>
-        {!known && <option value={value}>{named ?? (/^[0-9a-f]{40}$/.test(value) ? value.slice(0, 7) : value)}</option>}
-        {(["branch", "remote", "tag", "commit"] as const).map((kind) =>
-          group(kind).length ? (
-            <optgroup key={kind} label={{ branch: "Branches", remote: "Branches on GitHub", tag: "Tags", commit: "Recent commits" }[kind]}>
-              {group(kind).map((r) => (
-                <option key={`${kind}:${r.rev}`} value={r.rev}>
-                  {kind === "commit" ? `${r.sha.slice(0, 7)} ${r.label}` : `${r.rev} · ${r.label}`}
-                </option>
-              ))}
-            </optgroup>
-          ) : null,
-        )}
-      </select>
-    </label>
-  );
-}
 
 function Summary({ report, go }: { report: ReviewReport; go: (tab: Tab) => void }) {
   const count = (area: Area) => report.findings.filter((f) => f.area === area).length;
@@ -134,6 +104,8 @@ export function ChangesPage({ notify, go }: { notify: (message: string) => void;
   const [author] = useAuthor();
   const [tab, setTab] = useState<Tab>("summary");
   const [editing, setEditing] = useState<EditTarget>();
+  // A scenario another tab pointed at, for the sim proof to open on.
+  const [focusScenario, setFocusScenario] = useState<string>();
   const { report } = review;
 
   // A proof that ran on a commit is kept on that commit, so whoever reviews it next sees this
@@ -248,7 +220,19 @@ export function ChangesPage({ notify, go }: { notify: (message: string) => void;
           {desktop && review.repo && !review.imported && (
             <div className="mx-rev-bar">
               <RevisionPicker review={review} side="before" named={named(review.before)} />
-              <ArrowRight size={16} aria-hidden="true" />
+              <button
+                type="button"
+                className="mx-icon-btn mx-rev-swap"
+                aria-label="Swap before and after"
+                title="Swap before and after"
+                onClick={() => {
+                  const [b, a] = [review.before, review.after];
+                  review.setBefore(a);
+                  review.setAfter(b);
+                }}
+              >
+                <ArrowLeftRight size={16} />
+              </button>
               <RevisionPicker review={review} side="after" named={named(review.after)} />
               <Button size="sm" variant="ghost" icon={RefreshCw} onClick={() => void review.reload()} disabled={review.loading}>
                 {review.loading ? "Reading…" : "Reload"}
@@ -319,11 +303,22 @@ export function ChangesPage({ notify, go }: { notify: (message: string) => void;
                   </>
                 )}
                 {tab === "controls" && <ControlsView report={report} />}
-                {tab === "machines" && <MachinesView report={report} />}
+                {tab === "machines" && (
+                  <MachinesView
+                    report={report}
+                    proof={review.sim.proof}
+                    running={review.sim.progress !== undefined}
+                    run={desktop && review.snapshots ? runProof : undefined}
+                    openScenario={(id) => {
+                      setFocusScenario(id);
+                      setTab("sim");
+                    }}
+                  />
+                )}
                 {tab === "settings" && <SettingsView report={report} review={review} editSetting={setEditing} />}
                 {tab === "hardware" && <HardwareView report={report} review={review} editSetting={setEditing} />}
                 {tab === "autos" && <AutosView report={report} />}
-                {tab === "sim" && <SimProofView report={report} review={review} />}
+                {tab === "sim" && <SimProofView report={report} review={review} focus={focusScenario} />}
               </div>
             </>
           )}

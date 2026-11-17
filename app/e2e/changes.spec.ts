@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { desktop, fixtureRepo } from "./reviewBridge";
+import { desktop, fixtureRepo, pickVersion } from "./reviewBridge";
 
 const tab = (page: Page, name: RegExp) => page.getByRole("group", { name: "Review sections" }).getByRole("button", { name }).click();
 const shots = process.env.MAYHEM_SHOTS;
@@ -18,8 +18,8 @@ test("reviews an agent's change and edits a CAN ID into the robot code", async (
   await page.getByRole("button", { name: "Choose robot code folder" }).first().click();
   // The agent's commit against the one before it.
   const sha = (rev: string) => execFileSync("git", ["-C", repo, "rev-parse", rev]).toString().trim();
-  await page.getByLabel("Before version").selectOption(sha(process.env.MAYHEM_REVIEW_BEFORE ?? "HEAD~1"));
-  await page.getByLabel("After version").selectOption(sha("HEAD"));
+  await pickVersion(page, "Before", sha(process.env.MAYHEM_REVIEW_BEFORE ?? "HEAD~1"));
+  await pickVersion(page, "After", sha("HEAD"));
   await expect(page.getByRole("status").filter({ hasText: "Safety change" })).toBeVisible();
   await shot(page, "1-summary");
 
@@ -54,8 +54,8 @@ test("reviews an agent's change and edits a CAN ID into the robot code", async (
   }
 
   // Edit: the working copy against the last commit; give the shooter's second motor a new CAN ID.
-  await page.getByLabel("Before version").selectOption("HEAD");
-  await page.getByLabel("After version").selectOption("WORKTREE");
+  await pickVersion(page, "Before", "HEAD");
+  await pickVersion(page, "After", "WORKTREE");
   await tab(page, /^Hardware/);
   await page.getByRole("button", { name: /^Shooter/ }).first().click();
   await shot(page, "6-hardware");

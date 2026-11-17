@@ -2,7 +2,7 @@
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { desktop } from "./reviewBridge";
+import { desktop, pickVersion } from "./reviewBridge";
 
 const repo = process.env.MAYHEM_REVIEW_REPO;
 test.skip(!repo, "needs a robot repo with sim runs and AdvantageScope assets");
@@ -14,8 +14,8 @@ test("replays an auto before and after in 3D", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Changes", exact: true }).click();
   await page.getByRole("button", { name: /Choose robot code folder|robot-demo/ }).first().click();
-  await page.getByLabel("Before version").selectOption(git("rev-parse", "mayhem/suite-integration"));
-  await page.getByLabel("After version").selectOption(git("rev-parse", "HEAD"));
+  await pickVersion(page, "Before", git("rev-parse", "mayhem/suite-integration"));
+  await pickVersion(page, "After", git("rev-parse", "HEAD"));
   await page.getByRole("group", { name: "Review sections" }).getByRole("button", { name: /^Sim proof/ }).click();
   await page.getByRole("button", { name: "Run sim proof" }).click();
   await expect(page.getByRole("button", { name: "Run again" })).toBeVisible({ timeout: 800_000 });

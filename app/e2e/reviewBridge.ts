@@ -178,3 +178,10 @@ export async function desktop(page: Page, repo: string) {
   });
 }
 
+
+/** Picks a version in the Changes page's before/after picker (a sha, branch, HEAD or WORKTREE). */
+export async function pickVersion(page: Page, side: "Before" | "After", rev: string) {
+  await page.getByRole("button", { name: `${side} version` }).click();
+  await page.getByLabel(`Search ${side.toLowerCase()} versions`).fill(rev === "WORKTREE" || rev === "HEAD" ? "" : rev);
+  await page.locator(`[role="option"][data-value="${rev}"]`).first().click();
+}

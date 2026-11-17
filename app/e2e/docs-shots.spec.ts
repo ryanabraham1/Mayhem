@@ -5,7 +5,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { desktop, dialogPicks, fakeRobot } from "./reviewBridge";
+import { desktop, dialogPicks, fakeRobot, pickVersion } from "./reviewBridge";
 
 const out = process.env.MAYHEM_DOCS_SHOTS;
 const repo = process.env.MAYHEM_REVIEW_REPO;
@@ -59,8 +59,8 @@ test("docs screenshots", async ({ page }) => {
   await shot("robot-now");
 
   await nav("Changes");
-  await page.getByLabel("Before version").selectOption(git("rev-parse", "HEAD~6"));
-  await page.getByLabel("After version").selectOption(git("rev-parse", "HEAD"));
+  await pickVersion(page, "Before", git("rev-parse", "HEAD~6"));
+  await pickVersion(page, "After", git("rev-parse", "HEAD"));
   await expect(page.locator(".mx-risk-chip")).toBeVisible({ timeout: 60_000 });
   await shot("changes");
   await page.getByRole("group", { name: "Review sections" }).getByRole("button", { name: /^Autos/ }).click();

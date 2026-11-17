@@ -65,8 +65,8 @@ test("an agent's branch is reviewed by what it does, with its recorded sim proof
   await row.getByRole("button").first().click();
   const branches = page.getByRole("complementary", { name: "Branches" });
   await expect(branches.getByRole("region", { name: "To review" }).locator(".mx-branch.is-active")).toContainText("agent/retract-on-stall");
-  await expect(page.getByLabel("Before version")).toHaveValue(start);
-  await expect(page.getByLabel("After version")).toHaveValue(tip);
+  await expect(page.getByRole("button", { name: "Before version" })).toHaveAttribute("data-value", start);
+  await expect(page.getByRole("button", { name: "After version" })).toHaveAttribute("data-value", tip);
   await expect(page.locator(".mx-risk-chip")).toContainText("Behavior changes to review");
   await expect(page.locator(".mx-area-card", { hasText: "Other code" })).toContainText("1 file changed");
   await expect(page.getByRole("region", { name: "Commits in this change" })).toContainText("Retract the intake when the slide stalls");

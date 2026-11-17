@@ -5,7 +5,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
-import { desktop, fakeRobot } from "./reviewBridge";
+import { desktop, fakeRobot, pickVersion } from "./reviewBridge";
 
 const out = process.env.MAYHEM_AUDIT;
 const repo = process.env.MAYHEM_REVIEW_REPO;
@@ -53,8 +53,8 @@ for (const theme of ["light", "dark"] as const)
       const tab = (name: RegExp) => page.getByRole("group", { name: "Review sections" }).getByRole("button", { name }).click();
       await page.getByRole("button", { name: "Changes", exact: true }).click();
       await page.getByRole("button", { name: /Choose robot code folder|robot-demo/ }).first().click();
-      await page.getByLabel("Before version").selectOption(git("rev-parse", "mayhem/suite-integration"));
-      await page.getByLabel("After version").selectOption(git("rev-parse", "HEAD"));
+      await pickVersion(page, "Before", git("rev-parse", "mayhem/suite-integration"));
+      await pickVersion(page, "After", git("rev-parse", "HEAD"));
       await expect(page.locator(".mx-risk-chip")).toBeVisible();
       await shot("changes-summary");
       for (const [name, re] of [["controls", /^Controls/], ["machines", /^State machines/], ["values", /^Values/], ["hardware", /^Hardware/], ["autos", /^Autos/]] as const) {
@@ -64,13 +64,13 @@ for (const theme of ["light", "dark"] as const)
       await tab(/^Values/);
       await page.getByRole("button", { name: "All values" }).click();
       await shot("changes-values-all");
-      await page.getByLabel("After version").selectOption("WORKTREE");
+      await pickVersion(page, "After", "WORKTREE");
       await tab(/^Hardware/);
       await page.getByRole("button", { name: /^Shooter\b/ }).first().click();
       await page.locator(".mx-cell-edit").first().click();
       await shot("changes-edit");
       await page.getByRole("button", { name: "Cancel" }).click();
-      await page.getByLabel("After version").selectOption(git("rev-parse", "HEAD"));
+      await pickVersion(page, "After", git("rev-parse", "HEAD"));
       await tab(/^Sim proof/);
       await page.getByRole("button", { name: "Run sim proof" }).click();
       await expect(page.getByRole("button", { name: "Run again" })).toBeVisible({ timeout: 500_000 });

@@ -12,7 +12,7 @@ import { readSettings } from "../src/suite/core/review/settings";
 import { parseExplainer, robotParts } from "../src/suite/core/review/explainer";
 import { sampleProject } from "../src/suite/core/sample";
 import { machineFromSpec } from "../src/suite/core/authoring";
-import { checkExpectations, compareOutcomes, compileSteps, parseExpectation, scenarioSet, type Outcome } from "../src/suite/core/review/scenarios";
+import { checkExpectations, compareOutcomes, compileSteps, machineDifferences, parseExpectation, scenarioSet, stepTimeline, type Outcome } from "../src/suite/core/review/scenarios";
 import { execute } from "../../scripts/mayhem.mjs";
 import { reaches, readProofNotes, recordProof } from "../../scripts/review-git.mjs";
 import { parseProofNote, proofFor, proofText, withProof } from "../src/suite/core/review/proofs";
@@ -302,6 +302,25 @@ describe("sim proof scenarios", () => {
     expect(scenarios.filter((s) => s.group === "auto")).toHaveLength(sampleProject.routines.length);
     expect(scenarios.find((s) => s.group === "custom")).toMatchObject({ id: "custom-hold-a", expect: ["Shooter is ON by 1 s"] });
     expect(errors).toEqual(['scenarios.json #2: Unknown step "fly".']);
+  });
+  it("says what a scenario does and when", () => {
+    expect(stepTimeline(["teleop", "wait 0.5", "press X", "wait 1.5", "press X", "hold A 2", "wait 1"])).toEqual([
+      { time: 0, text: "Teleop" },
+      { time: 0.5, text: "Tap X" },
+      { time: 2.06, text: "Tap X" },
+      { time: 2.12, text: "Hold A for 2 s" },
+    ]);
+  });
+  it("finds the sim differences about one machine", () => {
+    const scenario = (name: string) => ({ id: name, name, group: "button" as const, alliance: "blue" as const, field: true, steps: [], expect: [] });
+    const found = machineDifferences(
+      [
+        { scenario: scenario("Tap X"), differences: ["Intake mode: INTAKING 0.3 s later", "Shooter mode: OFF ⇒ REV"] },
+        { scenario: scenario("Hold A"), differences: ["Intake mode extra: x"] },
+      ],
+      "Intake mode",
+    );
+    expect(found).toEqual([{ scenario: scenario("Tap X"), text: "INTAKING 0.3 s later" }]);
   });
   it("runs every scenario on the simulated field unless a team scenario turns it off", () => {
     const { scenarios } = scenarioSet(sampleProject, JSON.stringify({ scenarios: [{ name: "On", steps: ["teleop"] }, { name: "Off", field: false, steps: ["teleop"] }] }));
