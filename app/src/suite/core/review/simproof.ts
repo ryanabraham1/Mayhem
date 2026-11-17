@@ -36,27 +36,54 @@ export interface SimProof {
   changed: number;
 }
 
-/** Runs `scenarios` on `before` (optional) and `after`, `parallel` processes at a time. */
+/**
+ * How many scenario processes to run at once. Each run is one CPU-bound process (most of it the
+ * robot sim's start-up), so use every core but one, leaving the app responsive.
+ */
+export function defaultParallel(cores = (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency) {
+  return Math.max(2, Math.min(16, (cores ?? 5) - 1));
+}
+
+/**
+ * Runs `scenarios` on `before` (optional) and `after`, `parallel` processes at a time. The first
+ * version's scenarios start as soon as it is built, while the second version builds.
+ */
 export async function runSimProof(
   runner: SimRunner,
   revs: { before?: string; after: string },
   scenarios: Scenario[],
   machines: MachineManifest[],
   progress: (text: string, done: number, total: number) => void = () => {},
-  parallel = 4,
+  parallel = defaultParallel(),
 ): Promise<SimProof> {
   const sides = (revs.before ? (["before", "after"] as const) : (["after"] as const)) as readonly ("before" | "after")[];
-  const dirs: Partial<Record<"before" | "after", string>> = {};
-  for (const side of sides) {
-    progress(`Building ${side === "before" ? "the before" : "the after"} version with the probe…`, 0, 1);
-    dirs[side] = (await runner.prepare(side === "before" ? revs.before! : revs.after)).dir;
-  }
   const results: ScenarioResult[] = scenarios.map((scenario) => ({ scenario, checks: [], differences: [], failed: false, logs: {} }));
-  const jobs = results.flatMap((r) => sides.map((side) => ({ r, side })));
+  // One side's jobs after the other's, so workers run the version that is ready.
+  const jobs = sides.flatMap((side) => results.map((r) => ({ r, side })));
   let done = 0;
+  // Builds one after the other (each already uses every core); a failed build stops the proof.
+  const dirs: Partial<Record<"before" | "after", Promise<string>>> = {};
+  let built: Promise<unknown> = Promise.resolve();
+  for (const side of sides) {
+    const dir = built.then(async () => {
+      progress(`Building ${side === "before" ? "the before" : "the after"} version with the probe…`, done, jobs.length);
+      return (await runner.prepare(side === "before" ? revs.before! : revs.after)).dir;
+    });
+    dir.catch(() => {}); // reported once, below
+    dirs[side] = dir;
+    built = dir;
+  }
+  let buildError: unknown;
   const work = async ({ r, side }: (typeof jobs)[number]) => {
+    let dir: string;
     try {
-      const run = await runner.run(dirs[side]!, r.scenario.id, JSON.stringify(probeInput(r.scenario)));
+      dir = await dirs[side]!;
+    } catch (e) {
+      buildError ??= e;
+      return;
+    }
+    try {
+      const run = await runner.run(dir, r.scenario.id, JSON.stringify(probeInput(r.scenario)));
       if (!run.ok || !run.log) throw new Error(`The simulation stopped early.\n${run.output}`);
       const physics = run.result ? (JSON.parse(run.result).physics as Physics | undefined) : undefined;
       r[side] = outcomeOf(await runner.readLog(run.log), machines, physics);
@@ -69,8 +96,10 @@ export async function runSimProof(
   };
   const queue = [...jobs];
   await Promise.all(Array.from({ length: Math.max(1, parallel) }, async () => {
-    for (let job = queue.shift(); job; job = queue.shift()) await work(job);
+    for (let job = queue.shift(); job && buildError === undefined; job = queue.shift()) await work(job);
   }));
+  await built; // a failed build throws here
+  if (buildError !== undefined) throw buildError;
   for (const r of results) {
     if (r.after) r.checks = checkExpectations(r.scenario, r.after, machines);
     if (r.before && r.after) r.differences = compareOutcomes(r.before, r.after).differences;

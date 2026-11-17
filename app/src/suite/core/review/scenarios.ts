@@ -37,6 +37,11 @@ export interface Scenario {
   /** `button`: generated per controller button; `auto`: every routine; `custom`: scenarios.json. */
   group: "button" | "auto" | "custom";
   alliance: "blue" | "red";
+  /**
+   * Run on the simulated field: bumps, walls, hub, trenches and every game piece. On by default,
+   * so the robot meets the field the way it would in a match; without it the robot drives
+   * through the bumps on a flat, empty floor.
+   */
   field: boolean;
   steps: string[];
   expect: string[];
@@ -85,8 +90,8 @@ export function scenarioSet(project: SuiteProject | undefined, scenariosJson: st
   const scenarios: Scenario[] = [];
   const errors: string[] = [];
   for (const b of BUTTONS) {
-    scenarios.push({ id: `tap-${b}`, name: `Tap ${b}`, group: "button", alliance: "blue", field: false, steps: ["teleop", "wait 1", `press ${b}`, "wait 2.5"], expect: [] });
-    scenarios.push({ id: `hold-${b}`, name: `Hold ${b} for 2 s`, group: "button", alliance: "blue", field: false, steps: ["teleop", "wait 1", `hold ${b} 2`, "wait 1.5"], expect: [] });
+    scenarios.push({ id: `tap-${b}`, name: `Tap ${b}`, group: "button", alliance: "blue", field: true, steps: ["teleop", "wait 1", `press ${b}`, "wait 2.5"], expect: [] });
+    scenarios.push({ id: `hold-${b}`, name: `Hold ${b} for 2 s`, group: "button", alliance: "blue", field: true, steps: ["teleop", "wait 1", `hold ${b} 2`, "wait 1.5"], expect: [] });
   }
   for (const r of project?.routines ?? [])
     scenarios.push({
@@ -116,7 +121,7 @@ export function scenarioSet(project: SuiteProject | undefined, scenariosJson: st
             name: s.name,
             group: "custom",
             alliance: s.alliance === "red" ? "red" : "blue",
-            field: s.field === true,
+            field: s.field !== false,
             steps: s.steps,
             expect,
           });

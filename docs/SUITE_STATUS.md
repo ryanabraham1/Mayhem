@@ -71,7 +71,7 @@ Verification: 321 frontend/core/CLI tests, TypeScript and production build, 34 P
 
 ## Sim proof (2026-11-13, v0.9.33)
 
-- Changes → **Sim proof** builds both versions of the robot code with a probe test and runs, in the robot's own simulation: every controller button tapped and held, every auto on the full field, and the team's `tools/mayhem/scenarios.json` (plain steps and expectations; three starter scenarios are on `mayhem/suite-integration`). Results: pass/fail per expectation, before/after differences (machine states, drive mode, auto result, path), flickering states, and a before/after replay (field, time slider, state timelines). Agents: `run_scenarios` MCP tool, `mayhem.mjs sim`.
+- Changes → **Sim proof** builds both versions of the robot code with a probe test and runs, in the robot's own simulation and on the full simulated field (bumps, walls, hub, every game piece; a team scenario can opt out with `"field": false`): every controller button tapped and held, every auto, and the team's `tools/mayhem/scenarios.json` (plain steps and expectations; three starter scenarios are on `mayhem/suite-integration`). Results: pass/fail per expectation, before/after differences (machine states, drive mode, auto result, path), flickering states, and a before/after replay (field, time slider, state timelines). Agents: `run_scenarios` MCP tool, `mayhem.mjs sim`.
 - Behavior review now reports red when `machines.json` or the autos changed but the generated robot code (`MayhemProject.h`) did not.
 - Measured on this Mac: building a revision ~45 s, all 40 scenarios ~1 min (4 at a time), cached per commit. Not verified: Windows/Linux GradleRIO test task names, and per-motor configuration readback from the simulation (still read from source).
 

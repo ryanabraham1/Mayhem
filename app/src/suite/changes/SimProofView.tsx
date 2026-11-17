@@ -234,7 +234,7 @@ export function SimProofView({ report, review }: { report: ReviewReport; review:
         <div>
           <strong>Sim proof</strong>
           <p className="mx-help">
-            Builds both versions with the robot's own simulation and runs every auto, every controller button (tapped and held) and the team's scenarios in{" "}
+            Builds both versions with the robot's own simulation and runs every auto, every controller button (tapped and held) and the team's scenarios on the full simulated field (bumps, walls, hub, every ball) from{" "}
             <code>tools/mayhem/scenarios.json</code>. About a minute per version the first time; repeat runs are cached.
           </p>
         </div>

@@ -303,6 +303,11 @@ describe("sim proof scenarios", () => {
     expect(scenarios.find((s) => s.group === "custom")).toMatchObject({ id: "custom-hold-a", expect: ["Shooter is ON by 1 s"] });
     expect(errors).toEqual(['scenarios.json #2: Unknown step "fly".']);
   });
+  it("runs every scenario on the simulated field unless a team scenario turns it off", () => {
+    const { scenarios } = scenarioSet(sampleProject, JSON.stringify({ scenarios: [{ name: "On", steps: ["teleop"] }, { name: "Off", field: false, steps: ["teleop"] }] }));
+    expect(scenarios.filter((s) => s.name !== "Off").every((s) => s.field)).toBe(true);
+    expect(scenarios.find((s) => s.name === "Off")!.field).toBe(false);
+  });
   const machine = machineFromSpec(JSON.parse(MACHINES("shootHeld")).machines[0]);
   const outcome = (changes: [number, string][], extra: Partial<Outcome> = {}): Outcome => ({
     tracks: [{ name: "Shooter", channel: "Mayhem/States/Shooter/state", changes: changes.map(([time, value]) => ({ time, value })) }],
