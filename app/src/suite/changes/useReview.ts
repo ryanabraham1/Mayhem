@@ -81,10 +81,15 @@ export function useReview() {
   const [simProgress, setSimProgress] = useState<{ text: string; done: number; total: number }>();
   const [simError, setSimError] = useState<string>();
   const [simErrors, setSimErrors] = useState<string[]>([]);
+  // The latest proof started; a run left behind by a newer one (or by switching versions) is dropped.
+  const simRun = useRef(0);
+  const simBusy = useRef(0);
   // A sim proof belongs to the two versions it ran on.
   useEffect(() => {
+    simRun.current++;
     setProof(undefined);
     setSimError(undefined);
+    setSimProgress(undefined);
   }, [repo, before, after]);
 
   const setRepo = (path: string) => {
@@ -150,6 +155,11 @@ export function useReview() {
   /** Builds both versions with the probe and runs every scenario (desktop only). */
   const startSim = async () => {
     if (!snapshots || !repo) return;
+    // Already running on these versions: a second proof would build into the same folders.
+    if (simBusy.current && simBusy.current === simRun.current) return;
+    const id = ++simRun.current;
+    simBusy.current = id;
+    const current = () => simRun.current === id;
     setSimError(undefined);
     setProof(undefined);
     setSimProgress({ text: "Starting…", done: 0, total: 1 });
@@ -166,13 +176,17 @@ export function useReview() {
         readLog: async (path: string) => parseWPILog(await nativeRead(path), path.split("/").pop() ?? path),
       };
       const revs = { before: snapshots.before.rev, after: after === WORKTREE ? WORKTREE : snapshots.after.rev };
-      const result = await runSimProof(runner, revs, set.scenarios, machines, (text, done, total) => setSimProgress({ text, done, total }));
+      const result = await runSimProof(runner, revs, set.scenarios, machines, (text, done, total) => {
+        if (current()) setSimProgress({ text, done, total });
+      });
+      if (!current()) return;
       setProofRevs(revs);
       setProof(result);
     } catch (e) {
-      setSimError(String(e));
+      if (current()) setSimError(String(e));
     } finally {
-      setSimProgress(undefined);
+      if (simBusy.current === id) simBusy.current = 0;
+      if (current()) setSimProgress(undefined);
     }
   };
 

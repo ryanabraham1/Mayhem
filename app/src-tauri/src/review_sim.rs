@@ -94,14 +94,18 @@ pub(crate) fn java_home() -> Option<PathBuf> {
 
 /// Sim builds are ~200 MB each (mostly copied WPILib libraries): keep the few in use, not every
 /// commit ever reviewed. Marks `dir` as just used, then deletes all but the `KEEP` most recently
-/// used commit builds and anything (working copies too) unused for `MAX_AGE`.
+/// used commit builds and anything (working copies too) unused for `MAX_AGE`. Folders used in the
+/// last `BUSY` are never deleted: another proof (this app or the CLI) may be building or running
+/// in them right now.
 const KEEP: usize = 4;
 const MAX_AGE: std::time::Duration = std::time::Duration::from_secs(10 * 24 * 3600);
+const BUSY: std::time::Duration = std::time::Duration::from_secs(2 * 3600);
 pub(crate) fn prune(dir: &Path) {
-    let _ = fs::write(dir.join("used"), "");
+    touch(dir);
     let Some(root) = dir.parent() else { return };
     let Ok(entries) = fs::read_dir(root) else { return };
-    let used = |p: &Path| fs::metadata(p.join("used")).and_then(|m| m.modified()).ok();
+    // A folder without the mark is still being set up: its own age counts.
+    let used = |p: &Path| fs::metadata(p.join("used")).or_else(|_| fs::metadata(p)).and_then(|m| m.modified()).ok();
     let mut builds: Vec<(std::time::SystemTime, PathBuf)> = entries
         .flatten()
         .map(|e| e.path())
@@ -112,15 +116,29 @@ pub(crate) fn prune(dir: &Path) {
     let now = std::time::SystemTime::now();
     let mut kept_commits = 1; // `dir` itself
     for (when, path) in builds {
-        let old = now.duration_since(when).map(|d| d > MAX_AGE).unwrap_or(true);
+        let age = now.duration_since(when).unwrap_or_default();
         let worktree = path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("worktree-"));
-        if old || (!worktree && kept_commits >= KEEP) {
+        if age < BUSY {
+            if !worktree {
+                kept_commits += 1;
+            }
+        } else if age > MAX_AGE || (!worktree && kept_commits >= KEEP) {
             let _ = fs::remove_dir_all(&path);
         } else if !worktree {
             kept_commits += 1;
         }
     }
 }
+
+/// Marks a sim folder as in use now, so a prune elsewhere leaves it alone.
+fn touch(dir: &Path) {
+    let _ = fs::create_dir_all(dir);
+    let _ = fs::write(dir.join("used"), "");
+}
+
+/// One build at a time: two proofs building the same commit would export and compile over each
+/// other in one folder (and each build already uses every core).
+static BUILDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[derive(Serialize)]
 pub struct Prepared {
@@ -136,6 +154,7 @@ pub struct Prepared {
 #[tauri::command]
 pub async fn review_sim_prepare(repo: String, rev: String, probe: String) -> Result<Prepared, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _building = BUILDING.lock().unwrap_or_else(|e| e.into_inner());
         let root = git(&repo, &["rev-parse", "--show-toplevel"])?.trim().to_string();
         let sha = if rev == WORKTREE { WORKTREE.to_string() } else { git(&root, &["rev-parse", "--verify", &format!("{rev}^{{commit}}")])?.trim().to_string() };
         let key = if rev == WORKTREE { format!("worktree-{}", hash(root.as_bytes())) } else { sha.clone() };
@@ -147,6 +166,7 @@ pub async fn review_sim_prepare(repo: String, rev: String, probe: String) -> Res
             prune(&dir);
             return Ok(Prepared { dir: dir.display().to_string(), sha, cached: true, log: String::new() });
         }
+        touch(&dir);
         export(&root, &rev, &src)?;
         fs::write(src.join(PROBE_PATH), &probe).map_err(|e| e.to_string())?;
         let (task_platform, _) = platform();
@@ -162,6 +182,9 @@ pub async fn review_sim_prepare(repo: String, rev: String, probe: String) -> Res
             }
             if let Some(java) = java_home() {
                 cmd.env("JAVA_HOME", java);
+            }
+            if !src.join(gradlew).exists() {
+                return Err(format!("No Gradle wrapper ({gradlew}) at the top of the robot repository: the sim proof builds from {}.", src.display()));
             }
             let out = cmd.output().map_err(|e| format!("Could not run Gradle in {}: {e}", src.display()))?;
             log = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
@@ -208,6 +231,10 @@ pub async fn review_sim_run(dir: String, id: String, scenario: String) -> Result
             return Err("Not a sim proof folder".into());
         }
         let src = dir.join("src");
+        if !exe_path(&src).exists() {
+            return Err(format!("The sim build in {} is gone (cleaned up by another proof?). Run the sim proof again.", dir.display()));
+        }
+        touch(&dir);
         let out = dir.join("runs").join(&id);
         let input = out.join("scenario.json");
         let find_log = |out: &Path| -> Option<String> {
@@ -238,4 +265,25 @@ pub async fn review_sim_run(dir: String, id: String, scenario: String) -> Result
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prune_leaves_folders_still_being_built() {
+        let root = std::env::temp_dir().join(format!("mayhem-prune-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        // Five commit builds just used, plus one mid-build with no "used" mark yet.
+        for i in 0..5 {
+            touch(&root.join(format!("commit{i}")));
+        }
+        fs::create_dir_all(root.join("building/src")).unwrap();
+        prune(&root.join("commit0"));
+        for name in ["commit0", "commit1", "commit2", "commit3", "commit4", "building"] {
+            assert!(root.join(name).exists(), "{name} was deleted while in use");
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
 }

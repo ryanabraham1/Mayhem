@@ -45,25 +45,37 @@ async function exportRevision(root, rev, dest) {
   });
 }
 
+/** Marks a sim folder as in use now, so a prune elsewhere leaves it alone. */
+async function touch(dir) {
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "used"), "");
+}
+
 /**
  * Keeps the sim cache small (same rules as the desktop app): marks `dir` used, keeps the 4 most
- * recently used commit builds, deletes anything unused for 10 days.
+ * recently used commit builds, deletes anything unused for 10 days. Folders used in the last two
+ * hours are never deleted: another proof (the app or another CLI run) may be building in them.
  */
 async function prune(dir) {
-  const KEEP = 4, MAX_AGE = 10 * 24 * 3600 * 1000;
-  await writeFile(join(dir, "used"), "");
+  const KEEP = 4, MAX_AGE = 10 * 24 * 3600 * 1000, BUSY = 2 * 3600 * 1000;
+  await touch(dir);
   const root = dirname(dir);
   const entries = [];
   for (const name of await readdir(root).catch(() => [])) {
     const path = join(root, name);
     if (path === dir) continue;
-    const used = await stat(join(path, "used")).then((s) => s.mtimeMs, () => 0);
+    if (!(await stat(path).then((s) => s.isDirectory(), () => false))) continue;
+    // A folder without the mark is still being set up: its own age counts.
+    const used = await stat(join(path, "used")).catch(() => stat(path)).then((s) => s.mtimeMs, () => 0);
     entries.push({ path, used, worktree: name.startsWith("worktree-") });
   }
   entries.sort((a, b) => b.used - a.used);
   let kept = 1;
   for (const e of entries) {
-    if (Date.now() - e.used > MAX_AGE || (!e.worktree && kept >= KEEP)) await rm(e.path, { recursive: true, force: true });
+    const age = Date.now() - e.used;
+    if (age < BUSY) {
+      if (!e.worktree) kept++;
+    } else if (age > MAX_AGE || (!e.worktree && kept >= KEEP)) await rm(e.path, { recursive: true, force: true });
     else if (!e.worktree) kept++;
   }
 }
@@ -81,14 +93,17 @@ export async function nodeRunner(repo) {
         await prune(dir);
         return { dir, cached: true };
       }
+      await touch(dir);
       await exportRevision(root, rev, src);
       await writeFile(join(src, "src/test/cpp/MayhemReviewProbe.cpp"), probe);
       const env = { ...process.env, MAYHEM_BUILD_SHA: sha, MAYHEM_BUILD_BRANCH: "sim proof", ...((await javaHome()) ? { JAVA_HOME: await javaHome() } : {}) };
+      const gradlew = process.platform === "win32" ? "gradlew.bat" : "./gradlew";
+      if (!existsSync(join(src, gradlew))) throw new Error(`No Gradle wrapper (${gradlew}) at the top of the robot repository: the sim proof builds from ${src}.`);
       const task = `installFrcUserProgramTest${platform[0]}ReleaseGoogleTestExe`;
       let log = "";
       for (const offline of [true, false]) {
         try {
-          const out = await run(process.platform === "win32" ? "gradlew.bat" : "./gradlew", [task, "-q", ...(offline ? ["--offline"] : [])], { cwd: src, env, maxBuffer: 64 << 20 });
+          const out = await run(gradlew, [task, "-q", ...(offline ? ["--offline"] : [])], { cwd: src, env, maxBuffer: 64 << 20 });
           log = out.stdout + out.stderr;
           if (existsSync(exePath(src))) break;
         } catch (e) {
@@ -103,6 +118,8 @@ export async function nodeRunner(repo) {
     },
     async run(dir, id, scenario) {
       const src = join(dir, "src"), out = join(dir, "runs", id), input = join(out, "scenario.json");
+      if (!existsSync(exePath(src))) throw new Error(`The sim build in ${dir} is gone (cleaned up by another proof?). Run the sim proof again.`);
+      await touch(dir);
       const find = async () => (await readdir(out).catch(() => [])).find((f) => f.endsWith(".wpilog"));
       if ((await readFile(input, "utf8").catch(() => null)) === scenario && existsSync(join(out, "done"))) {
         const log = await find();
