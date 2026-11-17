@@ -30,6 +30,7 @@ import { MachinesView } from "./MachinesView";
 import { SettingsView } from "./SettingsView";
 import { SimProofView } from "./SimProofView";
 import { CommitsPanel } from "./CommitsPanel";
+import { PullRequestPanel } from "./PullRequestPanel";
 import { BranchRow, DeliveryLane, ProofLine } from "./ReviewParts";
 import { useCommitProof, useReviews } from "./reviewList";
 import { RevisionPicker } from "./RevisionPicker";
@@ -295,6 +296,18 @@ export function ChangesPage({ notify, go }: { notify: (message: string) => void;
                           go("robot");
                         }}
                         openLogs={() => go("logs")}
+                      />
+                    )}
+                    {branch && desktop && !review.imported && (
+                      <PullRequestPanel
+                        key={branch.name}
+                        repo={review.repo}
+                        branch={branch}
+                        report={report}
+                        checkout={review.info?.branch}
+                        merged={async () => {
+                          await Promise.all([reviews.reload(), review.reload()]);
+                        }}
                       />
                     )}
                     {afterSha && !review.imported && <ProofLine proof={recorded} base={beforeSha === WORKTREE ? undefined : beforeSha} run={desktop ? runProof : undefined} />}

@@ -1984,3 +1984,88 @@ p.mx-proof {
   align-items: baseline;
   flex-wrap: wrap;
 }
+
+/* Pull request of the reviewed branch (PullRequestPanel). */
+.mx-pr {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: var(--mx-r-md);
+  border: 1px solid var(--mx-line);
+  background: var(--mx-surface-2);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+p.mx-pr,
+.mx-pr > header,
+.mx-pr-status,
+.mx-pr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0;
+}
+p.mx-pr {
+  flex-direction: row;
+}
+.mx-pr.is-quiet {
+  color: var(--mx-muted);
+}
+.mx-pr.is-bad {
+  color: var(--mx-bad);
+}
+.mx-pr small {
+  color: var(--mx-muted);
+  font-size: 12px;
+}
+.mx-pr-status .mx-pr-actions {
+  margin-left: auto;
+}
+.mx-pr-blockers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--mx-bad);
+  font-size: 12.5px;
+}
+.mx-pr-blockers li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.mx-pr-blockers svg {
+  flex: none;
+  margin-top: 2px;
+}
+.mx-pr .mx-callout p {
+  margin: 0 0 6px;
+}
+.mx-callout.is-good {
+  background: var(--mx-good-soft);
+  border-color: var(--mx-good);
+  color: var(--mx-good);
+}
+.mx-spin {
+  animation: spin 1s linear infinite;
+}
+.mx-merge-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
+}
+.mx-merge-dialog:not([open]) {
+  display: none;
+}
+.mx-merge-dialog > p {
+  margin: 0;
+  line-height: 1.45;
+}
+.mx-merge-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 600;
+}
