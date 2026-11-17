@@ -20,7 +20,7 @@ import {
   mkdir,
   stat,
 } from "node:fs/promises";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -37,7 +37,9 @@ import { parseWPILog } from "../app/src/suite/core/wpilog.ts";
 import { vendorCpp } from "./cpp-vendor.mjs";
 const { applyMachineSpecs, machineFromSpec, specFromMachine, routineFromMtraj } = await import("../app/src/suite/core/authoring.ts");
 import { execFile } from "node:child_process";
-const { buildReport, WORKTREE } = await import("../app/src/suite/core/review/report.ts");
+const { buildReport, WORKTREE, GENERATED_FILE } = await import("../app/src/suite/core/review/report.ts");
+const { syncHeader, VENDOR_SNAPSHOT_FILE } = await import("../app/src/suite/core/generated-header.ts");
+const { compareWithCommit } = await import("./exporter-compat.mjs");
 const { gitSnapshot, mainRef, recordProof, reviewBranches } = await import("./review-git.mjs");
 const { nodeRunner } = await import("./review-sim.mjs");
 const { scenarioSet, describeTrack } = await import("../app/src/suite/core/review/scenarios.ts");
@@ -155,7 +157,7 @@ const tools = [
   {
     name: "save_project",
     description:
-      "Atomically replace a valid project with optimistic revision checking. expectedRevision=null creates a new file.",
+      "Atomically replace a valid project with optimistic revision checking. expectedRevision=null creates a new file. In a robot repo with a generated src/main/include/commands/MayhemProject.h next to the project, also regenerates that header from the saved file (exactly what `cpp --out` writes), unless the robot's pinned Mayhem (docs/mayhem/vendor-snapshot.json) has a different exporter; `header` in the result says what happened and why.",
     inputSchema: {
       type: "object",
       properties: {
@@ -380,6 +382,37 @@ const routeSpecs = (spec) => {
     ...(shared.constraints || r.constraints ? { constraints: { ...(shared.constraints ?? {}), ...(r.constraints ?? {}) } } : {}),
   }));
 };
+/**
+ * After a project file is saved: regenerate the robot repo's MayhemProject.h next to it (if it has
+ * one) from the saved text, exactly as `cpp <project> --out <header>` would, when the robot's
+ * pinned exporter writes the same code as this one. Returns what happened, or undefined when the
+ * folder has no generated header.
+ */
+async function regenerateHeader(path, projectText) {
+  const dir = dirname(resolve(path));
+  const header = join(dir, GENERATED_FILE);
+  const current = await readFile(header, "utf8").catch((e) => (e.code === "ENOENT" ? null : Promise.reject(e)));
+  if (current === null) return undefined;
+  let pinned;
+  try {
+    const commit = JSON.parse(await readFile(join(dir, VENDOR_SNAPSHOT_FILE), "utf8")).commit;
+    pinned = typeof commit === "string" ? commit : "";
+  } catch (e) {
+    pinned = e.code === "ENOENT" ? undefined : "";
+  }
+  const match = pinned ? (await compareWithCommit(pinned, undefined, (text) => exportCpp(parseProject(text)))).status : undefined;
+  const { code, result } = syncHeader(projectText, current, pinned, () => match);
+  if (code !== undefined) {
+    const temporary = `${header}.${process.pid}.tmp`;
+    try {
+      await writeFile(temporary, code);
+      await rename(temporary, header);
+    } finally {
+      await unlink(temporary).catch(() => {});
+    }
+  }
+  return { path: header, ...result };
+}
 /** Read, change and save a project with the same revision check and atomic write as save_project. */
 async function updateProject(path, args, change) {
   const current = parseProject(await readFile(path, "utf8"));
@@ -562,6 +595,7 @@ export async function execute(name, args) {
     await mkdir(dirname(path), { recursive: true });
     const lock = await open(path + ".lock", "wx");
     const temporary = `${path}.${process.pid}.tmp`;
+    let text;
     try {
       let previous = null;
       try {
@@ -574,14 +608,23 @@ export async function execute(name, args) {
           `Revision conflict: current revision is ${previous?.revision ?? "new"}. Re-read before editing.`,
         );
       project.revision = previous ? previous.revision + 1 : 0;
-      await writeFile(temporary, JSON.stringify(project, null, 2) + "\n");
+      text = JSON.stringify(project, null, 2) + "\n";
+      await writeFile(temporary, text);
       await rename(temporary, path);
-      return { path, revision: project.revision };
     } finally {
       await unlink(temporary).catch(() => {});
       await lock.close();
       await unlink(path + ".lock");
     }
+    // The robot drives MayhemProject.h, not the project file: keep the two in step.
+    let header;
+    try {
+      header = await regenerateHeader(path, text);
+    } catch (e) {
+      header = { status: "failed", message: `The project was saved, but MayhemProject.h could not be regenerated: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    if (header?.message) process.stderr.write(`Warning: ${header.message}\n`);
+    return { path, revision: project.revision, ...(header ? { header } : {}) };
   }
   if (name === "simulate_auto") {
     const project = parseProject(await readFile(path, "utf8"));

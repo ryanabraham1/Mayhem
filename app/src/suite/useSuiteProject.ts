@@ -21,12 +21,17 @@ import { sketchGoals } from "./core/sketch.ts";
 import { activateProject, keepCopy, listProjects, loadProject, projectLink, saveProject, setProjectLink } from "./storage";
 import { diskDecision, projectDiff, projectKey } from "./core/diskSync.ts";
 import { desktop, invoke } from "./native";
+import { matchFromTable, syncHeader } from "./core/generated-header.ts";
 
 /** How far ahead the preview forecast simulates a routine. */
 export const FORECAST_SECONDS = 60;
 /** Length of the autonomous period in the 2026 game (REBUILT). */
 export const AUTO_PERIOD_SECONDS = 20;
 export type PlaceTool = "select" | "pose" | "translation" | "handoff";
+
+/** What the app needs to regenerate a robot repo's MayhemProject.h (projects.rs). */
+type GeneratedHeader = { projectText: string; headerPath: string; current: string; pinnedCommit: string | null };
+const EXPORTER_TABLE = typeof __MAYHEM_EXPORTER__ === "undefined" ? null : __MAYHEM_EXPORTER__;
 
 const initialSignals = (p: SuiteProject): Signals =>
   Object.fromEntries(p.signals.map((s) => [s.key, s.initial]));
@@ -107,6 +112,26 @@ export function useSuiteProject() {
   );
   const resetPreview = () => reset(project, routine.id);
 
+  /** The last reason the robot's generated header couldn't be kept up to date, shown once. */
+  const headerIssue = useRef("");
+  /**
+   * After the project file is written: regenerate the robot repo's MayhemProject.h from it, so
+   * the robot always drives what the file says. Anything that stops that is shown.
+   */
+  const syncGeneratedHeader = async (path: string) => {
+    let message = "";
+    try {
+      const info = await invoke<GeneratedHeader | null>("generated_header", { path });
+      if (!info) return;
+      const { code, result } = syncHeader(info.projectText, info.current, info.pinnedCommit ?? undefined, (c) => matchFromTable(c, EXPORTER_TABLE));
+      if (code !== undefined) await invoke("write_generated_header", { path, code, projectText: info.projectText });
+      if ("message" in result) message = result.message;
+    } catch (e) {
+      message = `The project was saved, but MayhemProject.h could not be regenerated: ${e instanceof Error ? e.message : String(e)}`;
+    }
+    if (message && message !== headerIssue.current) notify(message);
+    headerIssue.current = message;
+  };
   const persist = (next: SuiteProject) => {
     saveProject(next, project);
     if (projectPath && !diskConflict) {
@@ -122,6 +147,7 @@ export function useSuiteProject() {
             });
             lastDiskKey.current = projectKey(next);
             syncedRevision.current = next.revision;
+            await syncGeneratedHeader(path);
           }
         })
         .catch((e) => {
@@ -355,7 +381,8 @@ export function useSuiteProject() {
     if (!projectPath || !desktop) return;
     let cancelled = false,
       inFlight = false,
-      failures = 0;
+      failures = 0,
+      linked = true;
     const poll = async () => {
       if (inFlight || pendingWrites.current || projectIO.current) return;
       inFlight = true;
@@ -371,6 +398,11 @@ export function useSuiteProject() {
         failures = 0;
         if (cancelled || projectIO.current || pendingWrites.current) return;
         setDiskError(null);
+        // A file saved elsewhere (an older Mayhem, a hand edit) may have left the header behind.
+        if (linked) {
+          linked = false;
+          void syncGeneratedHeader(projectPath);
+        }
         const decision = diskDecision(next, projectRef.current, {
           lastDiskKey: lastDiskKey.current,
           synced: syncedRevision.current,
@@ -425,6 +457,7 @@ export function useSuiteProject() {
       setDiskConflict(false);
       setDiskVersion(null);
       inform("Your version was saved to the project file.");
+      await syncGeneratedHeader(path);
     });
   const diskChanges = useMemo(() => (diskVersion ? projectDiff(project, diskVersion) : []), [project, diskVersion]);
 
@@ -516,6 +549,7 @@ export function useSuiteProject() {
       conflictRef.current = false;
       setDiskConflict(false);
       inform("Project file saved and linked. Edits now save to it automatically.");
+      await syncGeneratedHeader(path);
     });
   const importProject = (file?: File) =>
     file
