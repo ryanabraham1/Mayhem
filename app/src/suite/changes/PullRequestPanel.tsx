@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleCheck, CircleX, ExternalLink, GitMerge, GitPullRequest, LoaderCircle, ShieldAlert, TriangleAlert, X } from "lucide-react";
 import {
   mergeNotes,
+  checkWarning,
   mergeSummary,
   METHOD_NAMES,
   prView,
@@ -161,6 +162,13 @@ export function PullRequestPanel({
               <CircleX size={13} /> {b}
             </li>
           ))}
+        </ul>
+      )}
+      {view.pr.state === "OPEN" && blockers.length === 0 && checkWarning(view.checks) && (
+        <ul className="mx-pr-blockers is-warn" aria-label="Checks">
+          <li>
+            <TriangleAlert size={13} /> {checkWarning(view.checks)} You can still merge.
+          </li>
         </ul>
       )}
       {done && (

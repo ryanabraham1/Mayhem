@@ -64,10 +64,20 @@ describe("merging the reviewed branch's PR", () => {
     await screen.findByText(/were put back/);
     expect(calls.filter((c) => c.name === "review_update_main").pop()?.args).toEqual({ repo: "/robot", keepEdits: true });
   });
-  it("has no Merge button that works when checks fail, and says why", async () => {
-    answers.review_pr = { kind: "found", prs: [pr({ statusCheckRollup: [{ __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "FAILURE" }] })], repo: repoSettings };
+  it("still lets you merge when checks fail, and warns about them", async () => {
+    answers.review_pr = { kind: "found", prs: [pr({ mergeStateStatus: "UNSTABLE", statusCheckRollup: [{ __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "FAILURE" }] })], repo: repoSettings };
+    render(<PullRequestPanel repo="/robot" branch={branch} report={{ findings: [] } as unknown as ReviewReport} merged={() => {}} />);
+    expect(await screen.findByText(/Checks failed: lint\. You can still merge/)).toBeTruthy();
+    const open = screen.getByRole("button", { name: /Merge…/ }) as HTMLButtonElement;
+    expect(open.disabled).toBe(false);
+    fireEvent.click(open);
+    expect(screen.getByText(/Checks failed: lint\. Merging now puts this on main anyway/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Merge into main" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it("blocks when the repo's branch rules require the failing checks", async () => {
+    answers.review_pr = { kind: "found", prs: [pr({ mergeStateStatus: "BLOCKED", statusCheckRollup: [{ __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "FAILURE" }] })], repo: repoSettings };
     render(<PullRequestPanel repo="/robot" branch={branch} report={report} merged={() => {}} />);
-    expect(await screen.findByText(/Checks failed: lint/)).toBeTruthy();
+    expect(await screen.findByText(/branch rules require checks to pass/)).toBeTruthy();
     expect((screen.getByRole("button", { name: /Merge…/ }) as HTMLButtonElement).disabled).toBe(true);
   });
   it("shows a failed merge without claiming success", async () => {

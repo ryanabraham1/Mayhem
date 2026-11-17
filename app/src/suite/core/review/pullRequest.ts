@@ -101,12 +101,16 @@ export function mergeBlockers(pr: PullRequest, reviewed: string | undefined, met
     why.push("GitHub has a different version of this branch than the one reviewed here. Look for new commits, review that, then merge.");
   if (pr.mergeable === "CONFLICTING" || pr.mergeStateStatus === "DIRTY") why.push(`It conflicts with ${pr.baseRefName}. Resolve the conflicts first.`);
   else if (pr.mergeable === "UNKNOWN") why.push("GitHub is still working out whether it can be merged. Try again in a moment.");
+  // Failed or running checks are a warning (checkWarning), not a block: GitHub decides whether they
+  // are required, and says so with BLOCKED.
   const checks = checksState(pr.statusCheckRollup);
-  if (checks.failing.length) why.push(`Checks failed: ${listed(checks.failing)}.`);
-  else if (checks.pending.length) why.push(`Checks are still running: ${listed(checks.pending)}.`);
   if (pr.mergeStateStatus === "BEHIND") why.push(`It is behind ${pr.baseRefName}, and the repo requires it to be up to date. Update the branch first.`);
-  if (pr.mergeStateStatus === "BLOCKED" && !checks.failing.length && !checks.pending.length)
-    why.push(pr.reviewDecision === "REVIEW_REQUIRED" || pr.reviewDecision === "CHANGES_REQUESTED" ? "It needs an approving review on GitHub." : "The repo's branch rules block merging it right now.");
+  if (pr.mergeStateStatus === "BLOCKED") {
+    if (pr.reviewDecision === "REVIEW_REQUIRED" || pr.reviewDecision === "CHANGES_REQUESTED") why.push("It needs an approving review on GitHub.");
+    else if (checks.failing.length || checks.pending.length)
+      why.push(`The repo's branch rules require checks to pass before merging. ${checkWarning(checks)}`);
+    else why.push("The repo's branch rules block merging it right now.");
+  }
   if (!methods.length) why.push("The repo allows no merge method.");
   return why;
 }
@@ -134,6 +138,12 @@ export function prView(lookup: PrLookup, branch: string, reviewed: string | unde
   return { kind: "pr", pr, repo: lookup.repo, methods, checks: checksState(pr.statusCheckRollup), blockers: mergeBlockers(pr, reviewed, methods) };
 }
 
+/** Failed or still-running checks, said plainly; undefined when they all pass (or there are none). */
+export function checkWarning(checks: ChecksState): string | undefined {
+  if (checks.failing.length) return `Checks failed: ${listed(checks.failing)}.`;
+  if (checks.pending.length) return `Checks are still running: ${listed(checks.pending)}.`;
+}
+
 /** What the confirm step restates before merging. */
 export function mergeSummary(pr: PullRequest, method: MergeMethod): string {
   const how = method === "merge" ? "with a merge commit" : method === "squash" ? "as one squashed commit" : "by rebasing its commits";
@@ -151,6 +161,9 @@ export interface MergeNote {
  */
 export function mergeNotes(pr: PullRequest, findings: Finding[], proof: ProofSummary | undefined, base: string | undefined): MergeNote[] {
   const notes: MergeNote[] = findings.filter((f) => f.level === "red").map((f) => ({ tone: "bad", text: `Safety: ${f.text}` }));
+  const checks = checksState(pr.statusCheckRollup);
+  const warning = checkWarning(checks);
+  if (warning) notes.unshift({ tone: checks.failing.length ? "bad" : "warn", text: `${warning} Merging now puts this on ${pr.baseRefName} anyway.` });
   const review = findings.filter((f) => f.level === "yellow").length;
   if (review) notes.push({ tone: "warn", text: `${review} other change${review === 1 ? "" : "s"} to review (Summary).` });
   const head = pr.headRefOid.slice(0, 7);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checksState,
+  checkWarning,
   choosePr,
   lookupProblem,
   mergeBlockers,
@@ -79,8 +80,14 @@ describe("a branch's pull request", () => {
         { __typename: "CheckRun", name: "build", status: "IN_PROGRESS", conclusion: "" },
       ],
     });
-    expect(mergeBlockers(failing, HEAD, methods)).toEqual(["Checks failed: lint, labeler."]);
-    expect(mergeBlockers(pr({ statusCheckRollup: [{ __typename: "CheckRun", name: "build", status: "QUEUED" }] }), HEAD, methods)).toEqual(["Checks are still running: build."]);
+    // Failing or running checks warn but don't block, unless the repo's branch rules require them.
+    expect(mergeBlockers(failing, HEAD, methods)).toEqual([]);
+    expect(checkWarning(checksState(failing.statusCheckRollup))).toBe("Checks failed: lint, labeler.");
+    expect(mergeBlockers(pr({ statusCheckRollup: [{ __typename: "CheckRun", name: "build", status: "QUEUED" }] }), HEAD, methods)).toEqual([]);
+    expect(mergeBlockers({ ...failing, mergeStateStatus: "BLOCKED" }, HEAD, methods)).toEqual([
+      "The repo's branch rules require checks to pass before merging. Checks failed: lint, labeler.",
+    ]);
+    expect(mergeNotes(failing, [], undefined, "base")[0]).toEqual({ tone: "bad", text: "Checks failed: lint, labeler. Merging now puts this on main anyway." });
     expect(mergeBlockers(pr({ mergeStateStatus: "BEHIND" }), HEAD, methods)[0]).toMatch(/behind main/);
     expect(mergeBlockers(pr({ mergeStateStatus: "BLOCKED", reviewDecision: "REVIEW_REQUIRED" }), HEAD, methods)).toEqual(["It needs an approving review on GitHub."]);
     expect(mergeBlockers(pr(), HEAD, [])).toEqual(["The repo allows no merge method."]);

@@ -2030,6 +2030,9 @@ p.mx-pr {
   color: var(--mx-bad);
   font-size: 12.5px;
 }
+.mx-pr-blockers.is-warn {
+  color: var(--mx-warn);
+}
 .mx-pr-blockers li {
   display: flex;
   align-items: flex-start;
