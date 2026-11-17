@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { FieldArt } from "../components/FieldArt";
 import type { Field as FieldModel } from "../types";
 import field from "./core/rebuilt-2026.json";
-import { valueAt, type Recording } from "./core/analysis.ts";
+import type { Recording } from "./core/analysis.ts";
+import { poseTrail } from "./core/plot.ts";
 import { replayValueAt } from "./core/replay";
 import { Field } from "./ui";
 
@@ -49,21 +50,14 @@ export function PoseReplay({
   const firstPoseTime = mapped
     ? Math.max(xs!.samples[0].time, ys!.samples[0].time)
     : undefined;
-  const path = useMemo(() => {
-    const xs = channel(mapping.x),
-      ys = channel(mapping.y);
-    if (!xs || !ys) return "";
-    const step = Math.max(1, Math.floor(xs.samples.length / 800));
-    const points: string[] = [];
-    for (let i = 0; i < xs.samples.length; i += step) {
-      const s = xs.samples[i];
-      const y = valueAt(ys, s.time);
-      if (typeof s.value === "number" && Number.isFinite(s.value) && typeof y === "number" && Number.isFinite(y))
-        points.push(`${s.value.toFixed(3)},${(field.width - y).toFixed(3)}`);
-    }
-    return points.join(" ");
+  const trail = useMemo(
+    () =>
+      poseTrail(channel(mapping.x), channel(mapping.y)).map((seg) =>
+        seg.map((p) => `${p.x.toFixed(3)},${(field.width - p.y).toFixed(3)}`).join(" "),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recording, mapping.x, mapping.y]);
+    [recording, mapping.x, mapping.y],
+  );
   return (
     <div className="mx-replay">
       <div className="mx-mapping">
@@ -100,9 +94,9 @@ export function PoseReplay({
         <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
           <FieldArt field={field as FieldModel} />
         </g>
-        {path && (
-          <polyline points={path} fill="none" stroke="var(--mx-trail)" strokeWidth=".08" strokeLinejoin="round" />
-        )}
+        {trail.map((points, i) => (
+          <polyline key={i} points={points} fill="none" stroke="var(--mx-trail)" strokeWidth=".08" strokeLinejoin="round" />
+        ))}
         {pose && (
           <g
             transform={`translate(${pose.x},${field.width - pose.y}) rotate(${(-(typeof values.heading === "number" && Number.isFinite(values.heading) ? values.heading : 0) * 180) / Math.PI})`}
