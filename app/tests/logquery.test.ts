@@ -96,3 +96,21 @@ describe("machine states for agents", () => {
     expect(names.has("Mayhem/States/ShooterMode/state")).toBe(true);
   });
 });
+
+it("shows a struct entry as its fields: a Pose2d as x, y, heading", async () => {
+  const { parseWPILog } = await import("../src/suite/core/wpilog");
+  const parts: number[] = [];
+  const u32 = (n: number) => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
+  const text = (t: string) => [...u32(t.length), ...new TextEncoder().encode(t)];
+  const record = (id: number, time: number, payload: number[]) => parts.push(0x10, id, payload.length, time & 255, time >> 8, ...payload);
+  const f64 = (...v: number[]) => [...new Uint8Array(new Float64Array(v).buffer)];
+  parts.push(...new TextEncoder().encode("WPILOG"), 0, 1, ...u32(0));
+  record(0, 0, [0, ...u32(1), ...text("/RealOutputs/Sim/RobotPose"), ...text("struct:Pose2d"), ...text("")]);
+  record(1, 1000, f64(1.5, 2.5, 0.25));
+  record(1, 50000, f64(3.5, 4.5, 0.75));
+  const log = parseWPILog(new Uint8Array(parts).buffer, "t");
+  const t = logTable(log, { channels: ["/RealOutputs/Sim/RobotPose"], from: 0, to: log.duration, points: 2 }) as any;
+  expect(t.columns).toEqual(["time", "/RealOutputs/Sim/RobotPose/x", "/RealOutputs/Sim/RobotPose/y", "/RealOutputs/Sim/RobotPose/heading"]);
+  expect(t.rows.at(-1).slice(1)).toEqual([3.5, 4.5, 0.75]);
+  expect(t.unmatched).toBeUndefined();
+});

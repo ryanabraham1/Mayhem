@@ -635,6 +635,27 @@ export function AutoInspector({
                 }
               />
             )}
+            {node.kind === "pose" && (
+              <Field
+                label="Robot code limits speed here"
+                hint="A short reason, such as a keep-out or an anti-tip limit, when robot code slows this step in a way Mayhem cannot see. The preview then says its timing is a lower bound."
+              >
+                <input
+                  aria-label="Robot-side speed limit"
+                  key={node.id + (node.robotSpeedLimit ?? "")}
+                  defaultValue={node.robotSpeedLimit ?? ""}
+                  placeholder="None"
+                  onBlur={(e) => {
+                    const text = e.target.value.trim();
+                    if (text === (node.robotSpeedLimit ?? "")) return;
+                    s.editNode((n) => {
+                      if (text) n.robotSpeedLimit = text;
+                      else delete n.robotSpeedLimit;
+                    });
+                  }}
+                />
+              </Field>
+            )}
             <p className="mx-help">
               {node.onTimeout === "succeed"
                 ? "When the time runs out the step counts as done and the routine continues (a fixed window, such as aiming and shooting for 3.5 s). Robot code can still finish it sooner or fail it."

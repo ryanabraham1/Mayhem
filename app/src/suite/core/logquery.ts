@@ -32,15 +32,22 @@ function baseline(values: number[]): Baseline {
   return { median: med, scale: sd };
 }
 
-/** Exact name wins; otherwise every case-insensitive substring match. */
+/**
+ * Exact name wins; otherwise every case-insensitive substring match. A struct or array entry
+ * (`/Sim/RobotPose`, a Pose2d) holds no samples itself: it stands for its decoded fields
+ * (`/Sim/RobotPose/x`, `/y`, `/heading`).
+ */
 export function resolveChannels(recording: Recording, needles: string[] | undefined) {
   const found: Channel[] = [];
   const missing: string[] = [];
   for (const needle of needles ?? []) {
     const exact = recording.channels.find((c) => c.name === needle);
-    const hits = exact
-      ? [exact]
-      : recording.channels.filter((c) => c.name.toLowerCase().includes(needle.toLowerCase()));
+    const fields = exact && !exact.samples.length ? recording.channels.filter((c) => c.name.startsWith(`${exact.name}/`) && c.samples.length) : [];
+    const hits = fields.length
+      ? fields
+      : exact
+        ? [exact]
+        : recording.channels.filter((c) => c.name.toLowerCase().includes(needle.toLowerCase()));
     if (!hits.length) missing.push(needle);
     for (const h of hits) if (!found.includes(h)) found.push(h);
   }

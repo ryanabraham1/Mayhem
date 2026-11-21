@@ -27,7 +27,7 @@ import { createInterface } from "node:readline";
 import { parseProject, validateProject } from "../app/src/suite/core/model.ts";
 import { sampleProject } from "../app/src/suite/core/sample.ts";
 const { exportCpp } = await import("../app/src/suite/core/export-cpp.ts");
-const { simulate } = await import("../app/src/suite/core/runtime.ts");
+const { simulate, unmodeledLimits } = await import("../app/src/suite/core/runtime.ts");
 const { headingLints } = await import("../app/src/suite/core/headingLint.ts");
 import { analyze, parseRecordingJSON, currentBreakdown } from "../app/src/suite/core/analysis.ts";
 import { listChannels, logTable, findAnomalies, whatChanged, logEvents, machineStates } from "../app/src/suite/core/logquery.ts";
@@ -171,7 +171,7 @@ const tools = [
   {
     name: "simulate_auto",
     description:
-      "Run a deterministic pose/condition preview. This ideal plant cannot validate real mechanism code. Sensors change only through supplied signal values. Frozen drive must fail its watchdog. headingWarnings lists event markers (pickups) that fire with the robot's front (+x) more than 45° off its direction of travel; fix them with goal.headingMode \"motion\" (optionally goal.headingOffset) on that step.",
+      "Run a deterministic pose/condition preview. This ideal plant cannot validate real mechanism code. Sensors change only through supplied signal values. Frozen drive must fail its watchdog. notModeled lists the steps visited on which robot code limits the speed (a step's robotSpeedLimit note: a keep-out, an anti-tip limit, a live stop deceleration); the preview drives them at the project's limits, so `time` is a lower bound there. headingWarnings lists event markers (pickups) that fire with the robot's front (+x) more than 45° off its direction of travel; fix them with goal.headingMode \"motion\" (optionally goal.headingOffset) on that step.",
     inputSchema: {
       type: "object",
       properties: {
@@ -678,6 +678,8 @@ export async function execute(name, args) {
       pose: result.frame.pose,
       events: result.frame.events,
       steps: result.frames.length - 1,
+      // Steps where robot code limits the speed (robotSpeedLimit): not modeled, the robot is slower.
+      notModeled: unmodeledLimits(routine, result.frames),
       // Event markers (pickups) that fire with the robot front > 45° off its travel direction.
       headingWarnings: headingLints(result.frames, undefined, (id) => routine.nodes.find((n) => n.id === id)?.name ?? id)
         .map(({ time, key, node, degrees, message }) => ({ time, key, node, degrees: Math.round(degrees), message })),

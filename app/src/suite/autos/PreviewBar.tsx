@@ -10,7 +10,7 @@ import { PreviewInputs } from "../PreviewInputs";
 import { download } from "../storage";
 import type { SuiteState } from "../useSuiteProject";
 import type { AutoRoutine } from "../core/model.ts";
-import type { TraceEvent } from "../core/runtime.ts";
+import { unmodeledLimits, type TraceEvent } from "../core/runtime.ts";
 import { Badge, Dot, IconButton, Segmented, Toggle } from "../ui";
 
 type MarkerKind = "pose" | "action" | "event" | "finish" | "failure";
@@ -64,9 +64,16 @@ export function PreviewBar({ s }: { s: SuiteState }) {
   const { forecast } = s;
   const runEnd = forecast.frame.time;
   const total = Math.max(0.02, runEnd, latest.time);
+  // Steps where robot code limits the speed: the preview cannot show that, so say so.
+  const unmodeled = unmodeledLimits(routine, forecast.frames);
   const estimate =
     forecast.status === "completed"
-      ? { label: `${runEnd.toFixed(1)} s`, title: `Estimated routine time: ${runEnd.toFixed(2)} s` }
+      ? unmodeled.length
+        ? {
+            label: `${runEnd.toFixed(1)}+ s`,
+            title: `At least ${runEnd.toFixed(2)} s. ${unmodeled.map((u) => u.message).join(" ")}`,
+          }
+        : { label: `${runEnd.toFixed(1)} s`, title: `Estimated routine time: ${runEnd.toFixed(2)} s` }
       : forecast.status === "failed"
         ? { label: `fails ${runEnd.toFixed(1)} s`, title: forecast.frame.events.at(-1)?.message ?? "Preview fails" }
         : {
@@ -81,6 +88,11 @@ export function PreviewBar({ s }: { s: SuiteState }) {
       <span className="mx-dock-status" role="status">
         <Dot tone={tone} />
         {status}
+        {activeNode?.robotSpeedLimit && (
+          <small title={`Robot code limits the speed on this step (${activeNode.robotSpeedLimit}). The preview drives it at the limits set in the project.`}>
+            {" "}· robot limits speed here; slower than shown
+          </small>
+        )}
       </span>
       <div className="mx-dock-bar">
         <IconButton label="Reset preview" icon={RotateCcw} onClick={s.resetPreview} />

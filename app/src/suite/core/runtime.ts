@@ -719,6 +719,21 @@ export function step(
   }
   return next;
 }
+/**
+ * Steps of a run on which robot code limits the speed in a way the preview cannot represent
+ * (`robotSpeedLimit`: a keep-out, an anti-tip limit): the robot is slower there than shown.
+ */
+export function unmodeledLimits(routine: AutoRoutine, frames: Frame[]) {
+  const visited = new Set(frames.map((f) => f.node));
+  return routine.nodes
+    .filter((n) => n.robotSpeedLimit && visited.has(n.id))
+    .map((n) => ({
+      node: n.id,
+      name: n.name,
+      reason: n.robotSpeedLimit!,
+      message: `${n.name}: robot code limits the speed here (${n.robotSpeedLimit}); the preview drives it at the project's limits, so the robot is slower than shown.`,
+    }));
+}
 export function simulate(
   project: SuiteProject,
   routine: AutoRoutine,
