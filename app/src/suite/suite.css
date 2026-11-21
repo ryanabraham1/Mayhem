@@ -192,7 +192,8 @@
   flex: 1;
   min-width: 0;
   display: flex;
-  justify-content: center;
+  /* safe: when the bar is too narrow, the first item stays visible instead of being cut off. */
+  justify-content: safe center;
   gap: 2px;
   overflow-x: auto;
   scrollbar-width: none;
@@ -3289,6 +3290,18 @@ svg.mx-field {
 }
 
 /* ---------- Responsive ---------- */
+/* Seven pages fit with their names on a laptop screen: the wordmark, the quiet "Watching file"
+   note and the robot's status word make room first (problems and reloads still show). */
+@media (max-width: 1500px) {
+  .mx-brand-text,
+  .mx-disk-status:not(.is-bad):not(.is-news),
+  .mx-side-robot small {
+    display: none;
+  }
+  .mx-nav button {
+    padding: 0 10px;
+  }
+}
 @media (max-width: 1280px) {
   .mx-autos-grid,
   .mx-states-grid {

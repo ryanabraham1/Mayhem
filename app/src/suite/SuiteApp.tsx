@@ -13,6 +13,7 @@ import {
   TriangleAlert,
   X,
   Cpu,
+  FlaskConical,
 } from "lucide-react";
 import { useSuiteProject, type SuiteState } from "./useSuiteProject";
 import { RobotProvider, useRobot } from "./robot";
@@ -24,6 +25,7 @@ import { StatesPage } from "./states/StatesPage";
 import { LogsPage } from "./logs/LogsPage";
 import { seasonOf } from "./core/seasons.ts";
 import { RobotPage, setRobotTab } from "./robot/RobotPage";
+import { SimulationPage } from "./robot/RobotSim";
 import { ReviewProvider, useReviews } from "./changes/reviewList";
 import { ChangesPage } from "./changes/ChangesPage";
 import { OverviewPage } from "./overview/OverviewPage";
@@ -41,6 +43,7 @@ export type Page =
   | "changes"
   | "autos"
   | "states"
+  | "sim"
   | "logs"
   | "robot"
   | "settings";
@@ -49,6 +52,7 @@ const navigation = [
   { id: "changes", name: "Changes", icon: GitCompare },
   { id: "autos", name: "Autonomous", icon: Navigation },
   { id: "states", name: "State machines", icon: GitBranch },
+  { id: "sim", name: "Simulation", icon: FlaskConical },
   { id: "logs", name: "Logs", icon: Activity },
   { id: "robot", name: "Robot", icon: Cpu },
 ] as const;
@@ -132,7 +136,7 @@ function Shell({
   dark: boolean;
 }) {
   const [page, setPageState] = useState<Page>(() =>
-    load<Page>(PAGE_KEY, ["overview", "changes", "autos", "states", "logs", "robot", "settings"], "overview"),
+    load<Page>(PAGE_KEY, ["overview", "changes", "autos", "states", "sim", "logs", "robot", "settings"], "overview"),
   );
   const [projectPicker, setProjectPicker] = useState(false);
   // Picking the robot code folder shows that robot: its own project file (autos, state machines)
@@ -234,7 +238,7 @@ function Shell({
         </button>
         {s.projectPath && (
           <span
-            className={`mx-disk-status ${s.diskError || s.diskConflict ? "is-bad" : ""}`}
+            className={`mx-disk-status ${s.diskError || s.diskConflict ? "is-bad" : s.reloadedAt ? "is-news" : ""}`}
             role="status"
             title={`Watching ${s.projectPath}`}
           >
@@ -289,6 +293,7 @@ function Shell({
         {page === "overview" && <OverviewPage s={s} go={setPage} />}
         {page === "autos" && <AutosPage s={s} />}
         {page === "states" && <StatesPage key={s.project.id} s={s} openAutos={() => setPage("autos")} />}
+        {page === "sim" && <SimulationPage />}
         {page === "logs" && <LogsPage season={seasonOf(s.project.field)} notify={s.notify} openRobot={() => { setRobotTab("logs"); setPage("robot"); }} />}
         {page === "robot" && <RobotPage s={s} openChanges={() => setPage("changes")} />}
         {page === "changes" && <ChangesPage notify={s.notify} go={setPage} />}

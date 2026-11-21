@@ -5,8 +5,21 @@ import { SimProofView } from "../changes/SimProofView";
 import { useSimProof } from "../changes/useSimProof";
 import { desktop, invoke } from "../native";
 import { chooseRepo, useRobotRepo } from "../robotRepo";
-import { Button, EmptyState } from "../ui";
+import { Button, EmptyState, PageHeader } from "../ui";
 import "../changes/changes.css";
+
+/** The Simulation page: the sim run on its own, outside any comparison. */
+export function SimulationPage() {
+  return (
+    <div className="mx-page-scroll">
+      <PageHeader
+        title="Simulation"
+        subtitle="The robot code on this computer, run in its own simulation: every auto, every button and the team's scenarios."
+      />
+      <RobotSim />
+    </div>
+  );
+}
 
 /**
  * The robot code on this computer run in its own simulation, with nothing to compare against:
