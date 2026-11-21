@@ -473,6 +473,113 @@ void ClawOnSameRobot() {
   SIM_CHECK(softV < 3, "the coral is held or squeezed out, not launched: %.2f m/s", softV);
 }
 
+/**
+ * A plate's face pushes a standing coral at height h at 0.5 m/s. `lean` (rad) tilts the face:
+ * positive leans its top edge forward over the coral, negative leads with its bottom edge.
+ */
+struct PlatePush { CylinderState state; double uprightSlide; };
+PlatePush PushWithPlate(double lean, double h) {
+  CylinderPieces pieces;
+  const auto& p = pieces.Params();
+  const int c = pieces.SpawnStanding(2, 2, p.length);
+  MechanismCollider plate;
+  plate.robotFrame = false;
+  plate.friction = 0.5;
+  const double s = std::sin(lean), co = std::cos(lean), len = 0.25;
+  Vec2 a{0, h}, b = lean >= 0 ? Vec2{-len * s, h - len * co} : Vec2{len * s, h + len * co};
+  if (lean == 0) { a = {0, h - 0.01}; b = {0, h + 0.01}; }  // a 2 cm bar
+  plate.outline = {a, b, {b[0] - 0.2, b[1]}, {a[0] - 0.2, a[1]}};
+  plate.width = 0.3;
+  plate.position = {2 - p.radius - 0.05, 2, 0};
+  plate.velocity = {0.5, 0, 0};
+  const int id = pieces.AddCollider(plate);
+  double slide = 0;
+  for (int k = 0; k < 1500; ++k) {
+    auto& col = pieces.Collider(id);
+    if (k < 800) col.position[0] += 0.5 * kDt; else col.velocity = {0, 0, 0};
+    pieces.Step(kDt);
+    if (Tilt(pieces.Get(c)) < 0.2) slide = pieces.Get(c).position[0] - 2;
+  }
+  return {pieces.Get(c).state, slide};
+}
+
+void PlateTipsStandingCoral() {
+  // A coral pushed above r / mu (7 cm for carpet at 0.8) pivots over its base edge; a bar or a
+  // sloped face smaller than the coral tips it like a rod does, at the top included. (The hull
+  // contact used to pick the bar's underside once the coral leaned 10 degrees and push it back
+  // down onto its base, so it was carried along upright.)
+  int tipped = 0, cases = 0;
+  for (double lean : {0.0, 0.35, 0.7, -0.35, -0.7})
+    for (double h : {0.15, 0.22, 0.28}) {
+      const PlatePush r = PushWithPlate(lean, h);
+      cases++;
+      tipped += r.state == CylinderState::Lying;
+      SIM_CHECK(r.state == CylinderState::Lying, "face leaning %.0f deg at %.2f m tips the coral (state %d)", lean * 180 / kPi, h,
+                static_cast<int>(r.state));
+      SIM_CHECK(r.uprightSlide < 0.12, "and does not carry it along upright: %.3f m", r.uprightSlide);
+    }
+  // Pushed at 4 cm (below r / mu) by a face pressing down on it, it slides upright.
+  const PlatePush low = PushWithPlate(0.35, 0.04);
+  std::printf("standing coral pushed by bars and sloped faces at 0.15-0.28 m: %d of %d tip; at 0.04 m pressing down: slides %.2f m upright\n",
+              tipped, cases, low.uprightSlide);
+  SIM_CHECK(low.state == CylinderState::Standing && low.uprightSlide > 0.25, "pushed low it slides: %.3f m", low.uprightSlide);
+}
+
+/** An end effector made of `n` shapes, 0.9 m ahead of the robot's centre, comes down onto a lying coral. */
+struct ArmPress { double maxForce = 0, maxTilt = 0; };
+ArmPress PressCoral(int n, double maxForce, bool shared) {
+  CylinderPieces pieces;
+  Rig rig;
+  rig.sim.SetPose(1, 2, 0);
+  const int robot = pieces.AddRobot(&rig.sim);
+  pieces.SpawnLying(1.9, 2, kPi / 2);
+  std::vector<int> ids;
+  for (int i = 0; i < n; ++i) {
+    MechanismCollider c;
+    c.robot = robot;
+    c.maxForce = maxForce;
+    c.forceGroup = shared ? 0 : -1;
+    const double w = 0.30 / n;
+    c.outline = {{0.8, 0}, {1.0, 0}, {1.0, 0.05}, {0.8, 0.05}};
+    c.width = w;
+    c.position = {0, -0.15 + w / 2 + i * w, 0.5};
+    ids.push_back(pieces.AddCollider(c));
+  }
+  ArmPress out;
+  rig.Run(Drive(0), 1.5, nullptr, nullptr, [&] {
+    for (int id : ids) {
+      auto& c = pieces.Collider(id);
+      const bool moving = c.position[2] > 0;
+      c.velocity = {0, 0, moving ? -0.5 : 0.0};
+      c.position[2] = std::max(0.0, c.position[2] - (moving ? 0.5 * kDt : 0));
+    }
+    pieces.Step(kDt);
+    out.maxForce = std::max(out.maxForce, vec::Norm(pieces.LastRobotImpulse(robot)) / kDt);
+    const auto p3 = rig.sim.Pose3();
+    out.maxTilt = std::max({out.maxTilt, std::abs(p3.roll), std::abs(p3.pitch)});
+  });
+  return out;
+}
+
+void SharedForceBudget() {
+  // The 68 kg reference robot (wheels 0.26 m from its centre) is lifted at the front by a push
+  // up at 0.9 m of more than m g a / (0.9 + a) = 151 N. An arm of three shapes limited to 100 N
+  // each pushes with up to 300 N; sharing one budget (forceGroup) it pushes with 100 N in all.
+  const ArmPress each = PressCoral(3, 100, false), shared = PressCoral(3, 100, true), one = PressCoral(1, 100, false);
+  std::printf("arm of 3 shapes at 100 N pressing a lying coral 0.9 m out: separate budgets %.0f N on the robot, tilt %.1f deg; "
+              "shared budget %.0f N, tilt %.2f deg; one shape %.0f N, tilt %.2f deg\n",
+              each.maxForce, each.maxTilt * 180 / kPi, shared.maxForce, shared.maxTilt * 180 / kPi, one.maxForce, one.maxTilt * 180 / kPi);
+  SIM_CHECK(each.maxForce > 200 && each.maxTilt > 0.05, "separate budgets add up and lift the robot: %.0f N, %.3f rad", each.maxForce, each.maxTilt);
+  SIM_CHECK(shared.maxForce <= 100 * (1 + 1e-9), "a shared budget caps the whole arm: %.1f N", shared.maxForce);
+  SIM_CHECK(shared.maxTilt < 0.01 && one.maxTilt < 0.01, "below the lifting force the robot stays down: %.4f, %.4f rad", shared.maxTilt, one.maxTilt);
+  SIM_CHECK(one.maxForce <= 100 * (1 + 1e-9), "one shape within its limit: %.1f N", one.maxForce);
+  // Above the lifting force the front does come up, as far as the coral under the arm holds it.
+  const ArmPress strong = PressCoral(1, 200, false);
+  std::printf("one shape at 200 N (above the 151 N lifting force): %.0f N, tilt %.1f deg\n", strong.maxForce, strong.maxTilt * 180 / kPi);
+  SIM_CHECK(strong.maxForce <= 200 * (1 + 1e-9), "reaction within maxForce: %.1f N", strong.maxForce);
+  SIM_CHECK(strong.maxTilt > 0.05 && strong.maxTilt < 0.15, "lifts onto the coral and no further: %.3f rad", strong.maxTilt);
+}
+
 void RobotFramePlacement() {
   // A world-frame collider placed with SetFromRobotFrame behaves exactly like a robotFrame one.
   auto run = [](bool helper) {
@@ -582,6 +689,8 @@ int main() {
   SpinningRoller();
   ForceLimitedPinch();
   ClawOnSameRobot();
+  PlateTipsStandingCoral();
+  SharedForceBudget();
   RobotFramePlacement();
   Budget();
   Determinism();

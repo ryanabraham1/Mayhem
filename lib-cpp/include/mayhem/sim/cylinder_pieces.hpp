@@ -60,6 +60,7 @@
 #include "mayhem/sim/swerve.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -173,6 +174,10 @@ struct MechanismCollider {
   // carpet, a wall or the robot is squeezed or slips instead of being pushed without limit, and
   // the reaction on `robot` is capped the same way. Infinite (default): a rigid, unstoppable shape.
   double maxForce = std::numeric_limits<double>::infinity();
+  // Colliders of one robot with the same forceGroup (>= 0) are one mechanism: they share one
+  // force budget, the smallest maxForce among them, so an arm built from several shapes (stages,
+  // end effector, wheel stacks) cannot push with several times its limit. -1: its own budget.
+  int forceGroup = -1;
 
   /**
    * Place a world-frame collider (robotFrame = false) from a pose and velocity given in robot
@@ -590,6 +595,7 @@ class CylinderPieces {
   std::vector<Capsule> capsules_;
   std::vector<Contact> contacts_;
   std::vector<double> groupForce_, groupSum_;  // per force-limited shape: normal budget (N) and this step's total (N*s)
+  std::vector<std::array<int, 3>> sharedGroups_;  // {robot, forceGroup, groupForce_ index or -1}
   std::vector<CylinderContact> reports_;
 
   static bool Simulated(const Cylinder& c) { return c.state != CylinderState::Held && c.state != CylinderState::Removed; }
@@ -690,9 +696,27 @@ class CylinderPieces {
     groupForce_.push_back(std::max(0.0, maxForce) / std::sqrt(1 + mu * mu));
     return static_cast<int>(groupForce_.size()) - 1;
   }
+  /** A collider's force budget: its own, or the one its forceGroup shares on its robot. */
+  int ColliderGroup(const MechanismCollider& col) {
+    if (col.forceGroup < 0) return NewGroup(col.maxForce, col.friction);
+    for (const auto& g : sharedGroups_)
+      if (g[0] == col.robot && g[1] == col.forceGroup) return g[2];
+    double budget = std::numeric_limits<double>::infinity();
+    for (const auto& other : colliders_)
+      if (other.enabled && other.robot == col.robot && other.forceGroup == col.forceGroup)
+        budget = std::min(budget, std::max(0.0, other.maxForce) / std::sqrt(1 + other.friction * other.friction));
+    int index = -1;
+    if (budget < std::numeric_limits<double>::infinity()) {
+      groupForce_.push_back(budget);
+      index = static_cast<int>(groupForce_.size()) - 1;
+    }
+    sharedGroups_.push_back({col.robot, col.forceGroup, index});
+    return index;
+  }
   void BuildShapes(const Obstacles* obstacles) {
     hullCount_ = 0;
     groupForce_.clear();
+    sharedGroups_.clear();
     constexpr double kBig = 1e3;
     if (obstacles) {
       for (std::size_t i = 0; i < obstacles->Prisms().size(); ++i) {
@@ -797,7 +821,7 @@ class CylinderPieces {
         cap.k = col.stiffness;
         cap.robot = col.robot;
         cap.srcIndex = static_cast<int>(ci);
-        cap.group = NewGroup(col.maxForce, col.friction);
+        cap.group = ColliderGroup(col);
         cap.moving = vec::Norm(v) > 0 || vec::Norm(w) > 0;
         capsules_.push_back(cap);
         continue;
@@ -844,7 +868,7 @@ class CylinderPieces {
       h.moving = true;
       h.src = CylinderContactSource::Collider;
       h.srcIndex = static_cast<int>(ci);
-      h.group = NewGroup(col.maxForce, col.friction);
+      h.group = ColliderGroup(col);
     }
   }
 
@@ -963,6 +987,45 @@ class CylinderPieces {
     }
   }
 
+  /**
+   * The pushing face of `hull` that piece i is least deep behind, judged on the part of the
+   * piece inside the hull (grown by the margin m): 12 lines along its side, clipped to the hull,
+   * and so its rims. -1 when none of those samples is inside (a corner just touching).
+   */
+  int LocalFace(int i, const Hull& hull, double m) const {
+    constexpr std::size_t kMaxFaces = 24;
+    const auto& faces = hull.faces;
+    if (faces.size() > kMaxFaces) return -1;
+    const std::size_t ui = static_cast<std::size_t>(i);
+    const Vec3 c = pieces_[ui].position, a = axis_[ui], u = side_[ui], w = vec::Cross(a, u);
+    std::array<double, kMaxFaces> depth;
+    depth.fill(-std::numeric_limits<double>::infinity());
+    bool any = false;
+    const auto consider = [&](Vec3 p) {
+      any = true;
+      for (std::size_t k = 0; k < faces.size(); ++k) depth[k] = std::max(depth[k], faces[k].d - vec::Dot(faces[k].n, p));
+    };
+    for (int j = 0; j < 12; ++j) {
+      const double angle = j * (kPi / 6);
+      const Vec3 base = vec::Add(c, vec::Scale(vec::Add(vec::Scale(u, std::cos(angle)), vec::Scale(w, std::sin(angle))), p_.radius));
+      double t0 = -h_, t1 = h_;
+      for (std::size_t k = 0; k < faces.size() && t0 <= t1; ++k) {  // keep n . (base + t a) <= d + m
+        const double f0 = vec::Dot(faces[k].n, base) - faces[k].d - m, fa = vec::Dot(faces[k].n, a);
+        if (std::abs(fa) < 1e-12) { if (f0 > 0) t1 = t0 - 1; continue; }
+        const double t = -f0 / fa;
+        if (fa > 0) t1 = std::min(t1, t); else t0 = std::max(t0, t);
+      }
+      if (t0 > t1) continue;
+      consider(vec::Add(base, vec::Scale(a, t0)));
+      if (t1 > t0) consider(vec::Add(base, vec::Scale(a, t1)));
+    }
+    if (!any) return -1;
+    int best = -1;
+    for (std::size_t k = 0; k < faces.size(); ++k)
+      if (faces[k].push && (best < 0 || depth[k] < depth[static_cast<std::size_t>(best)])) best = static_cast<int>(k);
+    return best;
+  }
+
   void HullContacts(int i, const Hull& hull, double m, double dt) {
     Vec3 lo, hi;
     Bounds(i, m, lo, hi);
@@ -976,6 +1039,12 @@ class CylinderPieces {
       if (hull.faces[k].push && sep > best) { best = sep; bestFace = static_cast<int>(k); }
     }
     if (bestFace < 0) return;
+    // The face the piece is least deep behind, judged on the part of the piece inside the hull.
+    // The whole-piece separation above picks the wrong face for a hull smaller than the piece: a
+    // standing coral tipping away from a plate has its base behind the plate's front plane, far
+    // "deeper" than it is below the plate's underside, so the underside would win and push the
+    // coral back down onto its base (it was then pushed along upright instead of falling).
+    if (const int localFace = LocalFace(i, hull, m); localFace >= 0) bestFace = localFace;
     const Plane& f = hull.faces[static_cast<std::size_t>(bestFace)];
     Surf s{hull.origin, hull.vel, hull.omega, hull.mu, hull.e, hull.robot, hull.k, hull.src, hull.srcIndex, hull.group};
     SurfaceContacts(i, f.n, f.d, &hull.faces, bestFace, std::numeric_limits<double>::infinity(), s, m, dt);
