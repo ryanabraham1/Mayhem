@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { currentBreakdown, isDeviceCurrentSignal, parsePowerMapping, shortSignalName, type Finding } from "../core/analysis.ts";
 import { PoseReplay } from "../PoseReplay";
+import type { Season } from "../core/seasons.ts";
 import { desktop, invoke } from "../native";
 import { download, type StoredLog } from "../storage";
 import { useLogLibrary } from "../logLibrary";
@@ -263,7 +264,7 @@ export function TeamCloud({
   );
 }
 
-export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; openRobot: () => void }) {
+export function LogsPage({ notify, openRobot, season }: { notify: (m: string) => void; openRobot: () => void; season?: Season }) {
   const lib = useLogLibrary();
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -768,7 +769,7 @@ export function LogsPage({ notify, openRobot }: { notify: (m: string) => void; o
 
               {tab === "field" && (
                 <div className="mx-report-body">
-                  <PoseReplay recording={recording} time={cursor} />
+                  <PoseReplay recording={recording} time={cursor} season={season} />
                 </div>
               )}
             </>

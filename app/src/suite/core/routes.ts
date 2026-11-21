@@ -1,4 +1,4 @@
-import season from "./rebuilt-2026.json";
+import { fieldMatches, seasonOf } from "./seasons.ts";
 import type { AutoRoutine, Pose, SuiteProject } from "./model.ts";
 export interface RouteSegment {
   from: Pose;
@@ -49,11 +49,8 @@ export function routeWarnings(
   project: SuiteProject,
   routine: AutoRoutine,
 ): RouteWarning[] {
-  if (
-    Math.abs(project.field.width - season.length) > 0.05 ||
-    Math.abs(project.field.height - season.width) > 0.05
-  )
-    return [];
+  const season = seasonOf(project.field);
+  if (!fieldMatches(season, project.field)) return [];
   const radius =
     Math.hypot(project.robot.length, project.robot.width) / 2 + 0.03;
   const blocked = (
@@ -81,7 +78,7 @@ export function routeWarnings(
   };
   const warnings: RouteWarning[] = [];
   for (const segment of routeSegments(project, routine))
-    for (const obstacle of season.obstacles.filter((o) => o.enabled)) {
+    for (const obstacle of season.field.obstacles.filter((o) => o.enabled)) {
       const points = obstacle.points;
       if (!points.length) continue;
       const box = {

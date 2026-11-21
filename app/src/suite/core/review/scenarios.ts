@@ -17,6 +17,7 @@
  * `<machine> reaches <STATE>`, `<machine> never <STATE>`, `auto completes`, `no tip-over`,
  * `no collisions`, `battery stays above <v> V`. Times are seconds from the scenario's start.
  */
+import { seasonOf } from "../seasons.ts";
 import { valueAt, type Recording } from "../analysis.ts";
 import type { MachineManifest } from "../machines.ts";
 import type { SuiteProject } from "../model.ts";
@@ -100,7 +101,7 @@ export function scenarioSet(project: SuiteProject | undefined, scenariosJson: st
       group: "auto",
       alliance: "blue",
       field: true,
-      steps: ["disabled", "wait 0.1", `select auto ${r.name}`, "wait 0.5", "auto", "wait 20", "disabled", "wait 0.2"],
+      steps: ["disabled", "wait 0.1", `select auto ${r.name}`, "wait 0.5", "auto", `wait ${seasonOf(project!.field).autoSeconds}`, "disabled", "wait 0.2"],
       expect: ["auto completes", "no tip-over"],
       routine: r.id,
     });

@@ -1,11 +1,11 @@
 import { memo } from "react";
 /** An [x, y] point in meters. */
 type Vec2 = number[];
-/** One painted shape; `style` is a DECO_STYLE key (blueZone, tape, fuel, structure, ...). */
+/** One painted shape; `style` is a DECO_STYLE key (blueZone, tape, fuel, algae, structure, ...). */
 export interface Decoration {
   kind: string; points: Vec2[]; center: Vec2; radius: number; style: string; width: number;
 }
-/** The season field drawing (core/rebuilt-2026.json): its size in meters and what's painted on it. */
+/** A season's field drawing (core/rebuilt-2026.json, core/reefscape-2025.json): its size in meters and what's painted on it. */
 export interface FieldDrawing { length: number; width: number; decorations?: Decoration[] }
 const pts = (p: Vec2[]) => p.map(([x, y]) => `${x},${y}`).join(" ");
 const DECO_STYLE: Record<
@@ -18,6 +18,7 @@ const DECO_STYLE: Record<
   blueTape: { stroke: "var(--blue-alliance)", op: 0.7 },
   redTape: { stroke: "var(--red-alliance)", op: 0.7 },
   fuel: { fill: "#e3b341", op: 0.22 },
+  algae: { fill: "#2bb5a0", op: 0.35 },
   structure: { fill: "var(--structure)", stroke: "var(--structure-stroke)" },
   blue: {
     fill: "var(--blue-alliance)",
@@ -27,6 +28,9 @@ const DECO_STYLE: Record<
   red: { fill: "var(--red-alliance)", stroke: "var(--red-alliance)", op: 0.12 },
 };
 
+/** Game pieces staged on the field, left out where a replay draws its own. */
+const GAME_PIECES = new Set(["fuel", "algae"]);
+
 export const FieldArt = memo(function FieldArt({
   field,
   hideFuel,
@@ -35,7 +39,7 @@ export const FieldArt = memo(function FieldArt({
   hideFuel?: boolean;
 }) {
   const d = (field.decorations ?? []).filter(
-    (x) => !(hideFuel && x.style === "fuel"),
+    (x) => !(hideFuel && GAME_PIECES.has(x.style)),
   );
   const draw = (dec: Decoration, i: number) => {
     const st = DECO_STYLE[dec.style] ?? {};

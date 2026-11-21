@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { FieldArt, type FieldDrawing as FieldModel } from "./FieldArt";
-import field from "./core/rebuilt-2026.json";
+import { FieldArt } from "./FieldArt";
+import { DEFAULT_SEASON, type Season } from "./core/seasons.ts";
 import type { Recording } from "./core/analysis.ts";
 import { poseTrail } from "./core/plot.ts";
 import { replayValueAt } from "./core/replay";
@@ -11,10 +11,14 @@ const numeric = ["double", "float", "int64", "number"];
 export function PoseReplay({
   recording,
   time,
+  season = DEFAULT_SEASON,
 }: {
   recording: Recording;
   time: number;
+  /** The game whose field the log is drawn on (the open project's). */
+  season?: Season;
 }) {
+  const field = season.field;
   const [mapping, setMapping] = useState({ x: "", y: "", heading: "" });
   useEffect(() => {
     const x =
@@ -55,7 +59,7 @@ export function PoseReplay({
         seg.map((p) => `${p.x.toFixed(3)},${(field.width - p.y).toFixed(3)}`).join(" "),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [recording, mapping.x, mapping.y],
+    [recording, mapping.x, mapping.y, field],
   );
   return (
     <div className="mx-replay">
@@ -91,7 +95,7 @@ export function PoseReplay({
         aria-label="Recorded robot field replay"
       >
         <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
-          <FieldArt field={field as FieldModel} />
+          <FieldArt field={field} />
         </g>
         {trail.map((points, i) => (
           <polyline key={i} points={points} fill="none" stroke="var(--mx-trail)" strokeWidth=".08" strokeLinejoin="round" />

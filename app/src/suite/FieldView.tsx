@@ -18,8 +18,8 @@ import {
 import { copyText, openContextMenu, type MenuItem } from "./ContextMenu";
 import { useTrackpadZoom } from "./trackpad";
 import { routeSegments, routeWarnings } from "./core/routes.ts";
-import { FieldArt, type FieldDrawing as Field } from "./FieldArt";
-import seasonField from "./core/rebuilt-2026.json";
+import { FieldArt } from "./FieldArt";
+import { seasonOf } from "./core/seasons.ts";
 import { PATH_DEFAULTS, type AutoRoutine, type SuiteProject, type Pose } from "./core/model.ts";
 import { isIntermediate } from "./core/runtime.ts";
 import { SKETCH_DEFAULTS, simplifyStroke, type Point } from "./core/sketch.ts";
@@ -128,6 +128,8 @@ export function FieldView({
   );
   const svg = useRef<SVGSVGElement>(null);
   const { width, height } = project.field;
+  const season = seasonOf(project.field);
+  const seasonField = season.field;
   const fit = (): View => ({
     x: -0.7,
     y: -0.7,
@@ -421,11 +423,11 @@ export function FieldView({
       >
         <g
           transform={`translate(0 ${height}) scale(${width / seasonField.length} ${-height / seasonField.width})`}
-          aria-label="2026 REBUILT vector field"
+          aria-label={`${season.name} vector field`}
           aria-hidden="true"
           style={{ pointerEvents: "none" }}
         >
-          <FieldArt field={seasonField as Field} />
+          <FieldArt field={seasonField} />
         </g>
         {live && (
           // Wash out the field art so the focused leg is the only thing that pops.

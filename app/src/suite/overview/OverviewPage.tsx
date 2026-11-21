@@ -10,14 +10,13 @@ import {
   GitCompare,
   Plus,
 } from "lucide-react";
-import { FieldArt, type FieldDrawing as Field } from "../FieldArt";
-import seasonField from "../core/rebuilt-2026.json";
+import { FieldArt } from "../FieldArt";
+import { seasonOf } from "../core/seasons.ts";
 import { routeSegments } from "../core/routes.ts";
 import type { AutoRoutine, SuiteProject } from "../core/model.ts";
 import { simulate } from "../core/runtime";
 import { desktop } from "../native";
 import { cppExportState, downloadCpp } from "../cppExport";
-import { AUTO_PERIOD_SECONDS } from "../useSuiteProject";
 import { useLogLibrary } from "../logLibrary";
 import { useRobot } from "../robot";
 import type { SuiteState } from "../useSuiteProject";
@@ -31,13 +30,14 @@ export type Destination = "autos" | "states" | "logs" | "robot" | "changes";
 
 function MiniField({ project, routine }: { project: SuiteProject; routine: AutoRoutine }) {
   const { width, height } = project.field;
+  const seasonField = seasonOf(project.field).field;
   const start = routine.start ?? project.robot.start;
   const segments = routeSegments(project, routine);
   const goals = routine.nodes.filter((n) => n.kind === "pose" && n.goal).map((n) => n.goal!);
   return (
     <svg className="mx-mini-field" viewBox={`-0.2 -0.2 ${width + 0.4} ${height + 0.4}`} aria-hidden="true">
       <g transform={`translate(0 ${height}) scale(${width / seasonField.length} ${-height / seasonField.width})`}>
-        <FieldArt field={seasonField as Field} />
+        <FieldArt field={seasonField} />
       </g>
       {segments.map((s, i) => (
         <path
@@ -189,10 +189,10 @@ export function OverviewPage({ s, go }: { s: SuiteState; go: (d: Destination) =>
                   <span>{steps} steps{seconds !== undefined ? ` · ${seconds.toFixed(1)} s` : ""}</span>
                   {routineIssues.length ? (
                     <Badge tone="bad">{routineIssues.length} errors</Badge>
-                  ) : seconds !== undefined && seconds <= AUTO_PERIOD_SECONDS ? (
+                  ) : seconds !== undefined && seconds <= seasonOf(project.field).autoSeconds ? (
                     <Badge tone="good">Ready</Badge>
                   ) : seconds !== undefined ? (
-                    <Badge tone="warn">Over by {(seconds - AUTO_PERIOD_SECONDS).toFixed(1)} s</Badge>
+                    <Badge tone="warn">Over by {(seconds - seasonOf(project.field).autoSeconds).toFixed(1)} s</Badge>
                   ) : <Badge tone="warn">Doesn't finish</Badge>}
                 </small>
               </span>

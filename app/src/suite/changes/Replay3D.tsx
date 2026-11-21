@@ -5,6 +5,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { sampleAt, track3D, type Track3D } from "./sim3d.ts";
 import { invoke, nativeRead } from "../native";
+import { DEFAULT_SEASON, type Season } from "../core/seasons.ts";
 
 /** Robot and field models from AdvantageScope's asset folders (the team's CAD robot, the season field). */
 interface Asset {
@@ -72,11 +73,11 @@ interface PieceMesh {
 
 /**
  * The season's game piece from the field asset (AdvantageScope's model_N.glb for each entry in
- * `gamePieces`; for 2026 that is Fuel), or a plain ball when the field has none.
+ * `gamePieces`; Fuel in 2026, Algae or Coral in 2025), or a plain ball when the field has none.
  */
-async function pieceModel(field: Asset | undefined): Promise<{ parts: { geometry: THREE.BufferGeometry; material: THREE.Material }[]; base: THREE.Matrix4 }> {
+async function pieceModel(field: Asset | undefined, name: RegExp): Promise<{ parts: { geometry: THREE.BufferGeometry; material: THREE.Material }[]; base: THREE.Matrix4 }> {
   const config = field ? JSON.parse(field.config) : {};
-  const index = Math.max(0, (config.gamePieces ?? []).findIndex((g: { name?: string }) => /fuel/i.test(g.name ?? "")));
+  const index = Math.max(0, (config.gamePieces ?? []).findIndex((g: { name?: string }) => name.test(g.name ?? "")));
   const piece = config.gamePieces?.[index];
   const file = `model_${index}.glb`;
   if (field && piece && field.models.includes(file)) {
@@ -221,12 +222,15 @@ export type View3D = "side" | "overlay";
 
 /** Before and after runs in 3D on one clock: side by side (same camera) or the old run as a ghost. */
 export function Replay3D({
+  season = DEFAULT_SEASON,
   logs,
   time,
   view,
   estimate = true,
   onCanvas,
 }: {
+  /** The game whose field model to load. */
+  season?: Season;
   logs: { before?: string; after?: string };
   time: number;
   view: View3D;
@@ -251,7 +255,7 @@ export function Replay3D({
   viewRef.current = view;
   const estimateRef = useRef(estimate);
   estimateRef.current = estimate;
-  const key = useMemo(() => `${logs.before}|${logs.after}`, [logs.before, logs.after]);
+  const key = useMemo(() => `${season.year}|${logs.before}|${logs.after}`, [season.year, logs.before, logs.after]);
 
   useEffect(() => {
     let cancelled = false;
@@ -291,22 +295,22 @@ export function Replay3D({
     (async () => {
       try {
         const list = await assets();
-        const field = list.find((a) => a.kind === "field" && /2026FRCField/.test(a.name)) ?? list.find((a) => a.kind === "field" && !/FTC/.test(a.name));
+        const field = list.find((a) => a.kind === "field" && season.advantageScopeField.test(a.name)) ?? list.find((a) => a.kind === "field" && !/FTC/.test(a.name));
         const robot = list.find((a) => a.kind === "robot" && a.dir.includes("userAssets")) ?? list.find((a) => a.kind === "robot");
         if (!field || !robot) throw new Error("Install AdvantageScope and add the team's robot model (tools/sim/cad-to-advantagescope.py) to see 3D replays.");
         const fieldConfig = JSON.parse(field.config);
-        const offset = new THREE.Vector2(((fieldConfig.widthInches ?? 651.22) * IN) / 2, ((fieldConfig.heightInches ?? 317.7) * IN) / 2);
+        const offset = new THREE.Vector2(((fieldConfig.widthInches ?? (season.field.length / IN)) * IN) / 2, ((fieldConfig.heightInches ?? (season.field.width / IN)) * IN) / 2);
         state.current!.offset = offset;
         const fieldModel = (await model(`${field.dir}/model.glb`)).clone(true);
         fieldModel.applyQuaternion(rotations(fieldConfig.rotations));
         if (Array.isArray(fieldConfig.position)) fieldModel.position.set(...(fieldConfig.position as [number, number, number]));
-        matte(fieldModel, true, /Fuel/i);
+        matte(fieldModel, true, season.simLogsPieces ? season.gamePiece : undefined);
         scene.add(fieldModel);
         const [before, after] = await Promise.all([logs.before ? loadTrack3D(logs.before) : undefined, logs.after ? loadTrack3D(logs.after) : undefined]);
         if (cancelled) return;
         if (!before && !after) throw new Error("These runs did not log a 3D robot pose (/RealOutputs/Sim/RobotPose).");
         state.current!.tracks = { before, after };
-        const shape = await pieceModel(field);
+        const shape = await pieceModel(field, season.gamePiece);
         for (const [side, track] of [["before", before], ["after", after]] as const) {
           if (!track) continue;
           const rig = await buildRig(robot, shape, track);

@@ -1,0 +1,693 @@
+{
+  "id": "reefscape-2025",
+  "name": "2025 REEFSCAPE",
+  "length": 17.548,
+  "width": 8.052,
+  "symmetry": "rotational",
+  "wallMargin": 0.02,
+  "obstacles": [
+    {
+      "id": "reef-blue",
+      "name": "Blue Reef",
+      "kind": "polygon",
+      "points": [
+        [
+          5.321,
+          4.5061
+        ],
+        [
+          4.4893,
+          4.9863
+        ],
+        [
+          3.6576,
+          4.5061
+        ],
+        [
+          3.6576,
+          3.5457
+        ],
+        [
+          4.4893,
+          3.0655
+        ],
+        [
+          5.321,
+          3.5457
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.5,
+      "margin": 0.0,
+      "enabled": true
+    },
+    {
+      "id": "station-blue-r",
+      "name": "Blue Coral Station (right)",
+      "kind": "polygon",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1.7032,
+          0
+        ],
+        [
+          0,
+          1.3118
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.5,
+      "margin": 0.0,
+      "enabled": true
+    },
+    {
+      "id": "station-blue-l",
+      "name": "Blue Coral Station (left)",
+      "kind": "polygon",
+      "points": [
+        [
+          0,
+          8.052
+        ],
+        [
+          0,
+          6.7402
+        ],
+        [
+          1.7032,
+          8.052
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.5,
+      "margin": 0.0,
+      "enabled": true
+    },
+    {
+      "id": "reef-red",
+      "name": "Red Reef",
+      "kind": "polygon",
+      "points": [
+        [
+          12.227,
+          3.5459
+        ],
+        [
+          13.0587,
+          3.0657
+        ],
+        [
+          13.8904,
+          3.5459
+        ],
+        [
+          13.8904,
+          4.5063
+        ],
+        [
+          13.0587,
+          4.9865
+        ],
+        [
+          12.227,
+          4.5063
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.5,
+      "margin": 0.0,
+      "enabled": true
+    },
+    {
+      "id": "station-red-r",
+      "name": "Red Coral Station (right)",
+      "kind": "polygon",
+      "points": [
+        [
+          17.548,
+          8.052
+        ],
+        [
+          15.8448,
+          8.052
+        ],
+        [
+          17.548,
+          6.7402
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.5,
+      "margin": 0.0,
+      "enabled": true
+    },
+    {
+      "id": "station-red-l",
+      "name": "Red Coral Station (left)",
+      "kind": "polygon",
+      "points": [
+        [
+          17.548,
+          0.0
+        ],
+        [
+          17.548,
+          1.3118
+        ],
+        [
+          15.8448,
+          0.0
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.5,
+      "margin": 0.0,
+      "enabled": true
+    }
+  ],
+  "decorations": [
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          7.6057,
+          0
+        ],
+        [
+          7.6057,
+          8.052
+        ],
+        [
+          0,
+          8.052
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "blueZone",
+      "width": 0.05
+    },
+    {
+      "kind": "line",
+      "points": [
+        [
+          7.6057,
+          0
+        ],
+        [
+          7.6057,
+          8.052
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "blueTape",
+      "width": 0.0508
+    },
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          5.321,
+          4.5061
+        ],
+        [
+          4.4893,
+          4.9863
+        ],
+        [
+          3.6576,
+          4.5061
+        ],
+        [
+          3.6576,
+          3.5457
+        ],
+        [
+          4.4893,
+          3.0655
+        ],
+        [
+          5.321,
+          3.5457
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "structure",
+      "width": 0.05
+    },
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1.7032,
+          0
+        ],
+        [
+          0,
+          1.3118
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "structure",
+      "width": 0.05
+    },
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          0,
+          8.052
+        ],
+        [
+          0,
+          6.7402
+        ],
+        [
+          1.7032,
+          8.052
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "structure",
+      "width": 0.05
+    },
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          5.6375,
+          0
+        ],
+        [
+          6.3375,
+          0
+        ],
+        [
+          6.3375,
+          0.12
+        ],
+        [
+          5.6375,
+          0.12
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "blue",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        1.2192,
+        2.1971
+      ],
+      "radius": 0.2032,
+      "style": "algae",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        1.2192,
+        4.0259
+      ],
+      "radius": 0.2032,
+      "style": "algae",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        1.2192,
+        5.8547
+      ],
+      "radius": 0.2032,
+      "style": "algae",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        8.774,
+        5.0786
+      ],
+      "radius": 0.12,
+      "style": "blue",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        8.774,
+        6.1685
+      ],
+      "radius": 0.12,
+      "style": "blue",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        8.774,
+        7.2842
+      ],
+      "radius": 0.12,
+      "style": "blue",
+      "width": 0.05
+    },
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          17.548,
+          8.052
+        ],
+        [
+          9.9423,
+          8.052
+        ],
+        [
+          9.9423,
+          0.0
+        ],
+        [
+          17.548,
+          0.0
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "redZone",
+      "width": 0.05
+    },
+    {
+      "kind": "line",
+      "points": [
+        [
+          9.9423,
+          8.052
+        ],
+        [
+          9.9423,
+          0.0
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "redTape",
+      "width": 0.0508
+    },
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          12.227,
+          3.5459
+        ],
+        [
+          13.0587,
+          3.0657
+        ],
+        [
+          13.8904,
+          3.5459
+        ],
+        [
+          13.8904,
+          4.5063
+        ],
+        [
+          13.0587,
+          4.9865
+        ],
+        [
+          12.227,
+          4.5063
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "structure",
+      "width": 0.05
+    },
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          17.548,
+          8.052
+        ],
+        [
+          15.8448,
+          8.052
+        ],
+        [
+          17.548,
+          6.7402
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "structure",
+      "width": 0.05
+    },
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          17.548,
+          0.0
+        ],
+        [
+          17.548,
+          1.3118
+        ],
+        [
+          15.8448,
+          0.0
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "structure",
+      "width": 0.05
+    },
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          11.9105,
+          8.052
+        ],
+        [
+          11.2105,
+          8.052
+        ],
+        [
+          11.2105,
+          7.932
+        ],
+        [
+          11.9105,
+          7.932
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "red",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        16.3288,
+        5.8549
+      ],
+      "radius": 0.2032,
+      "style": "algae",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        16.3288,
+        4.0261
+      ],
+      "radius": 0.2032,
+      "style": "algae",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        16.3288,
+        2.1973
+      ],
+      "radius": 0.2032,
+      "style": "algae",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        8.774,
+        2.9734
+      ],
+      "radius": 0.12,
+      "style": "red",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        8.774,
+        1.8835
+      ],
+      "radius": 0.12,
+      "style": "red",
+      "width": 0.05
+    },
+    {
+      "kind": "circle",
+      "points": [],
+      "center": [
+        8.774,
+        0.7678
+      ],
+      "radius": 0.12,
+      "style": "red",
+      "width": 0.05
+    },
+    {
+      "kind": "line",
+      "points": [
+        [
+          8.774,
+          0
+        ],
+        [
+          8.774,
+          8.052
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "tape",
+      "width": 0.0508
+    },
+    {
+      "kind": "polygon",
+      "points": [
+        [
+          8.714,
+          0.3
+        ],
+        [
+          8.834,
+          0.3
+        ],
+        [
+          8.834,
+          7.752
+        ],
+        [
+          8.714,
+          7.752
+        ]
+      ],
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 0.1,
+      "style": "structure",
+      "width": 0.05
+    }
+  ],
+  "notes": "Geometry from the 2025 field drawings (welded field): reefs, coral stations, processors, starting lines, staged algae marks and the barge cages. The barge is drawn along the center line but isn't an obstacle, so routes across it aren't flagged. Edit anything to match your venue."
+}

@@ -18,6 +18,7 @@ import {
 } from "./core/runtime.ts";
 import { interpolatePreviewFrame } from "./core/playback.ts";
 import { sketchGoals } from "./core/sketch.ts";
+import { applySeason, seasonOf, type Season } from "./core/seasons.ts";
 import { activateProject, keepCopy, listProjects, loadProject, projectLink, saveProject, setProjectLink } from "./storage";
 import { diskDecision, projectDiff, projectKey } from "./core/diskSync.ts";
 import { desktop, invoke } from "./native";
@@ -25,8 +26,6 @@ import { matchFromTable, syncHeader } from "./core/generated-header.ts";
 
 /** How far ahead the preview forecast simulates a routine. */
 export const FORECAST_SECONDS = 60;
-/** Length of the autonomous period in the 2026 game (REBUILT). */
-export const AUTO_PERIOD_SECONDS = 20;
 export type PlaceTool = "select" | "pose" | "translation" | "handoff";
 
 /** What the app needs to regenerate a robot repo's MayhemProject.h (projects.rs). */
@@ -207,6 +206,11 @@ export function useSuiteProject() {
         `Change not applied: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
+  };
+  /** Switch the project to another year's game: field size, field drawing and auto period. */
+  const setSeason = (next: Season) => {
+    if (seasonOf(project.field).year === next.year) return;
+    if (commit((p) => applySeason(p, next))) inform(`Switched to ${next.name}.`);
   };
   const editRoutine = (edit: (r: SuiteProject["routines"][number]) => void) =>
     commit((p) => edit(p.routines.find((r) => r.id === routine.id)!));
@@ -877,6 +881,8 @@ export function useSuiteProject() {
     setSelected,
     selectRoutine,
     commit,
+    season: seasonOf(project.field),
+    setSeason,
     editRoutine,
     editNode,
     undo,
