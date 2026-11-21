@@ -25,8 +25,9 @@ robot code and are built from these primitives.
 | `sim/swerve.hpp` | `SwerveSim`: 6-DOF chassis on per-wheel spring contacts, elasto-plastic tires, belly-pan and bumper contacts, obstacles; `CollideRobots` |
 | `sim/swerve_requests.hpp` | `swerve::SwerveRequestEmulator`: Phoenix 6 `SwerveRequest` + `SwerveModule` math applied to a `SwerveSim` |
 | `sim/game_pieces.hpp` | `GamePieces`: sphere game pieces (flight with drag and Magnus, bounce/roll on terrain, ball-ball, ball-robot, intakes, goals) |
+| `sim/cylinder_pieces.hpp` | `CylinderPieces`: rigid cylinder game pieces (2025 coral): 6-DOF, standing/lying/flying/held, carpet friction and rolling, tipping, walls and prisms, bumpers and mechanism colliders, piece-piece, an intake query |
 | `sim/rng.hpp` | `Rng`: portable seeded random numbers (`MAYHEM_SIM_SEED`) |
-| `sim/wpilib_sim.hpp` | WPILib conversions (`ToPose3d`, `ToTranslations`, ...) and `SteppedTime` |
+| `sim/wpilib_sim.hpp` | WPILib conversions (`ToPose3d`, `ToTranslations`, `ToPoses` for cylinder pieces, ...) and `SteppedTime` |
 | `sim/phoenix6.hpp` | Phoenix bridge: `FromPhoenix(TalonFXConfiguration)`, `FromApplied(ControlRequest)`, `FromRequest(SwerveRequest)` |
 
 Vendor them with the other headers (`node scripts/mayhem.mjs vendor <robot> --snapshot ...`
@@ -157,6 +158,45 @@ Visualize with AdvantageScope: log `ToPose3d(robot.Pose3())` as the robot,
 `ToTranslations(pieces.FlyingPositions())` and `ToTranslations(pieces.GroundPositions())` as
 game pieces, and component poses for an articulated model from `scripts/sim/cad-to-advantagescope.py`.
 
+### Cylinder pieces (coral)
+
+`CylinderPieces` simulates rigid cylinders, so an auto can show that a ground intake really gets
+a coral instead of a proximity check. The defaults are 2025 coral (4.5 in OD, 11.875 in long,
+1.5 lb, hollow PVC; carpet mu 0.8, restitution 0.2). A piece's axis is its pose's local x axis.
+
+```cpp
+CylinderPieces coral;                           // CylinderParams{} = 2025 coral
+int me = coral.AddRobot(&robot);                // bumper box; reactions reach the robot
+for (auto [x, y, yaw] : lyingSpots) coral.SpawnLying(x, y, yaw);
+for (auto [x, y] : markSpots) coral.SpawnStanding(x, y);
+// End effector and elevator, in the robot frame, updated every loop from the mechanisms.
+MechanismCollider ee;
+ee.robot = me;
+ee.outline = {{0.30, 0.05}, {0.55, 0.05}, {0.55, 0.20}, {0.30, 0.20}};  // (x, z), extruded along y
+ee.width = 0.35;
+int eeIndex = coral.AddCollider(ee);
+MechanismCollider carriage;
+carriage.shape = MechanismCollider::Shape::Capsule;
+carriage.robot = me;
+carriage.a = {0.1, 0, 0.2}; carriage.b = {0.1, 0, 1.0}; carriage.radius = 0.04;
+coral.AddCollider(carriage);
+// Each 1 ms, after robot.Step:
+coral.Collider(eeIndex).position = eeOriginInRobotFrame;      // + orientation, velocity
+coral.Step(0.001, &terrain, &obstacles);
+// Intake: pieces within 1 cm of the wheel line; season code decides whether the wheels get it.
+for (const auto& n : coral.Near(wheelA, wheelB, 0.01))
+  if (WheelsGrab(n)) { coral.Hold(n.index, me); held = n.index; break; }
+coral.SetHeldPose(held, heldPose);                // every loop while carried
+coral.Release(held, exitPose, exitVelocity);      // drop, eject or score
+// Logging: Sim/Coral as Pose3d[] (AdvantageScope and the Mayhem 3D replay)
+Logger::RecordOutput("Sim/Coral", ToPoses(coral.Poses()));
+```
+
+`ApplyImpulse(index, point, impulse)` lets wheel rules pull a piece before taking it, and
+`LastRobotImpulse(robot)` reports what the pieces pushed on a robot. Polygon colliders are
+convex outlines in their frame's x-z plane extruded along y; capsules are a segment and a radius.
+Set `robotFrame = false` for a world-frame collider.
+
 ## Physics model
 
 **Chassis.** A rigid body with mass, a diagonal inertia (yaw from `moiKgM2`; roll and pitch
@@ -222,6 +262,24 @@ rolling-inertia factor (5/7 for a solid ball) and rolling resistance; impacts bo
 `restSpeed` with Coulomb-limited tangential friction. Ball-ball contacts use a counting-sort
 spatial hash (500 balls cost ~40 us per 1 ms step on an M-series Mac). Robots push pieces with
 restitution relative to the bumper's velocity and feel the reaction.
+
+**Cylinder pieces.** Each piece is a rigid body (hollow-tube inertia) integrated with
+semi-implicit Euler and an exact quaternion update; gyroscopic torque is ignored. Contacts are
+solved with sequential impulses (Coulomb friction circle, restitution above `restSpeed`,
+speculative contacts against tunnelling) and split-impulse position correction capped at
+`maxPushSpeed`. Contact points lie on the real cylinder: the generator line nearest a surface
+(clipped to a hull's other faces) and rim points at +-120 degrees from it, so a lying piece
+touches along a line (rolls across its axis, slides along it at mu g), and a standing one rests on
+a triangle whose apex is always its lowest rim point, so it pivots on the base edge when pushed
+high and slides when pushed low (then trips when it stops, as mu 0.8 > r / h_cm). Rolling
+resistance is a torque `rollingResistance * N * radius` about the axis. Prisms, bumper boxes
+(`bumperBottomM` up to `robotBoxTopM` or `RobotHeight()`) and polygon colliders are convex hulls
+tested on their face normals, which can stop a piece up to `r (sqrt 2 - 1)` (2.4 cm for coral)
+early near a hull's edge; capsules use the exact point-to-cylinder distance. Piece-piece
+contacts treat each piece as a capsule of the same radius and length: pieces rest on each other
+side-on (crosswise, in a groove), not balanced end-on; `pieceContacts = false` turns them off.
+Pieces at rest sleep until something moving comes within 2 cm. 20 coral with a robot, a plate
+and a capsule collider cost ~17 us per 1 ms step on an M-series Mac.
 
 ### Parameters worth measuring on the real robot
 
@@ -373,4 +431,9 @@ too low); static slope loads vs closed form; Phoenix request math; robot-robot p
 Steps stay stable; spawning under an overhead trench arm, into a wall or column, into another
 robot and on top of game pieces resolves without a launch; drag-free projectile ranges vs closed form, drag and Magnus; bounce and
 rolling; 500 balls with a robot plowing through them under a time budget; intake capacity and
-goal entry direction; and bit-for-bit determinism.
+goal entry direction; and bit-for-bit determinism. `sim_cylinders_test.cpp` checks coral at rest
+(no drift, sleeping), a flat drop's rebound against e^2 h, a standing coral pushed at the top
+falling over its base edge and pushed at the base sliding upright, rolling across the axis vs
+sliding along it at mu g (closed form), a bumper and an end-effector plate pushing a coral, a
+robot spawned on one, a wall and a prism stopping one, resting on and tipping off a box,
+stacking, the intake query and hold/release, 20 coral under a time budget, and determinism.

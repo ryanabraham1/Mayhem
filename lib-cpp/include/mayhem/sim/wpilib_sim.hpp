@@ -7,11 +7,13 @@
 //
 // SteppedTime advances the WPILib/HAL clock by exactly the step, so a 20 s autonomous runs as
 // fast as the CPU allows. Run the physics (1 ms sub-steps) between StepTiming calls.
+#include "mayhem/sim/cylinder_pieces.hpp"
 #include "mayhem/sim/game_pieces.hpp"
 #include "mayhem/sim/swerve.hpp"
 
 #include <frc/geometry/Pose2d.h>
 #include <frc/geometry/Pose3d.h>
+#include <frc/geometry/Quaternion.h>
 #include <frc/geometry/Translation3d.h>
 #include <frc/simulation/SimHooks.h>
 #include <units/time.h>
@@ -42,6 +44,22 @@ inline std::vector<frc::Pose3d> ToPoses(const std::vector<Vec3>& points) {
   out.reserve(points.size());
   for (const auto& p : points) out.emplace_back(ToTranslation3d(p), frc::Rotation3d{});
   return out;
+}
+/** A cylinder piece's pose (its axis is the Pose3d's x axis, as Sim/Coral expects). */
+inline frc::Pose3d ToPose3d(const CylinderPose& p) {
+  const auto& q = p.orientation;
+  return {ToTranslation3d(p.position), frc::Rotation3d{frc::Quaternion{q.w, q.x, q.y, q.z}}};
+}
+/** Every cylinder piece as a Pose3d[] for AdvantageScope and the Mayhem 3D replay (Sim/Coral). */
+inline std::vector<frc::Pose3d> ToPoses(const std::vector<CylinderPose>& poses) {
+  std::vector<frc::Pose3d> out;
+  out.reserve(poses.size());
+  for (const auto& p : poses) out.push_back(ToPose3d(p));
+  return out;
+}
+inline CylinderPose FromPose3d(const frc::Pose3d& p) {
+  const auto q = p.Rotation().GetQuaternion();
+  return {{p.X().value(), p.Y().value(), p.Z().value()}, {q.W(), q.X(), q.Y(), q.Z()}};
 }
 inline Pose2 FromPose2d(const frc::Pose2d& p) { return {p.X().value(), p.Y().value(), p.Rotation().Radians().value()}; }
 
