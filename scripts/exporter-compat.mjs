@@ -18,8 +18,14 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** Fixed inputs. Only ever add to this list together with a cache version bump. */
-export const CORPUS = ["examples/suite/competition.mayhem.json", "examples/suite/example-robot.mayhem.json"];
-const CACHE_VERSION = 2;
+export const CORPUS = [
+  "examples/suite/competition.mayhem.json",
+  "examples/suite/example-robot.mayhem.json",
+  // A conditional pass-through before a capped step: its path preview changed in 0.14.0 (the
+  // look-ahead continues through an open exit).
+  "examples/suite/gate.mayhem.json",
+];
+const CACHE_VERSION = 3;
 
 const run = (cmd, args, opts = {}) =>
   new Promise((done, fail) =>

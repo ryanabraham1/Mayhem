@@ -1,0 +1,149 @@
+{
+  "format": "mayhem-suite",
+  "version": 1,
+  "revision": 0,
+  "id": "gate-example",
+  "name": "Conditional pass-through",
+  "field": {
+    "name": "2026 REBUILT",
+    "width": 16.541,
+    "height": 8.0692
+  },
+  "robot": {
+    "name": "Swerve robot",
+    "length": 0.85,
+    "width": 0.85,
+    "start": {
+      "x": 1,
+      "y": 1,
+      "heading": 0
+    },
+    "constraints": {
+      "maxVelocity": 3.5,
+      "maxAcceleration": 3,
+      "maxAngularVelocity": 5,
+      "maxAngularAcceleration": 10,
+      "translationKp": 3.2,
+      "rotationKp": 4,
+      "anticipateSpeedCaps": true
+    }
+  },
+  "signals": [
+    {
+      "key": "arm.ready",
+      "name": "Arm ready",
+      "type": "boolean",
+      "initial": false
+    }
+  ],
+  "routines": [
+    {
+      "id": "gate",
+      "name": "Gate",
+      "initial": "approach",
+      "nodes": [
+        {
+          "id": "approach",
+          "name": "approach",
+          "kind": "pose",
+          "timeout": 10,
+          "goal": {
+            "x": 4,
+            "y": 1,
+            "heading": 0,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.04,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.12,
+            "handoffRadius": 0.5
+          }
+        },
+        {
+          "id": "slow",
+          "name": "slow",
+          "kind": "pose",
+          "timeout": 10,
+          "goal": {
+            "x": 7,
+            "y": 2,
+            "heading": 0,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.04,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.12,
+            "handoffRadius": 0
+          },
+          "constraints": {
+            "maxVelocity": 1
+          }
+        },
+        {
+          "id": "wait",
+          "name": "wait",
+          "kind": "pose",
+          "timeout": 10,
+          "goal": {
+            "x": 4,
+            "y": 3,
+            "heading": 0,
+            "translationTolerance": 0.06,
+            "rotationTolerance": 0.04,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.12,
+            "handoffRadius": 0
+          }
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "kind": "finish",
+          "timeout": 1
+        }
+      ],
+      "transitions": [
+        {
+          "id": "on",
+          "from": "approach",
+          "to": "slow",
+          "condition": {
+            "kind": "not",
+            "condition": {
+              "kind": "signal",
+              "key": "arm.ready",
+              "op": "eq",
+              "value": true
+            }
+          }
+        },
+        {
+          "id": "ready",
+          "from": "approach",
+          "to": "wait",
+          "condition": {
+            "kind": "signal",
+            "key": "arm.ready",
+            "op": "eq",
+            "value": true
+          }
+        },
+        {
+          "id": "a",
+          "from": "slow",
+          "to": "done",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "b",
+          "from": "wait",
+          "to": "done",
+          "condition": {
+            "kind": "always"
+          }
+        }
+      ]
+    }
+  ],
+  "extensions": {}
+}
