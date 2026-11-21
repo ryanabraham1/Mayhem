@@ -26,8 +26,11 @@ robot code and are built from these primitives.
 | `sim/swerve_requests.hpp` | `swerve::SwerveRequestEmulator`: Phoenix 6 `SwerveRequest` + `SwerveModule` math applied to a `SwerveSim` |
 | `sim/game_pieces.hpp` | `GamePieces`: sphere game pieces (flight with drag and Magnus, bounce/roll on terrain, ball-ball, ball-robot, intakes, goals) |
 | `sim/cylinder_pieces.hpp` | `CylinderPieces`: rigid cylinder game pieces (2025 coral): 6-DOF, standing/lying/flying/held, carpet friction and rolling, tipping, walls and prisms, bumpers and mechanism colliders, piece-piece, an intake query |
+| `sim/camera.hpp` | `AprilTagCamera`: PhotonVision-style AprilTag camera: pinhole projection of each tag's corners, detection limits (field of view, size, distance, view angle, motion blur, occlusion by prisms and robots), corner noise, multi-tag and two-solution single-tag PnP with ambiguity, frame rate and latency |
+| `sim/sensors.hpp` | `SampledSignal<T>` (a status signal's update rate and CAN latency) and `GyroModel` (Pigeon2 yaw with scale error, bias drift, bias instability, noise and rate saturation) |
 | `sim/rng.hpp` | `Rng`: portable seeded random numbers (`MAYHEM_SIM_SEED`) |
 | `sim/wpilib_sim.hpp` | WPILib conversions (`ToPose3d`, `ToTranslations`, `ToPoses` for cylinder pieces, ...) and `SteppedTime` |
+| `sim/wpilib_apriltag.hpp` | WPILib AprilTag adapter: `ToAprilTags(AprilTagFieldLayout)`, `ToPose3d` / `ToRigidPose` for camera poses (needs WPILib's apriltag library) |
 | `sim/phoenix6.hpp` | Phoenix bridge: `FromPhoenix(TalonFXConfiguration)`, `FromApplied(ControlRequest)`, `FromRequest(SwerveRequest)` |
 
 Vendor them with the other headers (`node scripts/mayhem.mjs vendor <robot> --snapshot ...`
@@ -281,6 +284,85 @@ side-on (crosswise, in a groove), not balanced end-on; `pieceContacts = false` t
 Pieces at rest sleep until something moving comes within 2 cm. 20 coral with a robot, a plate
 and a capsule collider cost ~17 us per 1 ms step on an M-series Mac.
 
+**Mechanism colliders on pieces.** A collider's `stiffness` (N/m of overlap, default 3000) gives
+a squeezed piece a normal force even when nothing moves toward it, as a compliant roller does, so
+a roller or belt pressing on a coral grips it and drives it by friction. A capsule spinning about
+its own axis (`angularVelocity` along the capsule, `position` on the axis) is a roller: its
+surface moves at omega x r. Set `stiffness = 0` for a rigid plate.
+
+## AprilTag camera
+
+`AprilTagCamera` reports what a PhotonVision coprocessor would, from the robot's true pose:
+
+```cpp
+#include <mayhem/sim/wpilib_apriltag.hpp>
+auto layout = frc::AprilTagFieldLayout::LoadField(frc::AprilTagField::k2025ReefscapeWelded);
+mayhem::sim::CameraParams front;
+front.robotToCamera = mayhem::sim::ToRigidPose(kRobotToFrontCamera);  // the Transform3d the robot uses
+front.widthPx = 1280; front.heightPx = 800; front.horizontalFovRad = 1.2217;  // 70 deg
+mayhem::sim::AprilTagCamera cam(front, mayhem::sim::ToAprilTags(layout));
+// every 1 ms physics step, after the swerve step:
+for (const auto& f : cam.Update(t, swerve, &obstacles))
+  if (f.hasEstimate)  // hand it to the same filtering code the real VisionIO uses
+    io.Publish(mayhem::sim::ToPose3d(f.robotPose), f.captureTime, f.tags.size(), f.ambiguity,
+               f.averageTagDistanceM);
+```
+
+- **Projection and detection.** Each tag's four corners (6.5 in) go through a pinhole model
+  (`fx`/`fy`/`cx`/`cy` from a calibration, or from the field of view). A tag is detected when all
+  corners are in front of the lens and inside the image, its shortest edge is at least
+  `minSidePx`, it is within `maxDistanceM` and `maxViewAngleRad` of its normal, no corner is
+  behind an `Obstacles` prism or an extra `Occluder` (`AprilTagCamera::RobotOccluder(otherRobot)`),
+  and its motion blur is below `maxBlurPx`. A tag on the face of its own structure is not hidden
+  by that structure.
+- **Noise.** Corners get Gaussian noise of `pixelNoisePx`, plus blur / sqrt(12) when the robot
+  moves (blur = each corner's image velocity x `exposureS`; spinning at 1 rad/s smears a 70-degree
+  1280 px camera by ~3.9 px at 4 ms).
+- **Estimation.** The pose is solved from the noisy corners by Levenberg-Marquardt PnP, so the
+  error comes from the geometry as on a real camera: it grows faster than distance, it is worst
+  along the camera's orbit around coplanar tags, tags on faces at different angles (two reef faces)
+  constrain it much better, and a single tag gives two solutions, the tag tilted either way. The
+  lower-error one is reported with `ambiguity` = best / alternate reprojection error, so a nearly
+  frontal or distant single tag sometimes reports the mirrored pose. Measured in the tests with
+  0.5 px noise: two coplanar tags 0.7 m apart, 1.6 cm mean error at 1.5 m and 58 cm at 5 m (12 cm
+  if they are on faces 60 degrees apart); one tag at 2.5 m, ambiguity 0.87 and half the frames
+  mirrored seen frontally, 0.22 and none 40 degrees off its normal. Robot code should filter on
+  ambiguity, tag count and distance exactly as it does on the real robot.
+- **Timing.** Frames are captured at `fps` and arrive `latencyS` + uniform(0, `latencyJitterS`)
+  later; `captureTime` is the timestamp for `AddVisionMeasurement`. `frameDropProbability` drops
+  frames.
+- `truthErrorM` and `truthYawErrorRad` compare the estimate with the truth, for tests and logs
+  only.
+
+The defaults (0.25 px noise, 30 ms latency, 4 ms exposure, 15 px minimum edge) are starting
+estimates. To measure yours: park the robot at known spots 1-5 m from a tag and log PhotonVision's
+estimates for a minute at each; set `pixelNoisePx` until the simulated spread matches. Latency is
+PhotonVision's reported pipeline latency plus NetworkTables time; exposure is in the camera
+settings.
+
+## Sensor errors
+
+`GyroModel` turns the swerve's true yaw into a Pigeon2 reading: `(1 + scaleError)` times each yaw
+change, plus `biasRadPerS` and a random-walk bias (`biasRandomWalk`, rad/s per sqrt s), saturated
+at 2000 deg/s, with white noise per sample, delivered at `updatePeriodS` (100 Hz, the Pigeon2
+default) after `latencyS`. `SetYaw` re-zeroes the reading like Pigeon2 `SetYaw`. Feed robot code
+`gyro.Yaw()` instead of `swerve.GyroYaw()`:
+
+```cpp
+mayhem::sim::GyroModel gyro{{.updatePeriodS = 0.004, .scaleError = 0.002, .biasRadPerS = 1e-4}};
+gyro.Step(t, dt, swerve);  // each physics step
+pigeonSim.SetRawYaw(units::radian_t{gyro.Yaw()});
+```
+
+Measure them: leave the robot still for five minutes and log yaw (the drift rate is
+`biasRadPerS`, its wander `biasRandomWalk`); spin it ten turns in place against a mark on the
+carpet (the error over 10 x 360 degrees is `scaleError`).
+
+`SampledSignal<T>` models any value read over CAN or NetworkTables: it samples the truth every
+`periodS` (the signal's update frequency) and delivers each sample `latencyS` later, with its
+capture time. Wheel odometry, an absolute encoder or a distance sensor can go through it so robot
+code sees what it would on the bus.
+
 ### Parameters worth measuring on the real robot
 
 `massKg`, `cgHeightM` (affects load transfer and tipping), `moiKgM2` (SysId rotation),
@@ -360,7 +442,7 @@ Chosen where Phoenix does not document behaviour (verify against hardware logs i
   change / period, 180-degree flips excluded) to Position steer requests only.
 
 Known gaps: no voltage ramps, differential or DutyCycle closed-loop requests,
-no velocity-measurement filtering or CAN latency, no motor temperature or thermal limits, motor
+no velocity-measurement filtering, CAN latency only through `SampledSignal`, no motor temperature or thermal limits, motor
 rotor inertia must be folded into the plant inertia, the terrain is a height field (no
 overhangs; tall steps should also be obstacles), the chassis is rigid (no suspension or bumper
 compression beyond the penalty springs), and ball spin is not simulated on the ground.
@@ -436,4 +518,9 @@ goal entry direction; and bit-for-bit determinism. `sim_cylinders_test.cpp` chec
 falling over its base edge and pushed at the base sliding upright, rolling across the axis vs
 sliding along it at mu g (closed form), a bumper and an end-effector plate pushing a coral, a
 robot spawned on one, a wall and a prism stopping one, resting on and tipping off a box,
-stacking, the intake query and hold/release, 20 coral under a time budget, and determinism.
+stacking, the intake query and hold/release, a spinning roller driving a coral, 20 coral under a
+time budget, and determinism. `sim_sensors_test.cpp` checks the camera's projection, each
+detection limit, occlusion by a prism and another robot (and not by the tag's own mount), motion
+blur against fx w t_exp, frame rate and latency, error growing with distance and smaller for
+non-coplanar tags, single-tag ambiguity and mirrored solutions frontal vs oblique, determinism,
+SampledSignal timing, and the gyro's scale error, bias, saturation and seeded random walk.

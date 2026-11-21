@@ -131,6 +131,10 @@ struct MechanismCollider {
   Vec3 a{0, 0, 0}, b{0, 0, 0};  // Capsule
   double radius = 0.02;         // Capsule
   double friction = 0.5, restitution = 0.1;
+  // Contact compliance (N/m of overlap): a piece squeezed by the collider feels a normal force of
+  // stiffness x overlap even when nothing is moving toward it, so a roller or belt pressing on a
+  // piece grips it and drives it by friction (compliant wheels squeeze a coral a few mm). 0: rigid.
+  double stiffness = 3000;
 };
 
 /** A piece near an intake segment (CylinderPieces::Near). */
@@ -360,7 +364,7 @@ class CylinderPieces {
   struct Hull {
     std::vector<Plane> faces;
     Vec3 lo{0, 0, 0}, hi{0, 0, 0}, origin{0, 0, 0}, vel{0, 0, 0}, omega{0, 0, 0};
-    double mu = 0, e = 0;
+    double mu = 0, e = 0, k = 0;
     int robot = -1;
     bool moving = false;
   };
@@ -368,14 +372,14 @@ class CylinderPieces {
     Vec3 a{0, 0, 0}, b{0, 0, 0};
     double radius = 0;
     Vec3 origin{0, 0, 0}, vel{0, 0, 0}, omega{0, 0, 0};
-    double mu = 0, e = 0;
+    double mu = 0, e = 0, k = 0;
     int robot = -1;
   };
-  struct Surf { Vec3 origin, vel, omega; double mu, e; int robot; };
+  struct Surf { Vec3 origin, vel, omega; double mu, e; int robot; double k = 0; };
   struct Contact {
     int a = -1, b = -1, robot = -1;
     Vec3 p{0, 0, 0}, n{0, 0, 0}, ra{0, 0, 0}, rb{0, 0, 0}, surfaceVel{0, 0, 0}, t1{0, 0, 0}, t2{0, 0, 0};
-    double depth = 0, mu = 0, target = 0, massN = 0, massT1 = 0, massT2 = 0;
+    double depth = 0, mu = 0, target = 0, massN = 0, massT1 = 0, massT2 = 0, minJn = 0;
     double jn = 0, jt1 = 0, jt2 = 0, jp = 0;
   };
   struct Surface { double distance; Vec3 normal, point; };
@@ -464,6 +468,7 @@ class CylinderPieces {
     Hull& h = hulls_[hullCount_++];
     h.faces.clear();
     h.vel = h.omega = {0, 0, 0};
+    h.k = 0;
     h.robot = -1;
     h.moving = false;
     return h;
@@ -554,6 +559,7 @@ class CylinderPieces {
         cap.omega = w;
         cap.mu = col.friction;
         cap.e = col.restitution;
+        cap.k = col.stiffness;
         cap.robot = col.robot;
         capsules_.push_back(cap);
         continue;
@@ -587,6 +593,7 @@ class CylinderPieces {
       h.omega = w;
       h.mu = col.friction;
       h.e = col.restitution;
+      h.k = col.stiffness;
       h.robot = col.robot;
       h.moving = true;
     }
@@ -711,7 +718,7 @@ class CylinderPieces {
     }
     if (bestFace < 0) return;
     const Plane& f = hull.faces[static_cast<std::size_t>(bestFace)];
-    Surf s{hull.origin, hull.vel, hull.omega, hull.mu, hull.e, hull.robot};
+    Surf s{hull.origin, hull.vel, hull.omega, hull.mu, hull.e, hull.robot, hull.k};
     SurfaceContacts(i, f.n, f.d, &hull.faces, bestFace, std::numeric_limits<double>::infinity(), s, m, dt);
   }
 
@@ -763,7 +770,7 @@ class CylinderPieces {
     for (int k = 0; k < 3; ++k) { clo[k] = std::min(cap.a[k], cap.b[k]); chi[k] = std::max(cap.a[k], cap.b[k]); }
     if (!Overlap(lo, hi, clo, chi)) return;
     const Vec3 c = pieces_[ui].position, a = axis_[ui];
-    Surf s{cap.origin, cap.vel, cap.omega, cap.mu, cap.e, cap.robot};
+    Surf s{cap.origin, cap.vel, cap.omega, cap.mu, cap.e, cap.robot, cap.k};
     double tBest = 0;
     const Surface best = SegmentToCylinder(c, a, cap.a, cap.b, tBest);
     const Vec3 e = vec::Sub(cap.b, cap.a);
@@ -851,6 +858,7 @@ class CylinderPieces {
     k.n = n;
     k.depth = depth;
     k.mu = s.mu;
+    if (s.k > 0 && depth > p_.penetrationSlop) k.minJn = s.k * (depth - p_.penetrationSlop) * dt;
     const Cylinder& A = pieces_[static_cast<std::size_t>(a)];
     k.ra = vec::Sub(p, A.position);
     if (b >= 0) k.rb = vec::Sub(p, pieces_[static_cast<std::size_t>(b)].position);
@@ -909,7 +917,7 @@ class CylinderPieces {
       for (auto& k : contacts_) {
         // Normal.
         const double vn = vec::Dot(Relative(k), k.n);
-        const double jn = std::max(0.0, k.jn + k.massN * (k.target - vn));
+        const double jn = std::max(k.minJn, k.jn + k.massN * (k.target - vn));
         const double dj = jn - k.jn;
         k.jn = jn;
         if (dj != 0) Impulse(k, vec::Scale(k.n, dj));

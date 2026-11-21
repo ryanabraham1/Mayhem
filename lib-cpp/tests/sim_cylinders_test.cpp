@@ -324,6 +324,33 @@ void PolygonCollider() {
   SIM_CHECK(pieces.Get(c).position[0] > front + pieces.Params().radius - 0.005, "plate pushes the coral ahead of the bumper");
 }
 
+void SpinningRoller() {
+  // A world-frame roller (capsule along y) resting on top of a lying coral. Spinning, its surface
+  // drags the coral by friction (the collider's velocity field includes w x r); still, it doesn't.
+  auto run = [](double spin) {
+    CylinderPieces pieces;
+    const double r = pieces.Params().radius;
+    const int c = pieces.SpawnLying(0, 0, kPi / 2);  // axis along y
+    MechanismCollider roller;
+    roller.name = "roller";
+    roller.shape = MechanismCollider::Shape::Capsule;
+    roller.robotFrame = false;
+    roller.radius = 0.025;
+    roller.position = {0, 0, 2 * r + roller.radius - 0.004};  // squeezing the coral 4 mm
+    roller.a = {0, -0.2, 0};
+    roller.b = {0, 0.2, 0};
+    roller.angularVelocity = {0, spin, 0};  // +y: the roller's underside moves toward -x
+    roller.friction = 1.0;
+    pieces.AddCollider(roller);
+    Run(pieces, 0.5);
+    return pieces.Get(c).position[0];
+  };
+  const double moved = run(60), still = run(0);
+  std::printf("spinning roller on a coral: moved it %.3f m in 0.5 s (still roller: %.4f m)\n", moved, still);
+  SIM_CHECK(moved < -0.05, "a spinning roller drives the coral: %.3f", moved);
+  SIM_CHECK(std::abs(still) < 0.005, "a still roller only presses it: %.4f", still);
+}
+
 double Many(std::vector<double>* trace) {
   Obstacles obstacles;
   obstacles.SetPerimeter(0, 0, 8, 6, 0.3);
@@ -404,6 +431,7 @@ int main() {
   Stacking();
   IntakeHook();
   PolygonCollider();
+  SpinningRoller();
   Budget();
   Determinism();
   return SimResult("sim_cylinders");
