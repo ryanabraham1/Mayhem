@@ -303,7 +303,15 @@ export function exportCpp(project: SuiteProject): string {
             .map((m) =>
               m.kind === "rotation"
                 ? `{mayhem::MarkerKind::Rotation,${m.t},${m.heading},{},${m.profiled ?? true}}`
-                : `{mayhem::MarkerKind::Event,${m.t},0,std::string_view{${quoted(m.key)}},true}`,
+                : // Distance trigger and hold are appended only when used, so other headers
+                  // stay valid for MayhemCpp before 0.14.
+                  `{mayhem::MarkerKind::Event,${m.t},0,std::string_view{${quoted(m.key)}},true${
+                    m.distance !== undefined
+                      ? `,mayhem::MarkerTrigger::${m.at ? "PointDistance" : "GoalDistance"},${m.distance},${m.at?.x ?? 0},${m.at?.y ?? 0}${m.hold ? ",true" : ""}`
+                      : m.hold
+                        ? ",mayhem::MarkerTrigger::Progress,0,0,0,true"
+                        : ""
+                  }}`,
             )
             .join(",")}}};`,
         );
@@ -321,14 +329,14 @@ export function exportCpp(project: SuiteProject): string {
         : "{}";
       const next = autoNext(r, n);
       const nextIndex = next ? r.nodes.indexOf(next) : -1;
-      return `{${quoted(n.id)},mayhem::NodeKind::${n.kind === "pose" ? "Pose" : n.kind === "finish" ? "Finish" : n.kind === "custom" ? "Custom" : "Action"},${goal},${n.timeout},${quoted(n.action ?? "")},{${c.maxVelocity},${c.maxAcceleration},${c.maxAngularVelocity},${c.maxAngularAcceleration},${c.translationKp},${c.rotationKp},${c.handoffRadius},${c.crossTrackKp},${c.minVelocity},${c.anticipateSpeedCaps}},${n.during?.length ? `during_${i}.data(),during_${i}.size()` : "nullptr,0"},${nextIndex},${isIntermediate(r, n)}${n.onTimeout === "succeed" ? ",mayhem::TimeoutOutcome::Succeed" : ""}}`;
+      return `{${quoted(n.id)},mayhem::NodeKind::${n.kind === "pose" ? "Pose" : n.kind === "finish" ? "Finish" : n.kind === "custom" ? "Custom" : "Action"},${goal},${n.timeout},${quoted(n.action ?? "")},{${c.maxVelocity},${c.maxAcceleration},${c.maxAngularVelocity},${c.maxAngularAcceleration},${c.translationKp},${c.rotationKp},${c.handoffRadius},${c.crossTrackKp},${c.minVelocity},${c.anticipateSpeedCaps}${c.stopDeceleration > 0 || c.stopLag > 0 ? `,${c.stopDeceleration},${c.stopLag}` : ""}},${n.during?.length ? `during_${i}.data(),during_${i}.size()` : "nullptr,0"},${nextIndex},${isIntermediate(r, n)}${n.onTimeout === "succeed" ? ",mayhem::TimeoutOutcome::Succeed" : ""}}`;
     });
     output.push(
       ...declare("mayhem::AutoNode", "nodes", nodes),
       ...declare(
         "mayhem::AutoTransition",
         "transitions",
-        r.transitions.map((t, i) => `{${quoted(t.id)},${quoted(t.from)},${quoted(t.to)},guard_${i}}`),
+        r.transitions.map((t, i) => `{${quoted(t.id)},${quoted(t.from)},${quoted(t.to)},guard_${i}${t.interrupt ? ",true" : ""}}`),
       ),
       "// Signal keys the guards read (AutoRunner::BindSignal / Unbound).",
       ...declare("std::string_view", "signalKeys", signalKeys.map(quoted)),

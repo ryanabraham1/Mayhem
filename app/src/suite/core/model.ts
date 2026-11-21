@@ -27,6 +27,15 @@ export interface Constraints {
    * Off by default (BLine behavior). The editor previews such paths with the native follower.
    */
   anticipateSpeedCaps?: boolean;
+  /**
+   * Braking profile for the end of a path, m/s² (0 = off: the P law alone). While the path ends
+   * ahead, speed <= sqrt(2·stopDeceleration·room), so the robot arrives without overshooting
+   * when it cannot brake as hard as translationKp asks. Set it to what the robot can really
+   * brake at; robot code can supply a live limit (AutoRunner::SetStopDeceleration).
+   */
+  stopDeceleration?: number;
+  /** Seconds the drivetrain lags its command; the braking profile's room is reduced by lag·speed. */
+  stopLag?: number;
 }
 /** Path-follower settings applied when a project omits them (defaults). */
 export const PATH_DEFAULTS = {
@@ -34,7 +43,11 @@ export const PATH_DEFAULTS = {
   crossTrackKp: 2,
   minVelocity: 0,
   anticipateSpeedCaps: false,
+  stopDeceleration: 0,
+  stopLag: 0,
 } as const;
+/** Path-follower settings where 0 means "off" (the others must be positive). */
+const ZERO_ALLOWED = new Set(["minVelocity", "stopDeceleration", "stopLag"]);
 export type ResolvedConstraints = Required<Constraints>;
 export const resolveConstraints = (
   ...layers: (Partial<Constraints> | undefined)[]
@@ -50,10 +63,36 @@ export const resolveConstraints = (
 /**
  * Marker placed on the segment that leads into its pose step, by projected
  * geometric progress t in [0, 1] (0 = previous anchor, 1 = this anchor).
+ *
+ * An event marker with `distance` fires by distance instead of t: once the robot is within
+ * `distance` m of the step's goal ("arm up 1.2 m before the end"), or of the field point `at`
+ * when given ("lower the intake 1.3 m from this point"); `t` is then only where the editor
+ * draws it. Event markers fire in list order: one waits for those before it.
+ *
+ * `hold`: the bound action is begun at the marker and ticked every loop until it succeeds or
+ * the step exits (a `during` action started at the marker), for a request the mechanism may
+ * refuse for a moment. Without it the marker only runs the action's `begin`.
  */
 export type PathMarker =
   | { kind: "rotation"; t: number; heading: number; profiled?: boolean }
-  | { kind: "event"; t: number; key: string };
+  | { kind: "event"; t: number; key: string; distance?: number; at?: { x: number; y: number }; hold?: boolean };
+/** Whether an event marker's trigger is met (mirrors mayhem::MarkerPassed). */
+export const markerPassed = (
+  m: Extract<PathMarker, { kind: "event" }>,
+  progress: number,
+  goalDistance: number,
+  pose: { x: number; y: number },
+) =>
+  m.distance === undefined
+    ? m.t <= progress
+    : (m.at ? Math.hypot(m.at.x - pose.x, m.at.y - pose.y) : goalDistance) <= m.distance;
+/** "1.2 m before the goal", "1.3 m from (4.20, 1.10)" or "at 50%": when an event marker fires. */
+export const markerTriggerLabel = (m: Extract<PathMarker, { kind: "event" }>) =>
+  m.distance === undefined
+    ? `at ${Math.round(m.t * 100)}%`
+    : m.at
+      ? `${m.distance} m from (${m.at.x.toFixed(2)}, ${m.at.y.toFixed(2)})`
+      : `${m.distance} m before the goal`;
 export interface Goal extends Pose {
   headingMode?: "fixed" | "pointAt" | "motion" | "free";
   aimX?: number;
@@ -122,7 +161,17 @@ export interface Transition {
   description?: string;
   /** With `from: "*"` (machines only): states it does not leave. */
   except?: string[];
+  /**
+   * Routines only: checked every tick while its step runs, so the step is left as soon as the
+   * condition is true: a pose step before its pose is reached (driveToPoint raced with a
+   * condition), an action step before its action is done. Other exits are checked once the
+   * step is done, in list order together with these. Not allowed with an "Always" condition.
+   */
+  interrupt?: boolean;
 }
+/** The exits checked only once a step is done (not `interrupt`). */
+export const reachedExits = (routine: Pick<AutoRoutine, "transitions">, node: string) =>
+  routine.transitions.filter((t) => t.from === node && !t.interrupt);
 /** `from` of a machine transition that leaves every state except its target (and `except`). */
 export const ANY_STATE = "*";
 /** Whether `t` is checked while `state` is active ("*" covers every state but its target and `except`). */
@@ -384,7 +433,7 @@ export function validateProject(input: unknown): Issue[] {
     }
     if (
       v !== undefined &&
-      (!finite(v) || v < 0 || (key !== "minVelocity" && v === 0))
+      (!finite(v) || v < 0 || (!ZERO_ALLOWED.has(key) && v === 0))
     )
       error(
         `robot.constraints.${key}`,
@@ -468,7 +517,7 @@ export function validateProject(input: unknown): Issue[] {
         !(key in DEFAULT_CONSTRAINTS || key in PATH_DEFAULTS) ||
         !finite(v) ||
         v < 0 ||
-        (key !== "minVelocity" && v === 0)
+        (!ZERO_ALLOWED.has(key) && v === 0)
       )
         error(
           path + "." + key,
@@ -630,12 +679,22 @@ export function validateProject(input: unknown): Issue[] {
                 } else if (m.kind === "event") {
                   if (typeof m.key !== "string" || !m.key.trim())
                     error(mp + ".key", "Event triggers need a key.");
+                  if (m.distance !== undefined && (!finite(m.distance) || m.distance < 0))
+                    error(mp + ".distance", "Expected a distance in meters, 0 or more.");
+                  if (m.at !== undefined && (!record(m.at) || !finite(m.at.x) || !finite(m.at.y)))
+                    error(mp + ".at", "Expected a field point { x, y }.");
+                  else if (m.at !== undefined && m.distance === undefined)
+                    error(mp + ".distance", "A marker at a field point needs a distance.");
+                  if (m.hold !== undefined && typeof m.hold !== "boolean")
+                    error(mp + ".hold", "Expected true or false.");
                 } else error(mp, "Marker kind must be rotation or event.");
                 if (
                   record(m) &&
                   mi > 0 &&
                   finite(m.t) &&
+                  m.distance === undefined &&
                   record(n.goal.markers[mi - 1]) &&
+                  n.goal.markers[mi - 1].distance === undefined &&
                   m.t < n.goal.markers[mi - 1].t
                 )
                   issues.push({
@@ -674,6 +733,10 @@ export function validateProject(input: unknown): Issue[] {
         if (t.description !== undefined && typeof t.description !== "string")
           error(p + ".description", "Transition descriptions must be text.");
         checkCondition(t.condition, p + ".condition");
+        if (t.interrupt !== undefined && typeof t.interrupt !== "boolean")
+          error(p + ".interrupt", "Expected true or false.");
+        else if (t.interrupt && record(t.condition) && t.condition.kind === "always")
+          error(p + ".interrupt", "An exit checked every tick needs a condition; with Always the step would be left at once.");
       });
       const reachable = new Set([r.initial]);
       for (let i = 0; i < r.nodes.length; i++)

@@ -287,9 +287,10 @@ describe("path following", () => {
   it("waits at a pass-through step while its conditional exit is false", () => {
     const { p, routine } = approach();
     expect(isIntermediate(routine, routine.nodes[1])).toBe(true);
-    const open = pathAhead(routine, routine.nodes[0], p, () => true);
-    const closed = pathAhead(routine, routine.nodes[0], p, () => false);
-    expect([open.anchors.length, open.final]).toEqual([2, false]);
+    const open = pathAhead(routine, routine.nodes[0], p, (n) => routine.transitions.find((t) => t.from === n.id));
+    const closed = pathAhead(routine, routine.nodes[0], p, () => undefined);
+    // Open: the path continues to the exit's step (c), which ends it.
+    expect([open.anchors.length, open.final]).toEqual([3, true]);
     expect([closed.anchors.length, closed.final]).toEqual([2, true]);
     const waiting = simulate(p, routine, { "superstructure.atGoal": false }, { maxSeconds: 8 });
     expect(waiting.status).toBe("running");

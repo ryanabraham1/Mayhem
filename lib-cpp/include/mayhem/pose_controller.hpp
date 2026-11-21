@@ -51,15 +51,36 @@ struct Constraints {
   // Slow down before a slower step ahead (speed <= sqrt(cap^2 + 2 a d), d = distance to
   // its handoff point) instead of after its handoff. Needs per-anchor caps; off = BLine.
   bool anticipateSpeedCaps = false;
+  // Braking profile for the end of a path (0 = off, the BLine P law alone): while the path
+  // ends ahead, speed <= sqrt(2 * stopDeceleration * room), room = remaining distance less
+  // (stopLag + dt) * the measured speed toward the target. Set stopDeceleration to what the
+  // robot can really brake at (at most maxAcceleration) and stopLag to the drivetrain's
+  // velocity-loop lag in seconds. AutoRunner::SetStopDeceleration supplies a live limit.
+  double stopDeceleration = 0, stopLag = 0;
 };
 enum class HeadingMode { Fixed, PointAt, Motion, Free };
 enum class MarkerKind { Rotation, Event };
+// When an event marker fires: at projected progress t (default), within `distance` of its
+// step's goal (GoalDistance), or within `distance` of the field point (x, y) (PointDistance).
+enum class MarkerTrigger { Progress, GoalDistance, PointDistance };
 // Rotation target or event trigger on the segment leading into its anchor,
-// placed by projected progress t in [0, 1].
+// placed by projected progress t in [0, 1]. Event markers fire in list order (one waits for
+// those before it) and may use a distance trigger instead of t. `hold` (AutoRunner): the
+// bound action is begun at the marker and ticked every loop until it succeeds or the step
+// exits (a `during` action started at the marker), instead of only running its `begin`.
 struct PathMarker {
   MarkerKind kind = MarkerKind::Event; double t = .5; double heading = 0;
   std::string_view key; bool profiled = true;
+  MarkerTrigger trigger = MarkerTrigger::Progress; double distance = 0, x = 0, y = 0;
+  bool hold = false;
 };
+// Whether an event marker's trigger is met at `progress` along its segment, `goalDistance`
+// from its step's goal, with the robot at `pose`.
+inline bool MarkerPassed(const PathMarker& m, double progress, double goalDistance, double x, double y) {
+  if (m.trigger == MarkerTrigger::GoalDistance) return goalDistance <= m.distance;
+  if (m.trigger == MarkerTrigger::PointDistance) return std::hypot(m.x - x, m.y - y) <= m.distance;
+  return m.t <= progress;
+}
 struct Goal {
   Pose pose;
   double translationTolerance = .03, rotationTolerance = 0.03490658503988659;
@@ -115,11 +136,12 @@ class PathFollower {
       state_.previous.vx, state_.previous.vy, state_.previous.omega, state_.settled, state_.sx,
       state_.sy, dt, c.maxVelocity, c.maxAcceleration, c.maxAngularVelocity,
       c.maxAngularAcceleration, c.translationKp, c.rotationKp, c.handoffRadius, c.crossTrackKp,
-      c.minVelocity};
+      c.minVelocity, c.stopDeceleration, c.stopLag};
     for (double v : nums) if (!std::isfinite(v)) return Invalid();
     if (dt <= 0 || c.maxVelocity <= 0 || c.maxAcceleration <= 0 ||
         c.maxAngularVelocity <= 0 || c.maxAngularAcceleration <= 0 || c.translationKp <= 0 ||
-        c.rotationKp <= 0 || c.handoffRadius <= 0 || c.crossTrackKp <= 0 || c.minVelocity < 0)
+        c.rotationKp <= 0 || c.handoffRadius <= 0 || c.crossTrackKp <= 0 || c.minVelocity < 0 ||
+        c.stopDeceleration < 0 || c.stopLag < 0)
       return Invalid();
     dt = std::min(dt, maxDt_);
     for (std::size_t i = 0; i < count; ++i) {
@@ -134,7 +156,10 @@ class PathFollower {
         return Invalid();
       for (std::size_t m = 0; m < g->markerCount; ++m)
         if (!std::isfinite(g->markers[m].t) ||
-            (g->markers[m].kind == MarkerKind::Rotation && !std::isfinite(g->markers[m].heading)))
+            (g->markers[m].kind == MarkerKind::Rotation && !std::isfinite(g->markers[m].heading)) ||
+            (g->markers[m].trigger != MarkerTrigger::Progress &&
+             !(std::isfinite(g->markers[m].distance) && g->markers[m].distance >= 0 &&
+               std::isfinite(g->markers[m].x) && std::isfinite(g->markers[m].y))))
           return Invalid();
     }
     const double sx = state_.sx, sy = state_.sy;
@@ -158,7 +183,8 @@ class PathFollower {
     out.eventsBegin = state_.events;
     std::size_t events = state_.events;
     for (; events < T.markerCount; ++events)
-      if (T.markers[events].kind == MarkerKind::Event && T.markers[events].t > progress && !handoff) break;
+      if (T.markers[events].kind == MarkerKind::Event && !handoff &&
+          !MarkerPassed(T.markers[events], progress, distance, pose.x, pose.y)) break;
     out.eventsEnd = events;
     const double progressAlong = std::min(along, state_.acceptedRemaining);
     double fromHeading = state_.rotHeading;
@@ -239,6 +265,13 @@ class PathFollower {
           speed = std::min(speed, std::sqrt(caps[i] * caps[i] + 2 * c.maxAcceleration * std::max(0.0, d)));
         d += std::hypot(anchors[i]->pose.x - anchors[i - 1]->pose.x, anchors[i]->pose.y - anchors[i - 1]->pose.y);
       }
+    }
+    if (c.stopDeceleration > 0 && std::isfinite(remaining)) {
+      // Braking profile: never faster than the robot can stop from in the room left. The
+      // room is measured from where the robot will be once this command takes effect.
+      const double closing = distance > 1e-9 ? std::max(0.0, (measured.vx * dx + measured.vy * dy) / distance) : 0;
+      const double room = std::max(0.0, remaining - closing * (c.stopLag + dt));
+      speed = std::min(speed, std::sqrt(2 * c.stopDeceleration * room));
     }
     if (c.minVelocity > 0 && remaining > T.translationTolerance)
       speed = std::max(speed, std::min(c.minVelocity, c.maxVelocity));

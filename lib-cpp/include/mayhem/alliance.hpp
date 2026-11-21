@@ -38,12 +38,19 @@ inline PathMarker TransformMarker(PathMarker marker, FieldTransform t) {
   if (marker.kind == MarkerKind::Rotation) marker.heading = TransformHeading(marker.heading, t);
   return marker;
 }
+// Also moves the field point of a PointDistance event marker.
+inline PathMarker TransformMarker(PathMarker marker, FieldTransform t, double fieldLength, double fieldWidth) {
+  marker = TransformMarker(marker, t);
+  if (marker.trigger == MarkerTrigger::PointDistance) TransformPoint(marker.x, marker.y, t, fieldLength, fieldWidth);
+  return marker;
+}
 
 // Owns transformed copies of a routine's nodes and path markers and exposes them as a
 // RoutineView. Construct once at startup (allocates); call Apply() when the alliance
 // is known (e.g. autonomousInit), then Start() the runner. Apply() never allocates and
 // always re-derives from the blue source, so repeated calls do not accumulate. Fields
-// covered: goal pose x/y/heading, aimX/aimY, rotation-marker headings, start pose, preview.
+// covered: goal pose x/y/heading, aimX/aimY, rotation-marker headings, event-marker field
+// points, start pose, preview.
 // Transitions, guards, actions, event markers, tolerances and limits are unchanged.
 // Never transform measured odometry; it is already in the blue-origin field frame.
 class AllianceRoutine {
@@ -86,7 +93,7 @@ class AllianceRoutine {
       if (source.goal.markerCount) {
         node.goal.markers = markers_.data() + m;
         for (std::size_t j = 0; j < source.goal.markerCount; ++j)
-          markers_[m++] = TransformMarker(source.goal.markers[j], transform);
+          markers_[m++] = TransformMarker(source.goal.markers[j], transform, length_, width_);
       }
     }
     for (std::size_t i = 0; previewSource_ && i < preview_.size(); ++i)

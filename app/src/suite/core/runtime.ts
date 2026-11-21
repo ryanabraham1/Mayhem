@@ -41,6 +41,8 @@ import {
   type Constraints,
   type Goal,
   type AutoNode,
+  type Transition,
+  markerPassed, reachedExits,
   resolveConstraints, resolveNodeConstraints,
 } from "./model.ts";
 import { previewTick } from "./pathing/preview.ts";
@@ -153,6 +155,7 @@ export function follow(
     prior.vx, prior.vy, prior.omega, prior.settled, sx, sy, dt,
     k.maxVelocity, k.maxAcceleration, k.maxAngularVelocity, k.maxAngularAcceleration,
     k.translationKp, k.rotationKp, k.handoffRadius, k.crossTrackKp, k.minVelocity,
+    k.stopDeceleration, k.stopLag,
   ];
   for (const g of path.anchors)
     numbers.push(g.x, g.y, g.heading, g.translationTolerance, g.rotationTolerance,
@@ -162,7 +165,7 @@ export function follow(
     dt <= 0 ||
     [k.maxVelocity, k.maxAcceleration, k.maxAngularVelocity, k.maxAngularAcceleration,
       k.translationKp, k.rotationKp, k.handoffRadius, k.crossTrackKp].some((v) => v <= 0) ||
-    k.minVelocity < 0 ||
+    k.minVelocity < 0 || k.stopDeceleration < 0 || k.stopLag < 0 ||
     path.anchors.some(
       (g) =>
         g.translationTolerance <= 0 ||
@@ -175,7 +178,10 @@ export function follow(
         (g.markers ?? []).some(
           (m) =>
             !Number.isFinite(m.t) ||
-            (m.kind === "rotation" && !Number.isFinite(m.heading)),
+            (m.kind === "rotation" && !Number.isFinite(m.heading)) ||
+            (m.kind === "event" && m.distance !== undefined &&
+              !(Number.isFinite(m.distance) && m.distance >= 0 &&
+                (!m.at || (Number.isFinite(m.at.x) && Number.isFinite(m.at.y))))),
         ),
     )
   )
@@ -211,13 +217,14 @@ export function follow(
     (L <= 1e-9 ||
       distance <= radius ||
       ((T.projectedHandoff ?? false) && L > 1e-9 && progress >= Math.min(1, Math.max(0, 1 - radius / L))));
-  // Event triggers on this segment fire in list order once progress passes t.
+  // Event triggers on this segment fire in list order once progress passes t (or, for a
+  // distance marker, once the robot is that close to the goal or to its field point).
   const fired: string[] = [];
   let events = prior.events ?? 0;
   const markers = T.markers ?? [];
   for (; events < markers.length; events++) {
     const m = markers[events];
-    if (m.kind === "event" && m.t > progress && !handoff) break;
+    if (m.kind === "event" && !handoff && !markerPassed(m, progress, distance, pose)) break;
     if (m.kind === "event") fired.push(m.key);
   }
   // Rotation: from the last passed target to the next target ahead, by progress.
@@ -319,6 +326,13 @@ export function follow(
       d += Math.hypot(path.anchors[i].x - path.anchors[i - 1].x, path.anchors[i].y - path.anchors[i - 1].y);
     }
   }
+  if (k.stopDeceleration > 0 && Number.isFinite(remaining)) {
+    // Braking profile: never faster than the robot can stop from in the room left. The
+    // room is measured from where the robot will be once this command takes effect.
+    const closing = distance > 1e-9 ? Math.max(0, (measured.vx * dx + measured.vy * dy) / distance) : 0;
+    const room = Math.max(0, remaining - closing * (k.stopLag + dt));
+    speed = Math.min(speed, Math.sqrt(2 * k.stopDeceleration * room));
+  }
   if (k.minVelocity > 0 && remaining > T.translationTolerance)
     speed = Math.max(speed, Math.min(k.minVelocity, k.maxVelocity));
   let vx = distance > 1e-9 ? (speed * dx) / distance : 0,
@@ -378,10 +392,13 @@ export function control(
   return follow(pose, measured, { anchors: [goal], final: !(goal.handoffRadius > 0) }, c, prior, dt);
 }
 const MAX_LOOKAHEAD = 64;
-/** The next pose step reached only through a single unconditional transition. */
+/**
+ * The next pose step reached only through a single unconditional transition (exits checked
+ * every tick, `interrupt`, leave the step early and are not part of the chain).
+ */
 export function autoNext(routine: AutoRoutine, node: AutoNode): AutoNode | undefined {
   if (node.kind !== "pose" || node.goal?.stop) return undefined;
-  const out = routine.transitions.filter((t) => t.from === node.id);
+  const out = reachedExits(routine, node.id);
   if (out.length !== 1 || out[0].condition.kind !== "always") return undefined;
   const next = routine.nodes.find((n) => n.id === out[0].to);
   return next?.kind === "pose" && next.goal ? next : undefined;
@@ -390,17 +407,18 @@ export function autoNext(routine: AutoRoutine, node: AutoNode): AutoNode | undef
 export const isIntermediate = (routine: AutoRoutine, node: AutoNode) =>
   node.kind === "pose" && !!node.goal && !node.goal.stop &&
   (!!autoNext(routine, node) || node.goal.handoffRadius > 0);
-/** Anchors ahead of a pose step, following unconditional pose chains. */
 /**
- * Anchors ahead of a pose step. A pass-through step with conditional exits (explicit
- * handoff radius) ends the path while `exitOpen` says none of its exits is true, so the
- * robot slows to it and waits; without `exitOpen` the route is open past it.
+ * Anchors ahead of a pose step, following unconditional pose chains. A pass-through step with
+ * conditional exits (explicit handoff radius) ends the path while `openExit` finds none of its
+ * exits true, so the robot slows to it and waits; while one is, the path continues to that
+ * exit's step (its pose and speed cap are looked ahead to). Without `openExit` the route is
+ * open past it.
  */
 export function pathAhead(
   routine: AutoRoutine,
   node: AutoNode,
   project?: SuiteProject,
-  exitOpen?: (node: AutoNode) => boolean,
+  openExit?: (node: AutoNode) => Transition | undefined,
 ): PathAhead {
   const anchors: Goal[] = [node.goal!];
   const nodes = [node];
@@ -412,8 +430,15 @@ export function pathAhead(
     ...(project ? { caps: nodes.map((n) => resolveNodeConstraints(project, routine, n).maxVelocity) } : {}),
   });
   while (anchors.length < MAX_LOOKAHEAD && isIntermediate(routine, current)) {
-    const next = autoNext(routine, current);
-    if (!next) return result(exitOpen ? !exitOpen(current) : false);
+    let next = autoNext(routine, current);
+    if (!next) {
+      if (!openExit) return result(false);
+      const exit = openExit(current);
+      if (!exit) return result(true);
+      const to = routine.nodes.find((n) => n.id === exit.to);
+      if (to?.kind !== "pose" || !to.goal) return result(false);
+      next = to;
+    }
     if (seen.has(next.id)) return result(false);
     seen.add(next.id);
     anchors.push(next.goal!);
@@ -564,6 +589,20 @@ export function step(
     }
     node = preview.active;
   }
+  // Event triggers passed this tick. A `hold` marker's action runs until it is done.
+  const noteEvents = (keys: string[]): boolean => {
+    for (const key of keys) {
+      const held = node!.goal?.markers?.some((m) => m.kind === "event" && m.key === key && m.hold);
+      event("event", `Event trigger ${key}${held ? " (held until done)" : ""}`);
+      if (held && options.mode !== "path" && options.actions?.[key] === "failed") {
+        next.status = "failed";
+        next.velocity = { vx: 0, vy: 0, omega: 0 };
+        event("failure", `${node!.name}: action ${key} failed`);
+        return false;
+      }
+    }
+    return true;
+  };
   if (options.mode !== "path") {
     next.actions = { ...next.actions };
     const callbacks = [
@@ -592,13 +631,13 @@ export function step(
     next.velocity = preview.velocity;
     next.controller = preview.state;
     next.reached = preview.reached;
-    for (const key of preview.fired) event("event", `Event trigger ${key}`);
+    if (!noteEvents(preview.fired)) return next;
   } else if (node.kind === "pose" && node.goal) {
     const result = follow(
       frame.pose,
       frame.velocity,
       pathAhead(routine, node, project, (n) =>
-        routine.transitions.some(
+        routine.transitions.find(
           (t) => t.from === n.id && (options.mode === "path" || evaluate(t.condition, signals)),
         ),
       ),
@@ -612,7 +651,7 @@ export function step(
       event("failure", "Invalid controller configuration or measurement");
       return next;
     }
-    for (const key of result.fired) event("event", `Event trigger ${key}`);
+    if (!noteEvents(result.fired)) return next;
     next.controller = { ...result.state, native: true };
     next.reached = result.reached;
     handedOff = result.handoff;
@@ -628,11 +667,16 @@ export function step(
       (!!node.action && next.actions[node.action] === "succeeded");
     next.velocity = { vx: 0, vy: 0, omega: 0 };
   }
-  if (next.reached) {
+  // Exits in list order: `interrupt` exits every tick (never in path-only playback, which
+  // drives each step to its end), the rest once the step is done.
+  {
+    const reached = next.reached;
     const transition = routine.transitions.find(
       (t) =>
         t.from === node.id &&
-        (options.mode === "path" || evaluate(t.condition, signals)),
+        (reached
+          ? options.mode === "path" || evaluate(t.condition, signals)
+          : !!t.interrupt && options.mode !== "path" && evaluate(t.condition, signals)),
     );
     if (transition) {
       event(
@@ -654,10 +698,11 @@ export function step(
       // A handoff continues the same path: the next segment starts at the
       // anchor just passed. Anything else starts a new path from the live pose.
       const target = routine.nodes.find((n) => n.id === transition.to);
+      // A step left early while moving continues on the native follower from its velocity.
       next.controller =
         handedOff && target?.kind === "pose"
           ? next.controller
-          : freshState(next.pose, next.velocity);
+          : { ...freshState(next.pose, next.velocity), ...(!reached && target?.kind === "pose" ? { native: true } : {}) };
     }
   }
   return next;

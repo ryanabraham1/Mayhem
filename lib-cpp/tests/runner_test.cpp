@@ -1,4 +1,5 @@
 #include "../../examples/suite/competition.hpp"
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <iostream>
@@ -302,6 +303,153 @@ int main() {
       const Run late=run(lead,.8);
       assert(late.completed&&late.stateAtArmUp=="approach"&&late.waitSpeed>.3);
       assert(late.speedAtHandoff>.3&&late.maxX<=3.03);
+    }
+  }
+  // Braking profile (Constraints::stopDeceleration, AutoRunner::SetStopDeceleration): a robot
+  // that brakes at only 2 m/s^2 overshoots the P law's stop point and crawls back; with the
+  // profile it arrives on the point, sooner.
+  {
+    struct Arrival {double overshoot=0, time=-1; bool completed=false;};
+    // The drivetrain follows the command at no more than `brake` m/s^2 (an anti-tip limit).
+    auto run=[](double stopDeceleration,bool live,double brake) {
+      mayhem::Constraints c; c.stopDeceleration=stopDeceleration;
+      mayhem::Goal stop{{3,0,0}}; stop.settleTime=.1;  // arrived means stopped on the point
+      const mayhem::AutoNode nodes[]={{"go",mayhem::NodeKind::Pose,stop,15,"",c},{"done",mayhem::NodeKind::Finish,{},1,"",{}}};
+      const mayhem::AutoTransition arrive[]={{"t","go","done",[](const mayhem::RobotHooks&){return true;}}};
+      mayhem::AutoRunner r({"brake","go",nodes,2,arrive,1});
+      int asked=0;
+      if(live) r.SetStopDeceleration([&](const mayhem::StopQuery& q){
+        asked++; assert(q.node&&q.node->id=="go"&&q.end.x==3&&std::abs(q.remaining-(3-q.pose.x))<1e-9);
+        return .9*brake;});
+      assert(r.Start());
+      mayhem::Pose pose; mayhem::Velocity v; Arrival out;
+      for(int i=0;i<1500&&r.Status()==mayhem::RunStatus::Running;i++) {
+        const auto command=r.Tick(pose,v,.02);
+        v.vx+=std::clamp(command.vx-v.vx,-brake*.02,brake*.02);
+        pose.x+=v.vx*.02; out.overshoot=std::max(out.overshoot,pose.x-3); out.time=(i+1)*.02;
+      }
+      out.completed=r.Status()==mayhem::RunStatus::Completed;
+      assert(!live||asked>0);
+      return out;
+    };
+    const Arrival plain=run(0,false,2), profiled=run(1.8,false,2), supplied=run(0,true,2), lower=run(6,true,2);
+    assert(plain.overshoot>.05);
+    for(const Arrival& a:{profiled,supplied,lower}) assert(a.completed&&a.overshoot<.005&&a.time<plain.time-.3);
+    // A robot that can brake as hard as the P law asks is not slowed by a matching profile.
+    const Arrival strong=run(0,false,12), strongProfiled=run(12,false,12);
+    assert(strong.completed&&strongProfiled.completed&&strong.overshoot<.005&&strongProfiled.overshoot<.005&&strongProfiled.time<strong.time+.2);
+  }
+  // Exits checked every tick (AutoTransition::interrupt): driveToPoint raced with a condition.
+  // The step is left while still driving, the next path starts from the live velocity, and the
+  // plain exit is still taken on arrival when the condition never comes true.
+  {
+    struct Run {std::string after; double speedAtExit=-1, xAtExit=-1; bool completed=false; int ends=0;};
+    auto run=[](double seenAt) {
+      bool seen=false; int ends=0;
+      const std::string_view during[]={"intake"};
+      const mayhem::AutoNode nodes[]={
+        {"pickup",mayhem::NodeKind::Pose,{{5,0,0}},15,"",{},during,1},
+        {"score",mayhem::NodeKind::Pose,{{2,1,0}},15,"",{}},
+        {"missed",mayhem::NodeKind::Pose,{{5,1,0}},15,"",{}},
+        {"done",mayhem::NodeKind::Finish,{},1,"",{}}};
+      const mayhem::AutoTransition edges[]={
+        {"got","pickup","score",[](const mayhem::RobotHooks& h){return mayhem::Compare(h.Signal("seen"),mayhem::CompareOp::Eq,true).value_or(false);},true},
+        {"none","pickup","missed",[](const mayhem::RobotHooks&){return true;}},
+        {"a","score","done",[](const mayhem::RobotHooks&){return true;}},
+        {"b","missed","done",[](const mayhem::RobotHooks&){return true;}}};
+      mayhem::AutoRunner r({"race","pickup",nodes,4,edges,4});
+      r.BindSignal("seen",[&]{return mayhem::SignalValue{seen};});
+      r.Bind("intake",{{},[]{return mayhem::ActionStatus::Running;},[&](bool){ends++;}});
+      assert(r.Start());
+      mayhem::Pose pose; mayhem::Velocity v; Run out;
+      for(int i=0;i<2000&&r.Status()==mayhem::RunStatus::Running;i++) {
+        if(seenAt>=0&&i*.02>=seenAt) seen=true;
+        const bool before=r.ActiveState()=="pickup";
+        v=r.Tick(pose,v,.02);
+        if(before&&r.ActiveState()!="pickup") {out.after=std::string(r.ActiveState());out.speedAtExit=std::hypot(v.vx,v.vy);out.xAtExit=pose.x;}
+        pose.x+=v.vx*.02;pose.y+=v.vy*.02;
+      }
+      out.completed=r.Status()==mayhem::RunStatus::Completed; out.ends=ends;
+      return out;
+    };
+    const Run early=run(.8);
+    assert(early.completed&&early.after=="score"&&early.xAtExit<4&&early.speedAtExit>2&&early.ends==1);
+    const Run never=run(-1);
+    assert(never.completed&&never.after=="missed"&&never.xAtExit>4.95&&never.ends==1);
+    // True from the start: left on the first tick.
+    const Run atOnce=run(0);
+    assert(atOnce.completed&&atOnce.after=="score"&&atOnce.xAtExit==0);
+    // An action step is left the same way, before its action is done.
+    bool stop=false; int ended=0;
+    const mayhem::AutoNode wait[]={{"wait",mayhem::NodeKind::Action,{},5,"hold",{}},{"done",mayhem::NodeKind::Finish,{},1,"",{}}};
+    const mayhem::AutoTransition leave[]={{"x","wait","done",[](const mayhem::RobotHooks& h){return mayhem::Compare(h.Signal("stop"),mayhem::CompareOp::Eq,true).value_or(false);},true}};
+    mayhem::AutoRunner w({"w","wait",wait,2,leave,1});
+    w.BindSignal("stop",[&]{return mayhem::SignalValue{stop};}).Bind("hold",{{},[]{return mayhem::ActionStatus::Running;},[&](bool){ended++;}});
+    assert(w.Start()); for(int i=0;i<10;i++) w.Tick({},{},.02);
+    assert(w.Status()==mayhem::RunStatus::Running);
+    stop=true; w.Tick({},{},.02);
+    assert(w.Status()==mayhem::RunStatus::Completed&&ended==1);
+  }
+  // Look-ahead through a conditional pass-through whose exit is open: the step after it is the
+  // first true exit, so with anticipateSpeedCaps the robot is at that step's cap when it
+  // crosses the gate (it used to cross at full speed and brake afterwards).
+  {
+    bool left=false;
+    mayhem::Constraints fast; fast.anticipateSpeedCaps=true;
+    mayhem::Constraints slow=fast; slow.maxVelocity=1;
+    mayhem::Goal gate{{3,0,0}}; gate.handoffRadius=.4;
+    const mayhem::AutoNode nodes[]={
+      {"gate",mayhem::NodeKind::Pose,gate,15,"",fast,nullptr,0,-1,true},
+      {"left",mayhem::NodeKind::Pose,{{5,1,0}},15,"",fast},
+      {"slow",mayhem::NodeKind::Pose,{{5,0,0}},15,"",slow},
+      {"done",mayhem::NodeKind::Finish,{},1,"",{}}};
+    const mayhem::AutoTransition edges[]={
+      {"l","gate","left",[](const mayhem::RobotHooks& h){return mayhem::Compare(h.Signal("left"),mayhem::CompareOp::Eq,true).value_or(false);}},
+      {"s","gate","slow",[](const mayhem::RobotHooks&){return true;}},
+      {"a","left","done",[](const mayhem::RobotHooks&){return true;}},
+      {"b","slow","done",[](const mayhem::RobotHooks&){return true;}}};
+    for(bool goLeft:{false,true}) {
+      left=goLeft;
+      mayhem::AutoRunner r({"gate","gate",nodes,4,edges,4});
+      r.BindSignal("left",[&]{return mayhem::SignalValue{left};});
+      assert(r.Start());
+      mayhem::Pose pose; mayhem::Velocity v; double crossing=-1, top=0;
+      for(int i=0;i<1500&&r.Status()==mayhem::RunStatus::Running;i++) {
+        const bool before=r.ActiveState()=="gate";
+        v=r.Tick(pose,v,.02);
+        if(before&&r.ActiveState()!="gate") crossing=std::hypot(v.vx,v.vy);
+        if(before) top=std::max(top,std::hypot(v.vx,v.vy));
+        pose.x+=v.vx*.02;pose.y+=v.vy*.02;
+      }
+      assert(r.Status()==mayhem::RunStatus::Completed&&top>2.5);
+      // The capped step: crossed at its cap. The uncapped one: crossed at speed.
+      if(goLeft) assert(crossing>2.5); else assert(crossing<=1.0+1e-6);
+    }
+  }
+  // Event markers by distance (to the step's goal, or to a field point), and `hold` markers:
+  // the action is begun at the marker and ticked until it succeeds.
+  {
+    const mayhem::PathMarker events[]={
+      {mayhem::MarkerKind::Event,1,0,"near.point",true,mayhem::MarkerTrigger::PointDistance,.5,1,.3},
+      {mayhem::MarkerKind::Event,1,0,"arm.up",true,mayhem::MarkerTrigger::GoalDistance,1.2,0,0,true}};
+    mayhem::Goal g{{4,0,0}}; g.markers=events; g.markerCount=2;
+    const mayhem::AutoNode nodes[]={{"go",mayhem::NodeKind::Pose,g,10,"",{}},{"done",mayhem::NodeKind::Finish,{},1,"",{}}};
+    const mayhem::AutoTransition arrive[]={{"t","go","done",[](const mayhem::RobotHooks&){return true;}}};
+    for(int refusals:{6,100000}) {
+      mayhem::AutoRunner r({"e","go",nodes,2,arrive,1});
+      mayhem::Pose at; double pointAt=-1, armAt=-1; int begins=0, ticks=0, done=0, cancelled=0;
+      r.Bind("near.point",mayhem::Instant([&]{assert(pointAt<0); pointAt=at.x;}));
+      r.Bind("arm.up",{[&]{begins++; armAt=at.x;},
+                        [&]{return ++ticks>refusals?mayhem::ActionStatus::Succeeded:mayhem::ActionStatus::Running;},
+                        [&](bool c){(c?cancelled:done)++;}});
+      assert(r.Unbound().empty()&&r.Start());
+      mayhem::Velocity v;
+      for(int i=0;i<1000&&r.Status()==mayhem::RunStatus::Running;i++){v=r.Tick(at,v,.02);at.x+=v.vx*.02;at.y+=v.vy*.02;}
+      assert(r.Status()==mayhem::RunStatus::Completed);
+      // Fired on the first tick within 0.5 m of (1, 0.3), and within 1.2 m of the goal.
+      assert(pointAt>.5&&pointAt<=.6+.09&&armAt>2.7&&armAt<=2.8+.09&&begins==1);
+      if(refusals==6) assert(ticks==7&&done==1&&cancelled==0);   // ticked until it succeeded
+      else assert(ticks>20&&done==0&&cancelled==1);              // still running when the step exits
     }
   }
   std::cout<<"Auto runner checks passed\n";

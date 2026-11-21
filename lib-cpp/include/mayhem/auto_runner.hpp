@@ -22,7 +22,8 @@ class RobotHooks : public SignalSource {
   virtual void StateEntered(std::string_view) {}
   virtual void GuardEvaluated(std::string_view, bool) {}
   virtual void Transitioned(std::string_view, std::string_view, std::string_view) {}
-  // A path event trigger was passed (fires once per path run, in marker order).
+  // A path event trigger was passed (fires once per path run, in marker order). A marker with
+  // `hold` calls BeginAction / TickAction / EndAction with its key instead.
   virtual void PathEvent(std::string_view) {}
 };
 enum class NodeKind { Pose, Action, Custom, Finish };
@@ -41,7 +42,13 @@ struct AutoNode {
   int next = -1; bool intermediate = false;
   TimeoutOutcome onTimeout = TimeoutOutcome::Fail;
 };
-struct AutoTransition { std::string_view id, from, to; bool (*guard)(const RobotHooks&); };
+// `interrupt`: checked every tick while its step runs, so the step is left as soon as the guard
+// is true (a pose step before its pose is reached, an action step before its action is done):
+// driveToPoint.raceWith(condition). Other transitions are checked once the step is done.
+struct AutoTransition {
+  std::string_view id, from, to; bool (*guard)(const RobotHooks&);
+  bool interrupt = false;
+};
 struct RoutineView {
   std::string_view id, initial; const AutoNode* nodes; std::size_t nodeCount;
   const AutoTransition* transitions; std::size_t transitionCount;
@@ -56,7 +63,8 @@ struct RoutineInfo {
 };
 // A robot action bound by ID (AutoRunner::Bind): `begin` when its step is entered (or when a
 // path event with this key fires), `tick` every loop until it returns Succeeded or Failed
-// (empty: Succeeded at once), `end(cancelled)` once when the step exits.
+// (empty: Succeeded at once), `end(cancelled)` once when the step exits. A path event runs
+// only `begin`, unless its marker has `hold`: then it is ticked until it succeeds, and ended.
 struct Action {
   std::function<void()> begin;
   std::function<ActionStatus()> tick;
@@ -74,6 +82,12 @@ const RoutineInfo* FindRoutine(const Routines& routines, std::string_view nameOr
   return nullptr;
 }
 enum class RunStatus { Idle, Running, Completed, Failed, Cancelled };
+// What AutoRunner::SetStopDeceleration's function is asked each tick of a pose step whose path
+// ends ahead: the robot, the active step, and where the path ends (`end`, `remaining` m away
+// along the path).
+struct StopQuery {
+  Pose pose; Velocity measured; const AutoNode* node = nullptr; Pose end; double remaining = 0;
+};
 enum class DtOverrun { Clamp, Fail };
 struct RunnerOptions {
   // Longest dt the follower integrates in one tick. A longer loop (first enabled
@@ -107,6 +121,14 @@ class AutoRunner {
     for(auto& b:signals_) if(b.key==key) {b.value=std::move(value);return *this;}
     signals_.push_back({std::string{key},std::move(value)});
     return *this;
+  }
+  // The deceleration the robot can brake at right now, in m/s^2 (e.g. an anti-tip limit that
+  // depends on the arm's pose), asked every tick of a pose step whose path ends ahead. A
+  // finite positive value turns on the braking profile for that tick (Constraints::
+  // stopDeceleration; the lower of the two when the step sets one). Anything else leaves
+  // the step's own setting. Allocates; call at startup.
+  AutoRunner& SetStopDeceleration(std::function<double(const StopQuery&)> limit) {
+    stopDeceleration_=std::move(limit); return *this;
   }
   // Every action, during action, path event and guard signal the routine uses that has no
   // binding, each ID once (with the first node using it). Call at startup and fail loudly when
@@ -244,6 +266,9 @@ class AutoRunner {
     std::size_t maximum=0;
     for(std::size_t i=0;i<routine_.nodeCount;i++) maximum=std::max(maximum,routine_.nodes[i].duringCount);
     duringSucceeded_.reserve(maximum);
+    std::size_t markers=0;
+    for(std::size_t i=0;i<routine_.nodeCount;i++) markers=std::max(markers,routine_.nodes[i].goal.markerCount);
+    held_.reserve(markers);
     follower_.SetMaxDt(options_.maxDt);
   }
   const Action* FindAction(std::string_view id) const {for(const auto& b:actions_) if(b.id==id) return &b.action;return nullptr;}
@@ -264,11 +289,20 @@ class AutoRunner {
       if(result==ActionStatus::Failed) return Fail();
       duringSucceeded_[i]=result==ActionStatus::Succeeded;
     }
+    // Held path events (marker `hold`): ticked until they succeed.
+    for(std::size_t i=0;i<held_.size();) {
+      const auto result=dispatch_.TickAction(held_[i]);
+      if(result==ActionStatus::Failed) return Fail();
+      if(result==ActionStatus::Succeeded) {dispatch_.EndAction(held_[i],false);held_.erase(held_.begin()+static_cast<std::ptrdiff_t>(i));}
+      else i++;
+    }
     Velocity command; bool ready=false;
     bool handedOff=false;
     if(current_->kind==NodeKind::Pose) {
       std::array<const Goal*,kMaxLookahead> anchors{}; std::array<double,kMaxLookahead> caps{}; std::size_t count=0;
       const AutoNode* walk=current_; bool final=true;
+      // A step already ahead (a loop): the route is open past the anchors collected.
+      const auto ahead=[&](const AutoNode* node){for(std::size_t i=0;i<count;i++) if(anchors[i]==&node->goal) return true;return false;};
       while(walk && count<anchors.size()) {
         caps[count]=walk->constraints.maxVelocity;
         anchors[count++]=&walk->goal;
@@ -277,27 +311,51 @@ class AutoRunner {
           // A pass-through step with conditional exits (an explicit handoff radius): the path
           // continues through it only while one of its exits is true. Otherwise it ends here,
           // so the robot slows to this step's pose and waits like a stop step; once an exit
-          // turns true it hands off again without a restart.
-          final=!ExitOpen(*walk);
-          break;
+          // turns true it hands off again without a restart. While an exit is open the step
+          // after it is known (the first true exit), so its pose and speed cap are looked
+          // ahead to like any other step's.
+          const AutoTransition* open=OpenExit(*walk);
+          if(!open) {final=true;break;}
+          final=false;
+          const AutoNode* to=Find(open->to);
+          if(!to || to->kind!=NodeKind::Pose || ahead(to)) break;
+          walk=to;
+          continue;
         }
         final=false;
         walk=&routine_.nodes[walk->next];
-        if(walk==current_) break;
+        if(ahead(walk)) break;
       }
-      const auto result=follower_.Calculate(pose,measured,anchors.data(),count,final,current_->constraints,dt,caps.data());
+      Constraints limits=current_->constraints;
+      if(final && stopDeceleration_ && count>0) {
+        double remaining=std::hypot(anchors[0]->pose.x-pose.x,anchors[0]->pose.y-pose.y);
+        for(std::size_t i=1;i<count;i++) remaining+=std::hypot(anchors[i]->pose.x-anchors[i-1]->pose.x,anchors[i]->pose.y-anchors[i-1]->pose.y);
+        const double live=stopDeceleration_(StopQuery{pose,measured,current_,anchors[count-1]->pose,remaining});
+        if(std::isfinite(live) && live>0) limits.stopDeceleration=limits.stopDeceleration>0?std::min(limits.stopDeceleration,live):live;
+      }
+      const auto result=follower_.Calculate(pose,measured,anchors.data(),count,final,limits,dt,caps.data());
       if(!result.valid) return Fail();
       last_=result; command=result.command;ready=result.reached;handedOff=result.handoff;
       if(observer_) observer_->GoalProgress(current_->id,result.translationError,result.rotationError,result.reached,Now());
       for(std::size_t i=result.eventsBegin;i<result.eventsEnd && i<current_->goal.markerCount;i++)
-        if(current_->goal.markers[i].kind==MarkerKind::Event) dispatch_.PathEvent(current_->goal.markers[i].key);
+        if(current_->goal.markers[i].kind==MarkerKind::Event) {
+          const auto& marker=current_->goal.markers[i];
+          if(!marker.hold) {dispatch_.PathEvent(marker.key);continue;}
+          // Begun and ticked now, then every loop until it succeeds (or the step exits).
+          dispatch_.BeginAction(marker.key);
+          const auto status=dispatch_.TickAction(marker.key);
+          if(status==ActionStatus::Failed) {held_.push_back(marker.key);return Fail();}
+          if(status==ActionStatus::Succeeded) dispatch_.EndAction(marker.key,false);
+          else held_.push_back(marker.key);
+        }
     } else {
       const auto result=actionSucceeded_||timedOut ? ActionStatus::Succeeded : dispatch_.TickAction(current_->action);
       if(result==ActionStatus::Failed) return Fail(); actionSucceeded_=result==ActionStatus::Succeeded; ready=actionSucceeded_;
     }
-    if(!ready) return command;
+    // Exits in list order: `interrupt` exits every tick, the rest once the step is done.
     for(std::size_t i=0;i<routine_.transitionCount;i++) {
       const auto& transition=routine_.transitions[i]; if(transition.from!=current_->id) continue;
+      if(!ready && !transition.interrupt) continue;
       const bool accepted=transition.guard && transition.guard(GuardHooks()); dispatch_.GuardEvaluated(transition.id,accepted);
       if(observer_) observer_->Guard(machine_,Qualified(i),kGuardInput,accepted,Now());
       if(!accepted) continue;
@@ -311,14 +369,15 @@ class AutoRunner {
     }
     return command;
   }
-  // Whether any transition out of `node` is true now. A lookahead probe: it reports nothing to
+  // A lookahead probe: it reports nothing to
   // the hooks or the observer (the transition itself is evaluated and reported as usual).
-  bool ExitOpen(const AutoNode& node) const {
+  // The first true transition out of `node` (the one that would be taken), or nullptr.
+  const AutoTransition* OpenExit(const AutoNode& node) const {
     for(std::size_t i=0;i<routine_.transitionCount;i++) {
       const auto& transition=routine_.transitions[i];
-      if(transition.from==node.id && transition.guard && transition.guard(GuardHooks())) return true;
+      if(transition.from==node.id && transition.guard && transition.guard(GuardHooks())) return &transition;
     }
-    return false;
+    return nullptr;
   }
   const AutoNode* Find(std::string_view id) const {for(std::size_t i=0;i<routine_.nodeCount;i++) if(routine_.nodes[i].id==id) return &routine_.nodes[i];return nullptr;}
   std::string_view Qualified(std::size_t i) const {return i<qualified_.size()?std::string_view{qualified_[i]}:routine_.transitions[i].id;}
@@ -336,12 +395,17 @@ class AutoRunner {
     if(!current_) return;
     if(current_->kind==NodeKind::Action||current_->kind==NodeKind::Custom) dispatch_.EndAction(current_->action,cancelled);
     for(std::size_t i=0;i<current_->duringCount;i++) dispatch_.EndAction(current_->during[i],cancelled);
+    // A held path event still running when its step exits did not finish.
+    for(const auto key:held_) dispatch_.EndAction(key,true);
+    held_.clear();
   }
   Velocity Fail() {Leave(true);status_=RunStatus::Failed;lastCommand_={};return {};}
   static constexpr std::size_t kMaxLookahead=64;
   RoutineView routine_;Dispatch dispatch_;RunnerOptions options_;
   std::vector<ActionBinding> actions_;std::vector<SignalBinding> signals_;double lastTick_=0;PathFollower follower_;const AutoNode* current_=nullptr;
   std::vector<bool> duringSucceeded_;
+  std::vector<std::string_view> held_;
+  std::function<double(const StopQuery&)> stopDeceleration_;
   bool actionSucceeded_=false;
   double elapsed_=0;RunStatus status_=RunStatus::Idle;
   ControlResult last_;Velocity lastCommand_;std::size_t overruns_=0;

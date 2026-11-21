@@ -1,4 +1,5 @@
 import {
+  reachedExits,
   resolveConstraints,
   resolveNodeConstraints,
   type AutoNode,
@@ -167,7 +168,7 @@ export function previewTick(
     const seen = new Set([node.id]);
     let current = node;
     while (!current.goal?.stop && nodes.length < 64) {
-      const exits = routine.transitions.filter((t) => t.from === current.id);
+      const exits = reachedExits(routine, current.id);
       if (exits.length !== 1 || exits[0].condition.kind !== "always") break;
       const next = routine.nodes.find((n) => n.id === exits[0].to);
       if (next?.kind !== "pose" || !next.goal || seen.has(next.id)) break;
@@ -177,7 +178,7 @@ export function previewTick(
     }
     // Live aiming and explicit open-ended handoffs are Mayhem extensions, not
     // editor paths. They continue to use the measured-pose controller.
-    const finalExits = routine.transitions.filter((t) => t.from === current.id);
+    const finalExits = reachedExits(routine, current.id);
     const openEnded =
       !current.goal?.stop &&
       current.goal!.handoffRadius > 0 &&
@@ -188,8 +189,11 @@ export function previewTick(
           !n.goal ||
           (n.goal.headingMode &&
             !["fixed", "free"].includes(n.goal.headingMode)) ||
-          // Cap anticipation is a Mayhem follower feature; preview it natively.
-          resolveNodeConstraints(project, routine, n).anticipateSpeedCaps,
+          // Cap anticipation, the braking profile and distance markers are Mayhem follower
+          // features; preview them natively.
+          resolveNodeConstraints(project, routine, n).anticipateSpeedCaps ||
+          resolveNodeConstraints(project, routine, n).stopDeceleration > 0 ||
+          n.goal.markers?.some((m) => m.kind === "event" && m.distance !== undefined),
       ) ||
       openEnded
     )
