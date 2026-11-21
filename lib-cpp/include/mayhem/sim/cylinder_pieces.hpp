@@ -45,6 +45,15 @@
 // Logging: Poses() returns every piece's pose (held ones at their SetHeldPose) for Sim/Coral as a
 // Pose3d[] (wpilib_sim.hpp: ToPoses), which AdvantageScope and the Mayhem 3D replay draw.
 //
+// Spheres (2025 algae): SpawnBall adds a rigid ball (SphereParams: radius, mass, thin-shell
+// inertia, its own friction/restitution per surface, rolling resistance) to the same solver, so
+// balls and cylinders push each other (exact sphere-cylinder distance: an algae rests on a
+// standing coral's top), rest on and bounce off capsule colliders (reef pipes), and meet the
+// floor, walls, prisms, bumpers and mechanism colliders (exact closest point on the prism, so no
+// early stop at edges) with the same force limits and contact reports. Ball indices share the
+// piece index space; the coral-specific calls (Count, HeldCount, Poses, Near) skip balls, and
+// BallPositions, BallPoses and NearBalls are their ball counterparts.
+//
 // Call order per 1 ms: robots Step, then CylinderPieces::Step (its forces reach the robots' next
 // Step). Deterministic: no randomness, fixed iteration order.
 #include "mayhem/sim/field.hpp"
@@ -58,6 +67,23 @@
 #include <vector>
 
 namespace mayhem::sim {
+
+/**
+ * Ball pieces in a CylinderPieces world (2025 REEFSCAPE algae: a 16.25 in, 1.4 lb playground
+ * ball). Friction and restitution apply to that surface type; mechanism colliders use their own.
+ */
+struct SphereParams {
+  double radius = 0.20638, mass = 0.635;
+  double inertiaFactor = 2.0 / 3.0;   // I = inertiaFactor m r^2 (2/3 thin shell, 2/5 solid)
+  double floorFriction = 0.8, floorRestitution = 0.55;
+  // Rolling resistance: torque against the ball's rotation of rollingResistance * N * radius
+  // (N: normal force from below). A soft ball flattens where it is pressed, so raise it for a
+  // squashed ball; 0.04 matches a playground ball rolling on carpet.
+  double rollingResistance = 0.04;
+  double obstacleFriction = 0.6, obstacleRestitution = 0.5;
+  double robotFriction = 0.6, robotRestitution = 0.4;
+  double pieceFriction = 0.5, pieceRestitution = 0.4;  // ball-ball and ball-cylinder
+};
 
 struct CylinderParams {
   // Shape (2025 REEFSCAPE coral: 4.5 in OD PVC, 11.875 in long, 1.5 lb).
@@ -82,7 +108,10 @@ struct CylinderParams {
   double penetrationSlop = 0.0005, correction = 0.2, maxPushSpeed = 3.0;
   double standingAngle = 0.35;       // rad from vertical still counted as Standing
   double sleepSpeed = 0.01, sleepAngularSpeed = 0.05, sleepTime = 0.3;
+  SphereParams sphere;               // balls added with SpawnBall
 };
+
+enum class PieceShape { Cylinder, Sphere };
 
 enum class CylinderState { Standing, Lying, Flying, Held, Removed };
 
@@ -109,6 +138,7 @@ struct Cylinder {
   bool asleep = false;
   double stillTime = 0;
   int stepsSinceContact = 1000;
+  PieceShape shape = PieceShape::Cylinder;  // Sphere: a ball (SpawnBall); never Standing
   Vec3 Axis() const { const auto r = vec::ToMatrix(orientation); return {r[0], r[3], r[6]}; }
   CylinderPose Pose() const { return {position, orientation}; }
 };
@@ -204,6 +234,9 @@ class CylinderPieces {
     invMass_ = 1 / p_.mass;
     invIa_ = 1 / (p_.mass * rr / 2);
     invIt_ = 1 / (p_.mass * (3 * rr + p_.length * p_.length) / 12);
+    rs_ = p_.sphere.radius;
+    invMassS_ = 1 / p_.sphere.mass;
+    invIs_ = 1 / (p_.sphere.inertiaFactor * p_.sphere.mass * rs_ * rs_);
   }
   const CylinderParams& Params() const { return p_; }
 
@@ -226,7 +259,7 @@ class CylinderPieces {
   /** Move a piece (any state but Removed) to a pose, at rest, back under physics. */
   void Place(int i, const CylinderPose& pose) {
     Cylinder& c = At(i);
-    const Cylinder fresh = Spawned(pose, {0, 0, 0}, {0, 0, 0});
+    const Cylinder fresh = Spawned(pose, {0, 0, 0}, {0, 0, 0}, c.shape);
     c = fresh;
   }
   /** Robot code takes the piece: no physics, no contacts until Release. */
@@ -246,7 +279,7 @@ class CylinderPieces {
   /** Let go of a piece (held or not) at a pose and velocity; it flies until it touches. */
   void Release(int i, const CylinderPose& pose, Vec3 velocity = {0, 0, 0}, Vec3 angularVelocity = {0, 0, 0}) {
     Cylinder& c = At(i);
-    c = Spawned(pose, velocity, angularVelocity);
+    c = Spawned(pose, velocity, angularVelocity, c.shape);
     c.state = CylinderState::Flying;
     c.stepsSinceContact = 1000;
   }
@@ -257,35 +290,105 @@ class CylinderPieces {
     if (!Simulated(c)) return;
     c.asleep = false;
     c.stillTime = 0;
-    c.velocity = vec::Add(c.velocity, vec::Scale(impulse, invMass_));
+    const std::size_t ui = static_cast<std::size_t>(i);
+    c.velocity = vec::Add(c.velocity, vec::Scale(impulse, InvMass(ui)));
     const Vec3 r = vec::Sub(point, c.position);
-    c.angularVelocity = vec::Add(c.angularVelocity, InvInertia(c.Axis(), vec::Cross(r, impulse)));
+    c.angularVelocity = vec::Add(c.angularVelocity, InvInertiaOf(ui, c.Axis(), vec::Cross(r, impulse)));
   }
   void Wake(int i) { At(i).asleep = false; At(i).stillTime = 0; }
+
+  // --- Balls ------------------------------------------------------------------------------
+  /** New ball (centre, velocity, spin); Hold, SetHeldPose, Release, Remove, ApplyImpulse, Get work as for coral. */
+  int SpawnBall(Vec3 position, Vec3 velocity = {0, 0, 0}, Vec3 angularVelocity = {0, 0, 0}) {
+    const int i = Slot();
+    pieces_[static_cast<std::size_t>(i)] = Spawned({position, {}}, velocity, angularVelocity, PieceShape::Sphere);
+    return i;
+  }
+  /** A ball resting on the carpet at (x, y). */
+  int SpawnBallOnFloor(double x, double y) { return SpawnBall({x, y, rs_}); }
+  /** Release a ball at a centre and velocity (no orientation needed). */
+  void ReleaseBall(int i, Vec3 position, Vec3 velocity = {0, 0, 0}, Vec3 angularVelocity = {0, 0, 0}) {
+    Release(i, {position, At(i).orientation}, velocity, angularVelocity);
+  }
+  bool IsBall(int i) const { return pieces_.at(static_cast<std::size_t>(i)).shape == PieceShape::Sphere; }
+  std::size_t BallCount(CylinderState s) const {
+    std::size_t n = 0;
+    for (const auto& c : pieces_) n += c.shape == PieceShape::Sphere && c.state == s;
+    return n;
+  }
+  int HeldBallCount(int owner) const {
+    int n = 0;
+    for (const auto& c : pieces_) n += c.shape == PieceShape::Sphere && c.state == CylinderState::Held && c.owner == owner;
+    return n;
+  }
+  /** Centres of all balls not Removed (held ones where SetHeldPose put them), for Sim/Algae. */
+  std::vector<Vec3> BallPositions(bool includeHeld = true) const {
+    std::vector<Vec3> out;
+    for (const auto& c : pieces_)
+      if (c.shape == PieceShape::Sphere && c.state != CylinderState::Removed && (includeHeld || c.state != CylinderState::Held))
+        out.push_back(c.position);
+    return out;
+  }
+  /** Ball poses with their rotation (a spinning ball's logo turns in AdvantageScope). */
+  std::vector<CylinderPose> BallPoses(bool includeHeld = true) const {
+    std::vector<CylinderPose> out;
+    for (const auto& c : pieces_)
+      if (c.shape == PieceShape::Sphere && c.state != CylinderState::Removed && (includeHeld || c.state != CylinderState::Held))
+        out.push_back(c.Pose());
+    return out;
+  }
+  /** Balls (not Held or Removed) whose surface is within d of segment a-b, nearest first. */
+  std::vector<CylinderNear> NearBalls(Vec3 a, Vec3 b, double d) const {
+    std::vector<CylinderNear> out;
+    for (std::size_t i = 0; i < pieces_.size(); ++i) {
+      const Cylinder& c = pieces_[i];
+      if (c.shape != PieceShape::Sphere || !Simulated(c)) continue;
+      const Vec3 e = vec::Sub(b, a);
+      const double ee = vec::Dot(e, e);
+      const double t = ee > 0 ? std::clamp(vec::Dot(vec::Sub(c.position, a), e) / ee, 0.0, 1.0) : 0.0;
+      const Vec3 q = vec::Add(a, vec::Scale(e, t));
+      const Vec3 dq = vec::Sub(q, c.position);
+      const double dist = vec::Norm(dq);
+      if (dist - rs_ > d) continue;
+      CylinderNear n;
+      n.index = static_cast<int>(i);
+      n.distance = dist - rs_;
+      n.onPiece = vec::Add(c.position, vec::Scale(dist > 1e-12 ? vec::Scale(dq, 1 / dist) : Vec3{0, 0, -1}, rs_));
+      n.onSegment = q;
+      n.pose = c.Pose();
+      n.velocity = c.velocity;
+      n.angularVelocity = c.angularVelocity;
+      n.state = c.state;
+      out.push_back(n);
+    }
+    std::stable_sort(out.begin(), out.end(), [](const CylinderNear& x, const CylinderNear& y) { return x.distance < y.distance; });
+    return out;
+  }
 
   const std::vector<Cylinder>& Pieces() const { return pieces_; }
   Cylinder& Get(int i) { return At(i); }
   std::size_t Count(CylinderState s) const {
     std::size_t n = 0;
-    for (const auto& c : pieces_) n += c.state == s;
+    for (const auto& c : pieces_) n += c.shape == PieceShape::Cylinder && c.state == s;
     return n;
   }
   int HeldCount(int owner) const {
     int n = 0;
-    for (const auto& c : pieces_) n += c.state == CylinderState::Held && c.owner == owner;
+    for (const auto& c : pieces_) n += c.shape == PieceShape::Cylinder && c.state == CylinderState::Held && c.owner == owner;
     return n;
   }
 
-  /** Every piece's pose (held ones where SetHeldPose put them); Removed ones are left out. */
+  /** Every cylinder's pose (held ones where SetHeldPose put them); Removed ones are left out. */
   std::vector<CylinderPose> Poses(bool includeHeld = true) const {
     std::vector<CylinderPose> out;
     for (const auto& c : pieces_)
-      if (c.state != CylinderState::Removed && (includeHeld || c.state != CylinderState::Held)) out.push_back(c.Pose());
+      if (c.shape == PieceShape::Cylinder && c.state != CylinderState::Removed && (includeHeld || c.state != CylinderState::Held))
+        out.push_back(c.Pose());
     return out;
   }
   std::vector<CylinderPose> Poses(CylinderState state) const {
     std::vector<CylinderPose> out;
-    for (const auto& c : pieces_) if (c.state == state) out.push_back(c.Pose());
+    for (const auto& c : pieces_) if (c.shape == PieceShape::Cylinder && c.state == state) out.push_back(c.Pose());
     return out;
   }
 
@@ -297,7 +400,7 @@ class CylinderPieces {
     std::vector<CylinderNear> out;
     for (std::size_t i = 0; i < pieces_.size(); ++i) {
       const Cylinder& c = pieces_[i];
-      if (!Simulated(c)) continue;
+      if (c.shape != PieceShape::Cylinder || !Simulated(c)) continue;
       const Vec3 axis = c.Axis();
       double t = 0;
       const Surface s = SegmentToCylinder(c.position, axis, a, b, t);
@@ -365,8 +468,10 @@ class CylinderPieces {
           const auto& w = obstacles->Walls()[wi];
           const Vec3 nrm{w.inward[0], w.inward[1], 0};
           if (MinAlong(pi, {0, 0, 1}) > w.height) continue;
-          Surf s{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, p_.obstacleFriction, p_.obstacleRestitution, -1, 0,
-                 CylinderContactSource::Wall, static_cast<int>(wi)};
+          const bool ball = Ball(i);
+          Surf s{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, ball ? p_.sphere.obstacleFriction : p_.obstacleFriction,
+                 ball ? p_.sphere.obstacleRestitution : p_.obstacleRestitution, -1, 0, CylinderContactSource::Wall,
+                 static_cast<int>(wi)};
           SurfaceContacts(pi, nrm, nrm[0] * w.point[0] + nrm[1] * w.point[1], nullptr, -1, w.height, s, m, dt);
         }
       }
@@ -381,7 +486,12 @@ class CylinderPieces {
       Cylinder& c = pieces_[i];
       if (!Awake(c)) continue;
       const Vec3 a = axis_[i];
-      if (support_[i] > 0) {
+      if (support_[i] > 0 && c.shape == PieceShape::Sphere) {
+        // A ball's rolling resistance opposes its whole rotation (rolling and spinning in place).
+        const double w = vec::Norm(c.angularVelocity);
+        const double dw = std::min(w, p_.sphere.rollingResistance * support_[i] * rs_ * invIs_ * dt);
+        if (w > 0) c.angularVelocity = vec::Scale(c.angularVelocity, (w - dw) / w);
+      } else if (support_[i] > 0) {
         const double wa = vec::Dot(c.angularVelocity, a);
         const double dw = std::min(std::abs(wa), p_.rollingResistance * support_[i] * p_.radius * invIa_ * dt);
         c.angularVelocity = vec::Sub(c.angularVelocity, vec::Scale(a, wa > 0 ? dw : -dw));
@@ -430,6 +540,12 @@ class CylinderPieces {
     bool moving = false;
     CylinderContactSource src = CylinderContactSource::Prism;
     int srcIndex = -1, group = -1;
+    // The same shape as a right prism, for exact ball contacts: convex CCW polygon in (u, v) about
+    // po, extruded along w over [wMin, wMax]. wMinPush false: the w-min face never pushes.
+    Vec3 po{0, 0, 0}, eu{1, 0, 0}, ev{0, 1, 0}, ew{0, 0, 1};
+    std::vector<Vec2> poly;
+    double wMin = 0, wMax = 0;
+    bool wMinPush = true;
   };
   struct Capsule {
     Vec3 a{0, 0, 0}, b{0, 0, 0};
@@ -438,6 +554,7 @@ class CylinderPieces {
     double mu = 0, e = 0, k = 0;
     int robot = -1;
     int srcIndex = -1, group = -1;
+    bool moving = false;
   };
   struct Surf {
     Vec3 origin, vel, omega;
@@ -459,6 +576,7 @@ class CylinderPieces {
 
   CylinderParams p_;
   double h_ = 0, invMass_ = 0, invIa_ = 0, invIt_ = 0;
+  double rs_ = 0, invMassS_ = 0, invIs_ = 0;  // balls
   std::vector<Cylinder> pieces_;
   std::vector<SwerveSim*> robots_;
   std::vector<Vec3> robotImpulse_;
@@ -483,8 +601,9 @@ class CylinderPieces {
     pieces_.emplace_back();
     return static_cast<int>(pieces_.size()) - 1;
   }
-  Cylinder Spawned(const CylinderPose& pose, Vec3 v, Vec3 w) const {
+  Cylinder Spawned(const CylinderPose& pose, Vec3 v, Vec3 w, PieceShape shape = PieceShape::Cylinder) const {
     Cylinder c;
+    c.shape = shape;
     c.position = pose.position;
     c.orientation = pose.orientation;
     c.velocity = v;
@@ -497,6 +616,10 @@ class CylinderPieces {
   CylinderState Classify(const Cylinder& c, bool spawn) const {
     const Vec3 a = c.Axis();
     bool touching = c.stepsSinceContact <= 2;
+    if (c.shape == PieceShape::Sphere) {
+      if (spawn) touching = c.position[2] - rs_ < 0.01;
+      return touching ? CylinderState::Lying : CylinderState::Flying;
+    }
     if (spawn) {
       const double low = c.position[2] - h_ * std::abs(a[2]) - p_.radius * std::sqrt(std::max(0.0, 1 - a[2] * a[2]));
       touching = low < 0.01;
@@ -508,17 +631,27 @@ class CylinderPieces {
   Vec3 InvInertia(Vec3 a, Vec3 x) const {
     return vec::Add(vec::Scale(x, invIt_), vec::Scale(a, (invIa_ - invIt_) * vec::Dot(a, x)));
   }
+  bool Ball(std::size_t i) const { return pieces_[i].shape == PieceShape::Sphere; }
+  double InvMass(std::size_t i) const { return Ball(i) ? invMassS_ : invMass_; }
+  Vec3 InvInertiaOf(std::size_t i, Vec3 a, Vec3 x) const { return Ball(i) ? vec::Scale(x, invIs_) : InvInertia(a, x); }
+  Vec3 InvInertiaOf(std::size_t i, Vec3 x) const { return InvInertiaOf(i, axis_[i], x); }
   double Margin(const Cylinder& c, double dt) const {
-    return p_.contactMargin + (vec::Norm(c.velocity) + vec::Norm(c.angularVelocity) * (h_ + p_.radius)) * dt;
+    const double reach = c.shape == PieceShape::Sphere ? rs_ : h_ + p_.radius;
+    return p_.contactMargin + (vec::Norm(c.velocity) + vec::Norm(c.angularVelocity) * reach) * dt;
   }
-  /** min over the cylinder of n . x. */
+  /** min over the piece of n . x. */
   double MinAlong(int i, Vec3 n) const {
     const Vec3 c = pieces_[static_cast<std::size_t>(i)].position;
+    if (Ball(static_cast<std::size_t>(i))) return vec::Dot(n, c) - rs_;
     const double na = vec::Dot(n, axis_[static_cast<std::size_t>(i)]);
     return vec::Dot(n, c) - h_ * std::abs(na) - p_.radius * std::sqrt(std::max(0.0, 1 - na * na));
   }
   void Bounds(int i, double margin, Vec3& lo, Vec3& hi) const {
     const Vec3 c = pieces_[static_cast<std::size_t>(i)].position, a = axis_[static_cast<std::size_t>(i)];
+    if (Ball(static_cast<std::size_t>(i))) {
+      for (int k = 0; k < 3; ++k) { lo[k] = c[k] - rs_ - margin; hi[k] = c[k] + rs_ + margin; }
+      return;
+    }
     for (int k = 0; k < 3; ++k) {
       const double e = h_ * std::abs(a[k]) + p_.radius * std::sqrt(std::max(0.0, 1 - a[k] * a[k])) + margin;
       lo[k] = c[k] - e;
@@ -578,6 +711,12 @@ class CylinderPieces {
         if (pr.zMin > 0) h.faces.push_back({{0, 0, -1}, -pr.zMin, true});
         h.lo = {pr.minX, pr.minY, pr.zMin};
         h.hi = {pr.maxX, pr.maxY, std::isfinite(pr.zMax) ? pr.zMax : kBig};
+        h.po = {0, 0, 0};
+        h.eu = {1, 0, 0}; h.ev = {0, 1, 0}; h.ew = {0, 0, 1};
+        h.poly = v;
+        h.wMin = pr.zMin;
+        h.wMax = std::isfinite(pr.zMax) ? pr.zMax : kBig;
+        h.wMinPush = pr.zMin > 0;
         h.mu = p_.obstacleFriction;
         h.e = p_.obstacleRestitution;
         h.srcIndex = static_cast<int>(i);
@@ -605,6 +744,12 @@ class CylinderPieces {
       const double ex = std::abs(c) * hx + std::abs(s) * hy, ey = std::abs(s) * hx + std::abs(c) * hy;
       h.lo = {pose.x - ex, pose.y - ey, bottom};
       h.hi = {pose.x + ex, pose.y + ey, top};
+      h.po = o;
+      h.eu = fx; h.ev = fy; h.ew = {0, 0, 1};
+      h.poly = {{-hx, -hy}, {hx, -hy}, {hx, hy}, {-hx, hy}};
+      h.wMin = bottom - pose.z;
+      h.wMax = top - pose.z;
+      h.wMinPush = false;
       h.origin = o;
       h.vel = {vel.vx, vel.vy, 0};
       h.omega = {0, 0, vel.omega};
@@ -653,6 +798,7 @@ class CylinderPieces {
         cap.robot = col.robot;
         cap.srcIndex = static_cast<int>(ci);
         cap.group = NewGroup(col.maxForce, col.friction);
+        cap.moving = vec::Norm(v) > 0 || vec::Norm(w) > 0;
         capsules_.push_back(cap);
         continue;
       }
@@ -680,6 +826,14 @@ class CylinderPieces {
           const Vec3 pw = toWorld({q[0], y, q[1]});
           for (int k = 0; k < 3; ++k) { h.lo[k] = std::min(h.lo[k], pw[k]); h.hi[k] = std::max(h.hi[k], pw[k]); }
         }
+      h.po = origin;
+      h.eu = {rot[0], rot[3], rot[6]};   // frame x
+      h.ev = {rot[2], rot[5], rot[8]};   // frame z
+      h.ew = {rot[1], rot[4], rot[7]};   // frame y (extrusion)
+      h.poly = poly;
+      h.wMin = -col.width / 2;
+      h.wMax = col.width / 2;
+      h.wMinPush = true;
       h.origin = origin;
       h.vel = v;
       h.omega = w;
@@ -712,6 +866,7 @@ class CylinderPieces {
         wake = hulls_[k].moving && Overlap(lo, hi, hulls_[k].lo, hulls_[k].hi);
       for (const auto& cap : capsules_) {
         if (wake) break;
+        if (!cap.moving) continue;  // static pipes do not keep resting pieces awake
         Vec3 clo, chi;
         for (int k = 0; k < 3; ++k) {
           clo[k] = std::min(cap.a[k], cap.b[k]) - cap.radius;
@@ -739,7 +894,9 @@ class CylinderPieces {
       d = nrm[0] * c[0] + nrm[1] * c[1] + nrm[2] * terrain->Height(c[0], c[1]);
     }
     if (MinAlong(i, nrm) > d + m) return;
-    Surf s{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, p_.floorFriction, p_.floorRestitution, -1};
+    const bool ball = Ball(static_cast<std::size_t>(i));
+    Surf s{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, ball ? p_.sphere.floorFriction : p_.floorFriction,
+           ball ? p_.sphere.floorRestitution : p_.floorRestitution, -1};
     SurfaceContacts(i, nrm, d, nullptr, -1, std::numeric_limits<double>::infinity(), s, m, dt);
   }
 
@@ -751,6 +908,12 @@ class CylinderPieces {
   void SurfaceContacts(int i, Vec3 n, double d, const std::vector<Plane>* clip, int skip, double maxZ, const Surf& s,
                        double m, double dt) {
     const std::size_t ui = static_cast<std::size_t>(i);
+    if (Ball(ui)) {  // one point: the ball's lowest point along -n
+      const Vec3 p = vec::Sub(pieces_[ui].position, vec::Scale(n, rs_));
+      const double depth = d - vec::Dot(n, p);
+      if (depth >= -m && (p[2] <= maxZ || pieces_[ui].position[2] <= maxZ)) AddContact(i, -1, p, n, depth, s, dt);
+      return;
+    }
     const Vec3 c = pieces_[ui].position, a = axis_[ui];
     Vec3 dir = vec::Scale(vec::Sub(n, vec::Scale(a, vec::Dot(n, a))), -1);
     const double len = vec::Norm(dir);
@@ -804,6 +967,7 @@ class CylinderPieces {
     Vec3 lo, hi;
     Bounds(i, m, lo, hi);
     if (!Overlap(lo, hi, hull.lo, hull.hi)) return;
+    if (Ball(static_cast<std::size_t>(i))) { BallHullContact(i, hull, m, dt); return; }
     double best = -std::numeric_limits<double>::infinity();
     int bestFace = -1;
     for (std::size_t k = 0; k < hull.faces.size(); ++k) {
@@ -815,6 +979,48 @@ class CylinderPieces {
     const Plane& f = hull.faces[static_cast<std::size_t>(bestFace)];
     Surf s{hull.origin, hull.vel, hull.omega, hull.mu, hull.e, hull.robot, hull.k, hull.src, hull.srcIndex, hull.group};
     SurfaceContacts(i, f.n, f.d, &hull.faces, bestFace, std::numeric_limits<double>::infinity(), s, m, dt);
+  }
+
+  /** A ball against a hull: the exact closest point of its right-prism form. */
+  void BallHullContact(int i, const Hull& hull, double m, double dt) {
+    if (hull.poly.size() < 3) return;
+    const Vec3 c = pieces_[static_cast<std::size_t>(i)].position;
+    const Vec3 q = vec::Sub(c, hull.po);
+    const double u = vec::Dot(q, hull.eu), v = vec::Dot(q, hull.ev), w = vec::Dot(q, hull.ew);
+    bool inside = false;
+    Vec2 en{0, 0};
+    const Vec2 b = geometry::ClosestOnBoundary(hull.poly, {u, v}, inside, en);
+    const auto world = [&](double uu, double vv, double ww) {
+      return vec::Add(hull.po, vec::Add(vec::Scale(hull.eu, uu), vec::Add(vec::Scale(hull.ev, vv), vec::Scale(hull.ew, ww))));
+    };
+    Vec3 n, point;
+    double depth;
+    if (inside && w >= hull.wMin && w <= hull.wMax) {
+      // Centre inside: leave through the nearest pushing face.
+      const double side = std::hypot(u - b[0], v - b[1]), top = hull.wMax - w;
+      const double bottom = hull.wMinPush ? w - hull.wMin : std::numeric_limits<double>::infinity();
+      if (top <= side && top <= bottom) { n = hull.ew; depth = rs_ + top; point = world(u, v, hull.wMax); }
+      else if (bottom <= side) { n = vec::Scale(hull.ew, -1); depth = rs_ + bottom; point = world(u, v, hull.wMin); }
+      else {
+        n = vec::Add(vec::Scale(hull.eu, en[0]), vec::Scale(hull.ev, en[1]));
+        depth = rs_ + side;
+        point = world(b[0], b[1], w);
+      }
+    } else {
+      const double uu = inside ? u : b[0], vv = inside ? v : b[1], ww = std::clamp(w, hull.wMin, hull.wMax);
+      if (!hull.wMinPush && inside && w < hull.wMin) return;  // under a bumper box: it never pushes down
+      point = world(uu, vv, ww);
+      const Vec3 d = vec::Sub(c, point);
+      const double dist = vec::Norm(d);
+      depth = rs_ - dist;
+      if (depth < -m) return;
+      n = dist > 1e-12 ? vec::Scale(d, 1 / dist) : hull.ew;
+    }
+    if (depth < -m) return;
+    Surf s{hull.origin, hull.vel, hull.omega, hull.mu, hull.e, hull.robot, hull.k, hull.src, hull.srcIndex, hull.group};
+    if (hull.src == CylinderContactSource::Prism) { s.mu = p_.sphere.obstacleFriction; s.e = p_.sphere.obstacleRestitution; }
+    if (hull.src == CylinderContactSource::Robot) { s.mu = p_.sphere.robotFriction; s.e = p_.sphere.robotRestitution; }
+    AddContact(i, -1, point, n, depth, s, dt);
   }
 
   /** Signed distance from q to piece (centre c, axis a), outward normal, nearest surface point. */
@@ -866,6 +1072,19 @@ class CylinderPieces {
     if (!Overlap(lo, hi, clo, chi)) return;
     const Vec3 c = pieces_[ui].position, a = axis_[ui];
     Surf s{cap.origin, cap.vel, cap.omega, cap.mu, cap.e, cap.robot, cap.k, CylinderContactSource::Collider, cap.srcIndex, cap.group};
+    if (Ball(ui)) {
+      const Vec3 e = vec::Sub(cap.b, cap.a);
+      const double ee = vec::Dot(e, e);
+      const double t = ee > 0 ? std::clamp(vec::Dot(vec::Sub(c, cap.a), e) / ee, 0.0, 1.0) : 0.0;
+      const Vec3 q = vec::Add(cap.a, vec::Scale(e, t));
+      const Vec3 d = vec::Sub(c, q);
+      const double dist = vec::Norm(d);
+      const double depth = cap.radius + rs_ - dist;
+      if (depth < -m) return;
+      const Vec3 n = dist > 1e-12 ? vec::Scale(d, 1 / dist) : Vec3{0, 0, 1};
+      AddContact(i, -1, vec::Add(q, vec::Scale(n, cap.radius)), n, depth, s, dt);
+      return;
+    }
     double tBest = 0;
     const Surface best = SegmentToCylinder(c, a, cap.a, cap.b, tBest);
     const Vec3 e = vec::Sub(cap.b, cap.a);
@@ -908,6 +1127,10 @@ class CylinderPieces {
         const Cylinder &A = pieces_[i], &B = pieces_[j];
         const double m = Margin(A, dt) + Margin(B, dt);
         const Vec3 dc = vec::Sub(B.position, A.position);
+        if (Ball(i) || Ball(j)) {
+          BallPieceContact(i, j, m, dt);
+          continue;
+        }
         if (vec::Dot(dc, dc) > (reach + m) * (reach + m)) continue;
         const Vec3 a0 = vec::Sub(A.position, vec::Scale(axis_[i], hc)), a1 = vec::Add(A.position, vec::Scale(axis_[i], hc));
         const Vec3 b0 = vec::Sub(B.position, vec::Scale(axis_[j], hc)), b1 = vec::Add(B.position, vec::Scale(axis_[j], hc));
@@ -943,6 +1166,32 @@ class CylinderPieces {
         add(s, t);
       }
     }
+  }
+
+  /** Ball-ball (centre distance) or ball-cylinder (exact point-to-cylinder distance of the centre). */
+  void BallPieceContact(std::size_t i, std::size_t j, double m, double dt) {
+    const Cylinder &A = pieces_[i], &B = pieces_[j];
+    const Vec3 dc = vec::Sub(A.position, B.position);
+    const double ra = Ball(i) ? rs_ : h_ + p_.radius, rb = Ball(j) ? rs_ : h_ + p_.radius;
+    if (vec::Dot(dc, dc) > (ra + rb + m) * (ra + rb + m)) return;
+    Surf s{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, p_.sphere.pieceFriction, p_.sphere.pieceRestitution, -1, 0,
+           CylinderContactSource::Piece, static_cast<int>(j)};
+    Vec3 n, p;
+    double depth;
+    if (Ball(i) && Ball(j)) {
+      const double dist = vec::Norm(dc);
+      depth = 2 * rs_ - dist;
+      n = dist > 1e-9 ? vec::Scale(dc, 1 / dist) : Vec3{0, 0, 1};  // toward A
+      p = vec::Add(B.position, vec::Scale(n, rs_));
+    } else {
+      const std::size_t ball = Ball(i) ? i : j, cyl = Ball(i) ? j : i;
+      const Surface sf = PointToCylinder(pieces_[cyl].position, axis_[cyl], pieces_[ball].position);
+      depth = rs_ - sf.distance;
+      n = ball == i ? sf.normal : vec::Scale(sf.normal, -1);  // toward A
+      p = sf.point;
+    }
+    if (depth < -m) return;
+    AddContact(static_cast<int>(i), static_cast<int>(j), p, n, depth, s, dt);
   }
 
   void AddContact(int a, int b, Vec3 p, Vec3 n, double depth, const Surf& s, double dt) {
@@ -1013,10 +1262,12 @@ class CylinderPieces {
   }
   double EffectiveMass(const Contact& k, Vec3 d) const {
     const Vec3 rna = vec::Cross(k.ra, d);
-    double m = invMass_ + vec::Dot(InvInertia(axis_[static_cast<std::size_t>(k.a)], rna), rna);
+    const std::size_t a = static_cast<std::size_t>(k.a);
+    double m = InvMass(a) + vec::Dot(InvInertiaOf(a, rna), rna);
     if (k.b >= 0) {
+      const std::size_t b = static_cast<std::size_t>(k.b);
       const Vec3 rnb = vec::Cross(k.rb, d);
-      m += invMass_ + vec::Dot(InvInertia(axis_[static_cast<std::size_t>(k.b)], rnb), rnb);
+      m += InvMass(b) + vec::Dot(InvInertiaOf(b, rnb), rnb);
     }
     return m;
   }
@@ -1028,22 +1279,24 @@ class CylinderPieces {
     return vec::Sub(va, vec::Add(B.velocity, vec::Cross(B.angularVelocity, k.rb)));
   }
   void Impulse(const Contact& k, Vec3 j) {
-    Cylinder& A = pieces_[static_cast<std::size_t>(k.a)];
-    A.velocity = vec::Add(A.velocity, vec::Scale(j, invMass_));
-    A.angularVelocity = vec::Add(A.angularVelocity, InvInertia(axis_[static_cast<std::size_t>(k.a)], vec::Cross(k.ra, j)));
+    const std::size_t a = static_cast<std::size_t>(k.a);
+    Cylinder& A = pieces_[a];
+    A.velocity = vec::Add(A.velocity, vec::Scale(j, InvMass(a)));
+    A.angularVelocity = vec::Add(A.angularVelocity, InvInertiaOf(a, vec::Cross(k.ra, j)));
     if (k.b < 0) return;
-    Cylinder& B = pieces_[static_cast<std::size_t>(k.b)];
-    B.velocity = vec::Sub(B.velocity, vec::Scale(j, invMass_));
-    B.angularVelocity = vec::Sub(B.angularVelocity, InvInertia(axis_[static_cast<std::size_t>(k.b)], vec::Cross(k.rb, j)));
+    const std::size_t b = static_cast<std::size_t>(k.b);
+    Cylinder& B = pieces_[b];
+    B.velocity = vec::Sub(B.velocity, vec::Scale(j, InvMass(b)));
+    B.angularVelocity = vec::Sub(B.angularVelocity, InvInertiaOf(b, vec::Cross(k.rb, j)));
   }
   void PseudoImpulse(const Contact& k, Vec3 j) {
     const std::size_t a = static_cast<std::size_t>(k.a);
-    pv_[a] = vec::Add(pv_[a], vec::Scale(j, invMass_));
-    pw_[a] = vec::Add(pw_[a], InvInertia(axis_[a], vec::Cross(k.ra, j)));
+    pv_[a] = vec::Add(pv_[a], vec::Scale(j, InvMass(a)));
+    pw_[a] = vec::Add(pw_[a], InvInertiaOf(a, vec::Cross(k.ra, j)));
     if (k.b < 0) return;
     const std::size_t b = static_cast<std::size_t>(k.b);
-    pv_[b] = vec::Sub(pv_[b], vec::Scale(j, invMass_));
-    pw_[b] = vec::Sub(pw_[b], InvInertia(axis_[b], vec::Cross(k.rb, j)));
+    pv_[b] = vec::Sub(pv_[b], vec::Scale(j, InvMass(b)));
+    pw_[b] = vec::Sub(pw_[b], InvInertiaOf(b, vec::Cross(k.rb, j)));
   }
 
   void Solve(double dt) {

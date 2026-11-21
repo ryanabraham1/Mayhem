@@ -26,7 +26,7 @@ robot code and are built from these primitives.
 | `sim/swerve.hpp` | `SwerveSim`: 6-DOF chassis on per-wheel spring contacts, elasto-plastic tires, belly-pan and bumper contacts, obstacles; `CollideRobots` |
 | `sim/swerve_requests.hpp` | `swerve::SwerveRequestEmulator`: Phoenix 6 `SwerveRequest` + `SwerveModule` math applied to a `SwerveSim` |
 | `sim/game_pieces.hpp` | `GamePieces`: sphere game pieces (flight with drag and Magnus, bounce/roll on terrain, ball-ball, ball-robot, intakes, goals) |
-| `sim/cylinder_pieces.hpp` | `CylinderPieces`: rigid cylinder game pieces (2025 coral): 6-DOF, standing/lying/flying/held, carpet friction and rolling, tipping, walls and prisms, bumpers and mechanism colliders, piece-piece, an intake query |
+| `sim/cylinder_pieces.hpp` | `CylinderPieces`: rigid cylinder game pieces (2025 coral): 6-DOF, standing/lying/flying/held, carpet friction and rolling, tipping, walls and prisms, bumpers and mechanism colliders, piece-piece, an intake query; ball pieces (2025 algae) in the same solver |
 | `sim/camera.hpp` | `AprilTagCamera`: PhotonVision-style AprilTag camera: pinhole projection of each tag's corners, detection limits (field of view, size, distance, view angle, motion blur, occlusion by prisms and robots), corner noise, multi-tag and two-solution single-tag PnP with ambiguity, frame rate and latency |
 | `sim/sensors.hpp` | `SampledSignal<T>` (a status signal's update rate and CAN latency) and `GyroModel` (Pigeon2 yaw with scale error, bias drift, bias instability, noise and rate saturation) |
 | `sim/rng.hpp` | `Rng`: portable seeded random numbers (`MAYHEM_SIM_SEED`) |
@@ -200,6 +200,55 @@ Logger::RecordOutput("Sim/Coral", ToPoses(coral.Poses()));
 `LastRobotImpulse(robot)` reports what the pieces pushed on a robot. Polygon colliders are
 convex outlines in their frame's x-z plane extruded along y; capsules are a segment and a radius.
 Set `robotFrame = false` for a world-frame collider.
+
+### Ball pieces (algae)
+
+Balls live in the same `CylinderPieces` world as the coral, so the two push each other and share
+the colliders, force limits, contact reports and sleeping:
+
+```cpp
+CylinderParams params;                       // params.sphere: 16.25 in, 1.4 lb algae by default
+CylinderPieces pieces(params);
+// Reef pipes: static world-frame capsules (radius 0.021 m) that balls and coral rest on.
+MechanismCollider pipe;
+pipe.shape = MechanismCollider::Shape::Capsule;
+pipe.robotFrame = false;
+pipe.radius = 0.021;
+pipe.a = trunkBottom; pipe.b = trunkTop;
+pipe.stiffness = 0;                          // rigid
+pieces.AddCollider(pipe);                    // ... every pipe of every branch
+int algae = pieces.SpawnBall({x, y, z});     // let it settle into its cradle
+for (const auto& n : pieces.NearBalls(wheelA, wheelB, 0.02))  // intake hook, nearest first
+  if (WheelsGrab(n)) pieces.Hold(n.index, me);
+Logger::RecordOutput("Sim/Algae", ToTranslations(pieces.BallPositions()));
+```
+
+- A ball is a rigid sphere with thin-shell inertia (`SphereParams::inertiaFactor`, 2/3) and its
+  own friction and restitution against the carpet (restitution 0.55), field elements, bumpers and
+  other pieces; mechanism colliders use their own. Rolling resistance
+  (`SphereParams::rollingResistance`, a torque of coefficient x N x radius against the ball's
+  rotation) slows a rolling ball: 2 m/s on carpet drops to 1.76 m/s after 1 s.
+- Contacts are exact for a sphere: the closest point of a prism, bumper box or polygon collider
+  (no early stop at their edges), the closest point of a capsule, and the closest point of a
+  coral's cylinder, so an algae rests on a standing coral's flat top (centre at 0.508 m) and
+  comes down when the coral tips.
+- Indices are shared with coral: `Get`, `Hold`, `SetHeldPose`, `Release` (or `ReleaseBall` with a
+  centre), `Remove`, `ApplyImpulse` and `LastContacts` work for both. `Count`, `HeldCount`,
+  `Poses` and `Near` stay coral-only; `BallCount`, `HeldBallCount`, `BallPositions`,
+  `BallPoses` and `NearBalls` are the ball versions. `IsBall(i)` tells them apart.
+- Static capsules no longer keep resting pieces awake (only moving colliders wake them), so a
+  cradled ball sleeps.
+
+**Reef algae.** With the 2025 pipe geometry (per branch, (r, z) from the reef centre: trunk
+(0.537, 0.46)-(0.537, 1.45), L2 arm (0.537, 0.625)-(0.776, 0.795), L3 arm (0.537, 1.03)-(0.776,
+1.20), L4 arm (0.537, 1.38)-(0.78, 1.58), post (0.78, 1.58)-(0.78, 1.83), branches 0.164 m either
+side of the face centre) a low algae settles between the L2 and L3 arms against the trunks at
+r 0.694 m, z 0.930 m, and a high one between the L3 and L4 arms at r 0.755 m, z 1.355 m. A rigid
+ball placed farther out (r 0.83 m) touches only the L2 arm tips and rolls off, so spawn it nearer
+the reef and let it settle. Wedged between the branches it sleeps, and a plate scraping across the
+face (1 or 6 cm deep, 300 N) moves it less than a millimetre. It comes off when something lifts
+it about 9 cm up the slot (a plate rising under it: 6 cm and it settles back, 12 cm and it rolls
+out and drops). No extra deformation or friction model is needed to keep it there.
 
 ## Physics model
 
@@ -546,7 +595,13 @@ robot spawned on one, a wall and a prism stopping one, resting on and tipping of
 stacking, the intake query and hold/release, a spinning roller driving a coral, a coral pinched by
 a force-limited plate against the carpet and against the robot's own box and by two jaws on one
 robot (robot impulse within maxForce dt, no tipping, no launch, reports naming the collider),
-SetFromRobotFrame matching a robot-frame collider, 20 coral under a time budget, and determinism. `sim_sensors_test.cpp` checks the camera's projection, each
+SetFromRobotFrame matching a robot-frame collider, 20 coral under a time budget, and determinism.
+`sim_algae_test.cpp` checks a ball's bounce against e^2 h and rolling without slip, low and high
+reef algae settling and sleeping in a cradle of capsule pipes, surviving 1 and 6 cm scrapes and a
+1 or 6 cm lift and coming off a 12 cm one, an algae resting on a standing coral and falling when it
+is knocked over, one dropped on a lying coral, a 150 N plate pinching a ball (robot impulse within
+maxForce dt, reported as limited), a bumper pushing one, the ball intake query, and determinism
+with coral and algae together. `sim_sensors_test.cpp` checks the camera's projection, each
 detection limit, occlusion by a prism and another robot (and not by the tag's own mount), motion
 blur against fx w t_exp, frame rate and latency, error growing with distance and smaller for
 non-coplanar tags, single-tag ambiguity and mirrored solutions frontal vs oblique, determinism,
