@@ -8,6 +8,15 @@
 //   if (auto request = mayhem::sim::FromApplied(*talon.GetAppliedControl())) emulator.SetControl(*request);
 //   emulator.Configure(mayhem::sim::FromPhoenix(talonConfig));
 //
+// Hardware limits: FromPhoenix reads HardwareLimitSwitchConfigs (enable, type, source, remote
+// sensor ID, autoset) and FromApplied each request's LimitForwardMotion, LimitReverseMotion,
+// IgnoreHardwareLimits and IgnoreSoftwareLimits. For a RemoteCANrange limit, emulate the
+// CANrange and attach it; it measures at its own rate and the Talon sees that:
+//
+//   mayhem::sim::CanRange coralRange{mayhem::sim::FromPhoenix(rangeConfig)};
+//   emulator.AttachCanRange(rangeId, &coralRange);
+//   // every 1 ms: coralRange.SetDistance(trueDistance); coralRange.Step(dt); emulator.Step(...)
+//
 // Follower / StrictFollower map to Follower{leaderId, opposed} / StrictFollower{leaderId}; resolve
 // the leader with TalonFx::SetLeader. Unsupported requests (DutyCycle closed loops, Differential*,
 // Dynamic*, music) return std::nullopt.
@@ -19,6 +28,7 @@
 #include "mayhem/sim/swerve_requests.hpp"
 #include "mayhem/sim/talonfx.hpp"
 
+#include <ctre/phoenix6/CANrange.hpp>
 #include <ctre/phoenix6/TalonFX.hpp>
 #include <ctre/phoenix6/controls/ControlRequest.hpp>
 #include <ctre/phoenix6/swerve/SwerveRequest.hpp>
@@ -50,6 +60,40 @@ SlotGains FromSlot(const S& s) {
               s.GravityType.value == GravityTypeValue::Arm_Cosine,
               s.StaticFeedforwardSign.value == StaticFeedforwardSignValue::UseClosedLoopSign,
               Val(s.GravityArmPositionOffset));
+}
+template <class Source>
+LimitSource FromSource(const Source& s) {
+  switch (s.value) {
+    case Source::RemoteTalonFX: return LimitSource::RemoteTalonFX;
+    case Source::RemoteCANifier: return LimitSource::RemoteCANifier;
+    case Source::RemoteCANcoder: return LimitSource::RemoteCANcoder;
+    case Source::RemoteCANrange: return LimitSource::RemoteCANrange;
+    case Source::RemoteCANdiS1: return LimitSource::RemoteCANdiS1;
+    case Source::RemoteCANdiS2: return LimitSource::RemoteCANdiS2;
+    case Source::Disabled: return LimitSource::Disabled;
+    default: return LimitSource::LimitSwitchPin;
+  }
+}
+template <class Type, class Source>
+HardwareLimitConfig Limit(bool enable, const Type& type, const Source& source, int remoteId, bool autoset,
+                          double autosetValue) {
+  HardwareLimitConfig l;
+  l.enable = enable;
+  l.normallyClosed = type.value == Type::NormallyClosed;
+  l.source = FromSource(source);
+  l.remoteSensorId = remoteId;
+  l.autosetPositionEnable = autoset;
+  l.autosetPositionValue = autosetValue;
+  return l;
+}
+// Copies a Phoenix request's limit parameters onto the emulator request.
+template <class Out, class In>
+Out WithLimits(Out out, const In& in) {
+  out.limitForwardMotion = in.LimitForwardMotion;
+  out.limitReverseMotion = in.LimitReverseMotion;
+  out.ignoreHardwareLimits = in.IgnoreHardwareLimits;
+  out.ignoreSoftwareLimits = in.IgnoreSoftwareLimits;
+  return out;
 }
 }  // namespace phoenix_detail
 
@@ -86,7 +130,26 @@ inline TalonFxConfig FromPhoenix(const ctre::phoenix6::configs::TalonFXConfigura
   t.reverseSoftLimitEnable = c.SoftwareLimitSwitch.ReverseSoftLimitEnable;
   t.forwardSoftLimitThreshold = Val(c.SoftwareLimitSwitch.ForwardSoftLimitThreshold);
   t.reverseSoftLimitThreshold = Val(c.SoftwareLimitSwitch.ReverseSoftLimitThreshold);
+  const auto& h = c.HardwareLimitSwitch;
+  t.forwardHardwareLimit = phoenix_detail::Limit(h.ForwardLimitEnable, h.ForwardLimitType, h.ForwardLimitSource,
+      h.ForwardLimitRemoteSensorID, h.ForwardLimitAutosetPositionEnable, Val(h.ForwardLimitAutosetPositionValue));
+  t.reverseHardwareLimit = phoenix_detail::Limit(h.ReverseLimitEnable, h.ReverseLimitType, h.ReverseLimitSource,
+      h.ReverseLimitRemoteSensorID, h.ReverseLimitAutosetPositionEnable, Val(h.ReverseLimitAutosetPositionValue));
   return t;
+}
+
+/** Phoenix CANrangeConfiguration -> CanRange config (proximity threshold/hysteresis, update rate). */
+inline CanRangeConfig FromPhoenix(const ctre::phoenix6::configs::CANrangeConfiguration& c) {
+  using namespace ctre::phoenix6::signals;
+  using phoenix_detail::Val;
+  CanRangeConfig r;
+  r.proximityThreshold = Val(c.ProximityParams.ProximityThreshold);
+  r.proximityHysteresis = Val(c.ProximityParams.ProximityHysteresis);
+  r.updateMode = c.ToFParams.UpdateMode.value == UpdateModeValue::ShortRangeUserFreq ? CanRangeConfig::UpdateMode::ShortRangeUserFreq
+               : c.ToFParams.UpdateMode.value == UpdateModeValue::LongRangeUserFreq  ? CanRangeConfig::UpdateMode::LongRangeUserFreq
+                                                                                     : CanRangeConfig::UpdateMode::ShortRange100Hz;
+  r.updateFrequency = Val(c.ToFParams.UpdateFrequency);
+  return r;
 }
 
 /** Slot0Configs (e.g. TunerConstants' steerGains/driveGains) -> SlotGains. */
@@ -96,34 +159,35 @@ inline SlotGains FromPhoenix(const ctre::phoenix6::configs::Slot0Configs& s) { r
 inline std::optional<ControlRequest> FromApplied(const ctre::phoenix6::controls::ControlRequest& request) {
   namespace c = ctre::phoenix6::controls;
   using phoenix_detail::Val;
+  using phoenix_detail::WithLimits;
   const auto* r = &request;
   if (dynamic_cast<const c::NeutralOut*>(r)) return NeutralOut{};
   if (dynamic_cast<const c::CoastOut*>(r)) return CoastOut{};
   if (dynamic_cast<const c::StaticBrake*>(r)) return StaticBrake{};
-  if (auto* x = dynamic_cast<const c::DutyCycleOut*>(r)) return DutyCycleOut{Val(x->Output), x->EnableFOC};
-  if (auto* x = dynamic_cast<const c::VoltageOut*>(r)) return VoltageOut{Val(x->Output), x->EnableFOC};
+  if (auto* x = dynamic_cast<const c::DutyCycleOut*>(r)) return WithLimits(DutyCycleOut{Val(x->Output), x->EnableFOC}, *x);
+  if (auto* x = dynamic_cast<const c::VoltageOut*>(r)) return WithLimits(VoltageOut{Val(x->Output), x->EnableFOC}, *x);
   if (auto* x = dynamic_cast<const c::TorqueCurrentFOC*>(r))
-    return TorqueCurrentFOC{Val(x->Output), Val(x->MaxAbsDutyCycle), Val(x->Deadband)};
+    return WithLimits(TorqueCurrentFOC{Val(x->Output), Val(x->MaxAbsDutyCycle), Val(x->Deadband)}, *x);
   if (auto* x = dynamic_cast<const c::VelocityVoltage*>(r))
-    return VelocityVoltage{Val(x->Velocity), Val(x->Acceleration), Val(x->FeedForward), x->Slot, x->EnableFOC};
+    return WithLimits(VelocityVoltage{Val(x->Velocity), Val(x->Acceleration), Val(x->FeedForward), x->Slot, x->EnableFOC}, *x);
   if (auto* x = dynamic_cast<const c::PositionVoltage*>(r))
-    return PositionVoltage{Val(x->Position), Val(x->Velocity), Val(x->FeedForward), x->Slot, x->EnableFOC};
+    return WithLimits(PositionVoltage{Val(x->Position), Val(x->Velocity), Val(x->FeedForward), x->Slot, x->EnableFOC}, *x);
   if (auto* x = dynamic_cast<const c::MotionMagicVoltage*>(r))
-    return MotionMagicVoltage{Val(x->Position), Val(x->FeedForward), x->Slot, x->EnableFOC};
+    return WithLimits(MotionMagicVoltage{Val(x->Position), Val(x->FeedForward), x->Slot, x->EnableFOC}, *x);
   if (auto* x = dynamic_cast<const c::MotionMagicExpoVoltage*>(r))
-    return MotionMagicExpoVoltage{Val(x->Position), Val(x->FeedForward), x->Slot, x->EnableFOC};
+    return WithLimits(MotionMagicExpoVoltage{Val(x->Position), Val(x->FeedForward), x->Slot, x->EnableFOC}, *x);
   if (auto* x = dynamic_cast<const c::MotionMagicVelocityVoltage*>(r))
-    return MotionMagicVelocityVoltage{Val(x->Velocity), Val(x->Acceleration), Val(x->FeedForward), x->Slot, x->EnableFOC};
+    return WithLimits(MotionMagicVelocityVoltage{Val(x->Velocity), Val(x->Acceleration), Val(x->FeedForward), x->Slot, x->EnableFOC}, *x);
   if (auto* x = dynamic_cast<const c::VelocityTorqueCurrentFOC*>(r))
-    return VelocityTorqueCurrentFOC{Val(x->Velocity), Val(x->Acceleration), Val(x->FeedForward), x->Slot};
+    return WithLimits(VelocityTorqueCurrentFOC{Val(x->Velocity), Val(x->Acceleration), Val(x->FeedForward), x->Slot}, *x);
   if (auto* x = dynamic_cast<const c::PositionTorqueCurrentFOC*>(r))
-    return PositionTorqueCurrentFOC{Val(x->Position), Val(x->Velocity), Val(x->FeedForward), x->Slot};
+    return WithLimits(PositionTorqueCurrentFOC{Val(x->Position), Val(x->Velocity), Val(x->FeedForward), x->Slot}, *x);
   if (auto* x = dynamic_cast<const c::MotionMagicTorqueCurrentFOC*>(r))
-    return MotionMagicTorqueCurrentFOC{Val(x->Position), Val(x->FeedForward), x->Slot};
+    return WithLimits(MotionMagicTorqueCurrentFOC{Val(x->Position), Val(x->FeedForward), x->Slot}, *x);
   if (auto* x = dynamic_cast<const c::MotionMagicExpoTorqueCurrentFOC*>(r))
-    return MotionMagicExpoTorqueCurrentFOC{Val(x->Position), Val(x->FeedForward), x->Slot};
+    return WithLimits(MotionMagicExpoTorqueCurrentFOC{Val(x->Position), Val(x->FeedForward), x->Slot}, *x);
   if (auto* x = dynamic_cast<const c::MotionMagicVelocityTorqueCurrentFOC*>(r))
-    return MotionMagicVelocityTorqueCurrentFOC{Val(x->Velocity), Val(x->Acceleration), Val(x->FeedForward), x->Slot};
+    return WithLimits(MotionMagicVelocityTorqueCurrentFOC{Val(x->Velocity), Val(x->Acceleration), Val(x->FeedForward), x->Slot}, *x);
   if (auto* x = dynamic_cast<const c::Follower*>(r))
     return Follower{x->LeaderID, x->MotorAlignment.value == ctre::phoenix6::signals::MotorAlignmentValue::Opposed};
   if (auto* x = dynamic_cast<const c::StrictFollower*>(r)) return StrictFollower{x->LeaderID};

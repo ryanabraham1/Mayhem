@@ -17,7 +17,8 @@ robot code and are built from these primitives.
 | Header | What it is |
 | --- | --- |
 | `sim/motor.hpp` | `DcMotor`: linear DC model (R, Kt, Kv, current, torque), published 12 V curves for Kraken X60/X44 (trapezoidal and FOC), Falcon 500 (both), NEO, NEO Vortex, NEO 550, Minion |
-| `sim/talonfx.hpp` | `TalonFx`: Phoenix 6 TalonFX firmware emulator (requests, slot gains, Motion Magic, current limits, neutral modes, followers, FOC/trapezoidal curves) and standalone profiles (`profile::Trapezoid`, `profile::Exponential`, S-curve) |
+| `sim/talonfx.hpp` | `TalonFx`: Phoenix 6 TalonFX firmware emulator (requests, slot gains, Motion Magic, current limits, soft and hardware limits, neutral modes, followers, FOC/trapezoidal curves) and standalone profiles (`profile::Trapezoid`, `profile::Exponential`, S-curve) |
+| `sim/canrange.hpp` | `CanRange`: CANrange that measures at its own rate (100 Hz for ShortRange100Hz) with ProximityThreshold/Hysteresis detection; a TalonFx can use it as a remote limit switch |
 | `sim/battery.hpp` | `Battery`: open-circuit voltage + internal and wiring resistance, brownout below 6.75 V |
 | `sim/mechanisms.hpp` | `Flywheel`, `Arm`, `Elevator` (a linear slide is one at 0 deg), `Roller`: implicit 1-DOF plants with hard stops |
 | `sim/field.hpp` | `Terrain` (boxes, ramps, arbitrary-profile bumps), `Obstacles` (perimeter with chamfers, convex prisms with z ranges), `ContactEvent`, 2-D collision geometry |
@@ -251,6 +252,23 @@ Matches Phoenix 6 (26.x) documentation and source where available:
   70/40 A for 1 s supply).
 - Neutral: brake shorts the windings (`StaticBrake`), coast opens them (`CoastOut`); `NeutralOut`
   follows the configured neutral mode.
+- Hardware limits (`HardwareLimitSwitchConfigs`): enable, normally open/closed, source (the
+  device's pin, RemoteTalonFX, RemoteCANcoder, RemoteCANifier, RemoteCANrange, RemoteCANdi S1/S2,
+  Disabled), remote sensor ID and autoset position. An asserted limit, or the request's
+  `LimitForwardMotion` / `LimitReverseMotion`, puts the output in neutral (the configured
+  brake/coast) while the demanded output pushes that way; output away from it is allowed.
+  `IgnoreHardwareLimits` overrides both, `IgnoreSoftwareLimits` the soft limits. Inputs:
+  `SetForwardLimitPin` / `SetReverseLimitPin` (switch closed), `SetRemoteLimit(source, id,
+  closed)`, or `AttachCanRange(id, &range)` for a `CanRange`, which the Talon reads at each step
+  and therefore sees at the CANrange's measurement rate. `FromPhoenix(TalonFXConfiguration)`,
+  `FromPhoenix(CANrangeConfiguration)` and `FromApplied` carry all of these over:
+
+  ```cpp
+  mayhem::sim::CanRange farRange{mayhem::sim::FromPhoenix(CoralRangeConfigs())};
+  coralEmulator.Configure(mayhem::sim::FromPhoenix(coralLeaderConfigs));  // RemoteCANrange, ID 21
+  coralEmulator.AttachCanRange(21, &farRange);
+  // each 1 ms tick: farRange.SetDistance(distanceToCoral); farRange.Step(dt); then step the Talon
+  ```
 - FOC: every request carries `enableFoc` (default true) and picks the FOC or trapezoidal curve.
 - Motion Magic: WPILib-equivalent trapezoid; Motion Magic Expo is WPILib's exponential profile
   with `MotionMagicExpo_kV/kA`; Motion Magic Velocity ramps at the request's acceleration (or
@@ -273,11 +291,17 @@ Chosen where Phoenix does not document behaviour (verify against hardware logs i
 - The supply-limit lower timer runs while the demanded supply current is at or above the
   regular limit; regenerated current is not supply-limited.
 - Arm_Cosine uses the measured position.
+- Hardware limits compare the sign of the demanded output (volts or amps, before the stator and
+  supply limits); autoset holds the position at its value while the limit is asserted;
+  followers apply the leader's output without checking their own limits; an unwired
+  normally-closed pin reads asserted, as on the device. CANrange detection is below
+  threshold - hysteresis and clears above threshold + hysteresis (Phoenix's documented
+  semantics); signal strength and the field of view are not modeled.
 - Swerve wheel force feedforward is projected on the optimized target angle; open-loop drive
   adds its feedforward volts; a non-zero update period adds a steer velocity feedforward (target
   change / period, 180-degree flips excluded) to Position steer requests only.
 
-Known gaps: no voltage ramps, limit switches, differential or DutyCycle closed-loop requests,
+Known gaps: no voltage ramps, differential or DutyCycle closed-loop requests,
 no velocity-measurement filtering or CAN latency, no motor temperature or thermal limits, motor
 rotor inertia must be folded into the plant inertia, the terrain is a height field (no
 overhangs; tall steps should also be obstacles), the chassis is rigid (no suspension or bumper

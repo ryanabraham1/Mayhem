@@ -273,6 +273,82 @@ describe("path following", () => {
     expect(isIntermediate(routine, routine.nodes[1])).toBe(true);
     expect(pathAhead(routine, routine.nodes[1]).anchors.length).toBe(2);
   });
+  // "Go through the approach point if the arm is up, otherwise wait there": b passes through
+  // (explicit handoff radius) only while its conditional exit is true.
+  const approach = () => {
+    const { p, routine } = chain();
+    routine.nodes[1].goal!.handoffRadius = 0.4;
+    routine.nodes[1].goal!.markers = [];
+    routine.transitions[1].condition = { kind: "signal", key: "superstructure.atGoal", op: "eq", value: true };
+    p.signals = [...p.signals.filter((x) => x.key !== "superstructure.atGoal"),
+      { key: "superstructure.atGoal", name: "Arm at goal", type: "boolean", initial: false } as any];
+    return { p, routine };
+  };
+  it("waits at a pass-through step while its conditional exit is false", () => {
+    const { p, routine } = approach();
+    expect(isIntermediate(routine, routine.nodes[1])).toBe(true);
+    const open = pathAhead(routine, routine.nodes[0], p, () => true);
+    const closed = pathAhead(routine, routine.nodes[0], p, () => false);
+    expect([open.anchors.length, open.final]).toEqual([2, false]);
+    expect([closed.anchors.length, closed.final]).toEqual([2, true]);
+    const waiting = simulate(p, routine, { "superstructure.atGoal": false }, { maxSeconds: 8 });
+    expect(waiting.status).toBe("running");
+    expect(waiting.frame.node).toBe("b");
+    expect(Math.hypot(waiting.frame.pose.x - 6, waiting.frame.pose.y - 3)).toBeLessThanOrEqual(0.03);
+    expect(Math.hypot(waiting.frame.velocity.vx, waiting.frame.velocity.vy)).toBe(0);
+    // It never drove past the approach point toward c.
+    expect(Math.max(...waiting.frames.map((f) => f.pose.x))).toBeLessThanOrEqual(6.03);
+    const through = simulate(p, routine, { "superstructure.atGoal": true });
+    expect(through.status).toBe("completed");
+    const handoff = through.frames.find((f) => f.node === "c")!;
+    expect(Math.hypot(handoff.velocity.vx, handoff.velocity.vy)).toBeGreaterThan(1.5);
+  });
+  it("generated C++ waits at a conditional pass-through step like the preview", () => {
+    const { p } = approach();
+    const dir = mkdtempSync(resolve(tmpdir(), "mayhem-approach-"));
+    writeFileSync(resolve(dir, "routine.hpp"), exportCpp(p));
+    writeFileSync(
+      resolve(dir, "main.cpp"),
+      `#include "routine.hpp"
+#include <cstdio>
+#include <cmath>
+struct Hooks : mayhem::RobotHooks {
+  bool up = false;
+  mayhem::SignalValue Signal(std::string_view k) const override { return k == "superstructure.atGoal" ? mayhem::SignalValue{up} : mayhem::SignalValue{}; }
+};
+int main() {
+  Hooks hooks; mayhem::AutoRunner runner(mayhem_generated::routine_0::routine, hooks);
+  mayhem::Pose pose{1, 1, 0}; mayhem::Velocity v; runner.Start();
+  double maxX = 0;
+  for (int i = 0; i < 400 && runner.Status() == mayhem::RunStatus::Running; ++i) {
+    v = runner.Tick(pose, v, .02);
+    pose.x += v.vx * .02; pose.y += v.vy * .02; pose.heading = mayhem::Wrap(pose.heading + v.omega * .02);
+    maxX = std::max(maxX, pose.x);
+  }
+  std::printf("%s %.4f %.4f %.4f %.4f ", std::string(runner.ActiveState()).c_str(), pose.x, pose.y, std::hypot(v.vx, v.vy), maxX);
+  hooks.up = true;
+  for (int i = 0; i < 3000 && runner.Status() == mayhem::RunStatus::Running; ++i) {
+    v = runner.Tick(pose, v, .02);
+    pose.x += v.vx * .02; pose.y += v.vy * .02; pose.heading = mayhem::Wrap(pose.heading + v.omega * .02);
+  }
+  std::printf("%d\\n", int(runner.Status()));
+}`,
+    );
+    const exe = resolve(dir, "approach");
+    execFileSync(process.env.CXX ?? "clang++", [
+      "-std=c++17", "-Wall", "-Wextra", "-Werror",
+      `-I${fileURLToPath(new URL("../../lib-cpp/include", import.meta.url))}`,
+      resolve(dir, "main.cpp"), "-o", exe,
+    ]);
+    const [state, x, y, speed, maxX, status] = execFileSync(exe, { encoding: "utf8" }).trim().split(" ");
+    expect(state).toBe("b");
+    expect(Number(speed)).toBe(0);
+    expect(Number(maxX)).toBeLessThanOrEqual(6.03);
+    expect(status).toBe("2"); // Completed once the arm is up
+    const preview = simulate(p, p.routines[0], { "superstructure.atGoal": false }, { maxSeconds: 8 }).frame.pose;
+    expect(Number(x)).toBeCloseTo(preview.x, 2);
+    expect(Number(y)).toBeCloseTo(preview.y, 2);
+  }, 30_000); // compiles C++: slow on a busy machine
   it("interpolates heading toward rotation markers by progress", () => {
     const { p, routine } = chain();
     const frames = simulate(p, routine, {}).frames.filter((f) => f.node === "b");

@@ -1,6 +1,6 @@
 # Mayhem C++ tools (development)
 
-Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.8.0). Install it with the MayhemCpp vendordep or the vendoring command below.
+Header-only C++17 primitives under `include/mayhem`; optional WPILib 2026 adapters (`wpilib_log.hpp`, `wpilib.hpp`, `networktables_observer.hpp`) require C++20 and the WPILib libraries they name. The version is `MAYHEM_CPP_VERSION` / `mayhem::kCppVersion` in `version.hpp` (currently 0.9.0). Install it with the MayhemCpp vendordep or the vendoring command below.
 
 ## Installing in a WPILib robot project
 
@@ -97,7 +97,7 @@ It writes one zero velocity when the drive ends (reached, failed, or cancelled),
 
 `Goal::headingOffset` (radians) is added to the `Motion` and `PointAt` headings (pi: face backward while moving). `Motion` faces the direction of travel toward the active anchor (along the segment within 0.1 m of it); a `Motion` anchor ahead is a rotation target, reached by the previous anchor's handoff, and every handoff carries the heading actually commanded, so the heading never steps. Hold a heading until progress t with a rotation marker at t carrying that heading. `Constraints::anticipateSpeedCaps` (default false, BLine behavior) makes the follower slow down for a slower step ahead (`speed <= sqrt(cap^2 + 2 a d)`, d = distance to its handoff point); `PathFollower::Calculate` takes the per-anchor caps as an optional last argument and `AutoRunner` passes each step's `maxVelocity`. Both new fields are last in their structs, so existing positional initializers still compile.
 
-`handoffRadius > 0` permits reaching the intermediate target while moving. A final target should normally leave it at zero and settle. Heading modes are Fixed, PointAt, Motion, and Free. Translation and angular speed use separate constraints.
+`handoffRadius > 0` permits reaching the intermediate target while moving. A final target should normally leave it at zero and settle. On an `AutoRunner` step whose exits are conditional (`intermediate` with `next == -1`), the handoff applies only while one of those exits is true: while none is, the path ends at the step and the robot slows to its pose and waits, including when the step is reached through earlier pass-through anchors. When an exit turns true the robot hands off and continues without a restart. The lookahead check calls the guards without reporting them to hooks or observers. Heading modes are Fixed, PointAt, Motion, and Free. Translation and angular speed use separate constraints.
 
 ## Optional exported routine executor
 
