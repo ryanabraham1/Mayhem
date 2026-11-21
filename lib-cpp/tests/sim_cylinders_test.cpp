@@ -4,6 +4,7 @@
 // budget, and determinism.
 #include <chrono>
 #include <cstring>
+#include <limits>
 
 #include "mayhem/sim/cylinder_pieces.hpp"
 #include "sim_check.hpp"
@@ -351,6 +352,153 @@ void SpinningRoller() {
   SIM_CHECK(std::abs(still) < 0.005, "a still roller only presses it: %.4f", still);
 }
 
+struct PinchResult {
+  double maxImpulse = 0;   // largest |LastRobotImpulse| in one step, N*s
+  double maxTilt = 0;      // robot roll/pitch, rad
+  double maxSpeed = 0;     // coral, m/s
+  double maxReported = 0;  // largest normal impulse LastContactsWith(Collider, plate) reported
+  bool limitedSeen = false, reportedRobot = true;
+  CylinderState state = CylinderState::Lying;
+};
+
+/**
+ * A plate on the robot (robot frame) moves at 1 m/s through a coral's space, pinching it against
+ * the carpet (standing coral ahead of the bumper) or the robot's own box top (coral lying on it).
+ */
+PinchResult Pinch(bool onRobotTop, double maxForce, double robotMaxForce) {
+  CylinderParams cp;
+  cp.robotBoxTopM = 0.25;
+  cp.robotMaxForce = robotMaxForce;
+  CylinderPieces pieces(cp);
+  Rig rig;
+  rig.sim.SetPose(1, 2, 0);
+  const int robot = pieces.AddRobot(&rig.sim);
+  const double r = cp.radius;
+  const int c = onRobotTop ? pieces.SpawnLying(1.0, 2, kPi / 2) : pieces.SpawnStanding(1.0 + 0.42 + 0.20, 2, cp.length);
+  if (onRobotTop) pieces.Place(c, {{1.0, 2, 0.25 + r}, vec::FromEuler(0, 0, kPi / 2)});
+  MechanismCollider plate;
+  plate.name = "end effector";
+  plate.robot = robot;
+  plate.maxForce = maxForce;
+  const double x0 = onRobotTop ? -0.1 : 0.52, x1 = onRobotTop ? 0.1 : 0.72;
+  plate.outline = {{x0, 0}, {x1, 0}, {x1, 0.02}, {x0, 0.02}};
+  plate.width = 0.35;
+  const double zStart = onRobotTop ? 0.25 + 2 * r + 0.05 : cp.length + 0.05, zEnd = onRobotTop ? 0.25 + r : 0.10;
+  plate.position = {0, 0, zStart};
+  const int pl = pieces.AddCollider(plate);
+  PinchResult out;
+  rig.Run(Drive(0), 0.8, nullptr, nullptr, [&] {
+    auto& col = pieces.Collider(pl);
+    const bool moving = col.position[2] > zEnd;
+    col.velocity = {0, 0, moving ? -1.0 : 0.0};
+    col.position[2] = std::max(zEnd, col.position[2] - (moving ? kDt : 0));
+    pieces.Step(kDt);
+    out.maxImpulse = std::max(out.maxImpulse, vec::Norm(pieces.LastRobotImpulse(robot)));
+    const auto p3 = rig.sim.Pose3();
+    out.maxTilt = std::max({out.maxTilt, std::abs(p3.roll), std::abs(p3.pitch)});
+    out.maxSpeed = std::max(out.maxSpeed, vec::Norm(pieces.Get(c).velocity));
+    for (const auto& rep : pieces.LastContactsWith(CylinderContactSource::Collider, pl)) {
+      out.maxReported = std::max(out.maxReported, rep.normalImpulse);
+      out.limitedSeen = out.limitedSeen || rep.limited;
+      out.reportedRobot = out.reportedRobot && rep.robot == robot && rep.piece == c;
+    }
+  });
+  out.state = pieces.Get(c).state;
+  return out;
+}
+
+void ForceLimitedPinch() {
+  const double kInf = std::numeric_limits<double>::infinity();
+  for (bool top : {false, true}) {
+    const char* what = top ? "coral on the robot's box, plate from above" : "standing coral, plate pressing it into the carpet";
+    const PinchResult rigid = Pinch(top, kInf, kInf);
+    const double limit = 150, robotLimit = top ? 300 : kInf;
+    const PinchResult soft = Pinch(top, limit, robotLimit);
+    std::printf("%s: rigid plate max %.2f N s/step (%.0f N), tilt %.1f deg, coral %.1f m/s; maxForce %.0f N: max %.3f N s/step, "
+                "tilt %.2f deg, coral %.2f m/s, state %d, limited %d\n",
+                what, rigid.maxImpulse, rigid.maxImpulse / kDt, rigid.maxTilt * 180 / kPi, rigid.maxSpeed, limit, soft.maxImpulse,
+                soft.maxTilt * 180 / kPi, soft.maxSpeed, static_cast<int>(soft.state), soft.limitedSeen);
+    const double bound = (limit + (top ? robotLimit : 0)) * kDt * (1 + 1e-9);
+    SIM_CHECK(soft.maxImpulse <= bound, "robot impulse within the force limits: %.4f > %.4f N s", soft.maxImpulse, bound);
+    SIM_CHECK(soft.maxReported <= limit * kDt * (1 + 1e-9), "plate's normal impulse within maxForce dt: %.4f", soft.maxReported);
+    SIM_CHECK(soft.maxTilt < 0.02, "the robot does not tip: %.3f rad", soft.maxTilt);
+    SIM_CHECK(soft.maxSpeed < 3, "the coral is squeezed, not launched: %.2f m/s", soft.maxSpeed);
+    SIM_CHECK(soft.state != CylinderState::Removed && soft.state != CylinderState::Flying, "coral still on the field");
+    SIM_CHECK(soft.limitedSeen && soft.reportedRobot, "contact report names the plate, the coral and the robot, marked limited");
+  }
+}
+
+void ClawOnSameRobot() {
+  // Two jaws on one robot close through a lying coral (across its axis) at 0.5 m/s each.
+  auto run = [](double maxForce, double& maxImpulse, double& maxSpeed, double& gap) {
+    CylinderPieces pieces;
+    Rig rig;
+    rig.sim.SetPose(1, 2, 0);
+    const int robot = pieces.AddRobot(&rig.sim);
+    const double r = pieces.Params().radius;
+    const int c = pieces.SpawnLying(1.0 + 0.42 + 0.10, 2, 0);  // axis along x, ahead of the bumper
+    int jaw[2];
+    for (int side = 0; side < 2; ++side) {
+      MechanismCollider j;
+      j.name = side ? "left jaw" : "right jaw";
+      j.robot = robot;
+      j.maxForce = maxForce;
+      j.outline = {{0.40, 0.0}, {0.64, 0.0}, {0.64, 0.12}, {0.40, 0.12}};
+      j.width = 0.02;
+      j.position = {0, side ? 0.12 : -0.12, 0};
+      jaw[side] = pieces.AddCollider(j);
+    }
+    maxImpulse = maxSpeed = 0;
+    rig.Run(Drive(0), 0.6, nullptr, nullptr, [&] {
+      for (int side = 0; side < 2; ++side) {
+        auto& j = pieces.Collider(jaw[side]);
+        const double sign = side ? 1 : -1, y = std::abs(j.position[1]);
+        const bool moving = y > 0.02;
+        j.velocity = {0, moving ? -0.5 * sign : 0.0, 0};
+        j.position[1] = sign * std::max(0.02, y - (moving ? 0.5 * kDt : 0));
+      }
+      pieces.Step(kDt);
+      maxImpulse = std::max(maxImpulse, vec::Norm(pieces.LastRobotImpulse(robot)));
+      maxSpeed = std::max(maxSpeed, vec::Norm(pieces.Get(c).velocity));
+    });
+    gap = 2 * (std::abs(pieces.Collider(jaw[0]).position[1]) - 0.01);
+    (void)r;
+  };
+  double rigidJ, rigidV, g, softJ, softV;
+  run(std::numeric_limits<double>::infinity(), rigidJ, rigidV, g);
+  run(100, softJ, softV, g);
+  std::printf("claw closing through a coral: rigid jaws max %.2f N s/step, coral %.1f m/s; 100 N jaws max %.3f N s/step, coral %.2f m/s\n",
+              rigidJ, rigidV, softJ, softV);
+  SIM_CHECK(softJ <= 2 * 100 * kDt * (1 + 1e-9), "robot impulse within both jaws' limits: %.4f", softJ);
+  SIM_CHECK(softV < 3, "the coral is held or squeezed out, not launched: %.2f m/s", softV);
+}
+
+void RobotFramePlacement() {
+  // A world-frame collider placed with SetFromRobotFrame behaves exactly like a robotFrame one.
+  auto run = [](bool helper) {
+    CylinderPieces pieces;
+    Rig rig;
+    rig.sim.SetPose(1, 2, 0);
+    const int robot = pieces.AddRobot(&rig.sim);
+    const int c = pieces.SpawnLying(2.2, 2.1, kPi / 2);
+    MechanismCollider plate;
+    plate.robot = robot;
+    plate.outline = {{0.42, 0.02}, {0.62, 0.02}, {0.62, 0.30}, {0.42, 0.30}};
+    plate.width = 0.4;
+    plate.position = {0, 0, 0.01};
+    plate.velocity = {0.1, 0, 0};
+    const int pl = pieces.AddCollider(plate);
+    rig.Run(Drive(0.8, 0, 0.5), 1.5, nullptr, nullptr, [&] {
+      if (helper) pieces.Collider(pl).SetFromRobotFrame(rig.sim, {0, 0, 0.01}, {}, {0.1, 0, 0});
+      pieces.Step(kDt);
+    });
+    return pieces.Get(c).position;
+  };
+  const Vec3 a = run(false), b = run(true);
+  std::printf("SetFromRobotFrame vs robotFrame: coral ends %.6f apart\n", vec::Norm(vec::Sub(a, b)));
+  SIM_CHECK(vec::Norm(vec::Sub(a, b)) < 1e-9, "same result as a robot-frame collider");
+}
+
 double Many(std::vector<double>* trace) {
   Obstacles obstacles;
   obstacles.SetPerimeter(0, 0, 8, 6, 0.3);
@@ -432,6 +580,9 @@ int main() {
   IntakeHook();
   PolygonCollider();
   SpinningRoller();
+  ForceLimitedPinch();
+  ClawOnSameRobot();
+  RobotFramePlacement();
   Budget();
   Determinism();
   return SimResult("sim_cylinders");

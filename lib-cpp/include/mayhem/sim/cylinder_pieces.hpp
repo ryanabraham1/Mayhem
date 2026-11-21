@@ -73,6 +73,9 @@ struct CylinderParams {
   bool pieceContacts = true;
   double restSpeed = 0.15;           // m/s: slower impacts do not bounce
   double robotBoxTopM = -1;          // bumper box top above the robot's floor reference; < 0: RobotHeight()
+  // Cap on the total contact force (normal plus friction, N) one robot's bumper box can put on the
+  // pieces in a step, and so on the reaction the robot feels from it. Infinite: rigid.
+  double robotMaxForce = std::numeric_limits<double>::infinity();
   // Solver.
   int velocityIterations = 10, positionIterations = 4;
   double contactMargin = 0.003;      // m, speculative contact distance (plus the step's travel)
@@ -135,6 +138,52 @@ struct MechanismCollider {
   // stiffness x overlap even when nothing is moving toward it, so a roller or belt pressing on a
   // piece grips it and drives it by friction (compliant wheels squeeze a coral a few mm). 0: rigid.
   double stiffness = 3000;
+  // Cap on the total contact force (normal plus friction, N) this collider can put on all pieces
+  // in a step, like a mechanism that back-drives or current-limits: a piece pinched against the
+  // carpet, a wall or the robot is squeezed or slips instead of being pushed without limit, and
+  // the reaction on `robot` is capped the same way. Infinite (default): a rigid, unstoppable shape.
+  double maxForce = std::numeric_limits<double>::infinity();
+
+  /**
+   * Place a world-frame collider (robotFrame = false) from a pose and velocity given in robot
+   * `sim`'s frame, exactly as robotFrame = true would at the current robot state. Lets robot code
+   * keep `robot` >= 0 (for reactions) while positioning the shape itself. Call it every step.
+   */
+  void SetFromRobotFrame(const SwerveSim& sim, Vec3 framePosition, vec::Quat frameOrientation = {},
+                         Vec3 frameVelocity = {0, 0, 0}, Vec3 frameAngularVelocity = {0, 0, 0}) {
+    robotFrame = false;
+    const auto pose = sim.Pose3();
+    const auto vel = sim.FieldVelocity();
+    const auto rq = vec::FromEuler(pose.roll, pose.pitch, pose.yaw);
+    const auto rr = vec::ToMatrix(rq);
+    const Vec3 rel = vec::Mul(rr, framePosition), wr{0, 0, vel.omega};
+    position = vec::Add({pose.x, pose.y, pose.z}, rel);
+    velocity = vec::Add(vec::Add(Vec3{vel.vx, vel.vy, 0}, vec::Cross(wr, rel)), vec::Mul(rr, frameVelocity));
+    angularVelocity = vec::Add(wr, vec::Mul(rr, frameAngularVelocity));
+    const auto& a = rq;
+    const auto& b = frameOrientation;
+    orientation = {a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z, a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+                   a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x, a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w};
+  }
+};
+
+/** What a piece touched. */
+enum class CylinderContactSource { Floor, Wall, Prism, Robot, Collider, Piece };
+
+/**
+ * One piece's contact with one thing in the last Step (CylinderPieces::LastContacts), summed over
+ * that pair's contact points. `index`: the Obstacles wall or prism index, AddRobot index,
+ * AddCollider index or other piece; -1 for the floor.
+ */
+struct CylinderContact {
+  int piece = -1;
+  CylinderContactSource source = CylinderContactSource::Floor;
+  int index = -1;
+  int robot = -1;                 // robot that felt the reaction (bumper box or collider's robot); -1: none
+  Vec3 impulse{0, 0, 0};          // on the piece, N*s, field frame (normal plus friction)
+  double normalImpulse = 0;       // N*s
+  Vec3 point{0, 0, 0};            // normal-impulse-weighted contact point
+  bool limited = false;           // the collider's or bumper's maxForce capped it this step
 };
 
 /** A piece near an intake segment (CylinderPieces::Near). */
@@ -312,10 +361,12 @@ class CylinderPieces {
       const double m = Margin(pieces_[i], dt);
       FloorContacts(pi, terrain, m, dt);
       if (obstacles) {
-        for (const auto& w : obstacles->Walls()) {
+        for (std::size_t wi = 0; wi < obstacles->Walls().size(); ++wi) {
+          const auto& w = obstacles->Walls()[wi];
           const Vec3 nrm{w.inward[0], w.inward[1], 0};
           if (MinAlong(pi, {0, 0, 1}) > w.height) continue;
-          Surf s{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, p_.obstacleFriction, p_.obstacleRestitution, -1};
+          Surf s{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, p_.obstacleFriction, p_.obstacleRestitution, -1, 0,
+                 CylinderContactSource::Wall, static_cast<int>(wi)};
           SurfaceContacts(pi, nrm, nrm[0] * w.point[0] + nrm[1] * w.point[1], nullptr, -1, w.height, s, m, dt);
         }
       }
@@ -324,6 +375,7 @@ class CylinderPieces {
     }
     if (p_.pieceContacts) PieceContacts(dt);
     Solve(dt);
+    BuildReports(dt);
     // Rolling resistance, integration, state.
     for (std::size_t i = 0; i < n; ++i) {
       Cylinder& c = pieces_[i];
@@ -357,6 +409,15 @@ class CylinderPieces {
   }
 
   std::size_t LastContactCount() const { return contacts_.size(); }
+  /** What each piece touched in the last Step and with what impulse (pairs that pushed only). */
+  const std::vector<CylinderContact>& LastContacts() const { return reports_; }
+  /** The last Step's contacts with one thing, e.g. (Collider, endEffectorIndex). */
+  std::vector<CylinderContact> LastContactsWith(CylinderContactSource source, int index) const {
+    std::vector<CylinderContact> out;
+    for (const auto& r : reports_)
+      if (r.source == source && r.index == index) out.push_back(r);
+    return out;
+  }
 
  private:
   struct Plane { Vec3 n; double d; bool push; };  // inside: n . x <= d
@@ -367,6 +428,8 @@ class CylinderPieces {
     double mu = 0, e = 0, k = 0;
     int robot = -1;
     bool moving = false;
+    CylinderContactSource src = CylinderContactSource::Prism;
+    int srcIndex = -1, group = -1;
   };
   struct Capsule {
     Vec3 a{0, 0, 0}, b{0, 0, 0};
@@ -374,12 +437,22 @@ class CylinderPieces {
     Vec3 origin{0, 0, 0}, vel{0, 0, 0}, omega{0, 0, 0};
     double mu = 0, e = 0, k = 0;
     int robot = -1;
+    int srcIndex = -1, group = -1;
   };
-  struct Surf { Vec3 origin, vel, omega; double mu, e; int robot; double k = 0; };
+  struct Surf {
+    Vec3 origin, vel, omega;
+    double mu, e;
+    int robot;
+    double k = 0;
+    CylinderContactSource src = CylinderContactSource::Floor;
+    int srcIndex = -1, group = -1;
+  };
   struct Contact {
     int a = -1, b = -1, robot = -1;
     Vec3 p{0, 0, 0}, n{0, 0, 0}, ra{0, 0, 0}, rb{0, 0, 0}, surfaceVel{0, 0, 0}, t1{0, 0, 0}, t2{0, 0, 0};
     double depth = 0, mu = 0, target = 0, massN = 0, massT1 = 0, massT2 = 0, minJn = 0;
+    CylinderContactSource src = CylinderContactSource::Floor;
+    int srcIndex = -1, group = -1;
     double jn = 0, jt1 = 0, jt2 = 0, jp = 0;
   };
   struct Surface { double distance; Vec3 normal, point; };
@@ -398,6 +471,8 @@ class CylinderPieces {
   std::size_t hullCount_ = 0;
   std::vector<Capsule> capsules_;
   std::vector<Contact> contacts_;
+  std::vector<double> groupForce_, groupSum_;  // per force-limited shape: normal budget (N) and this step's total (N*s)
+  std::vector<CylinderContact> reports_;
 
   static bool Simulated(const Cylinder& c) { return c.state != CylinderState::Held && c.state != CylinderState::Removed; }
   static bool Awake(const Cylinder& c) { return Simulated(c) && !c.asleep; }
@@ -470,11 +545,21 @@ class CylinderPieces {
     h.vel = h.omega = {0, 0, 0};
     h.k = 0;
     h.robot = -1;
+    h.src = CylinderContactSource::Prism;
+    h.srcIndex = h.group = -1;
     h.moving = false;
     return h;
   }
+  /** A force budget shared by one collider's or bumper's contacts; -1 when unlimited. */
+  int NewGroup(double maxForce, double mu) {
+    if (!(maxForce < std::numeric_limits<double>::infinity())) return -1;
+    // Normal budget such that normal plus friction (|j| <= sqrt(1 + mu^2) jn) stays within maxForce.
+    groupForce_.push_back(std::max(0.0, maxForce) / std::sqrt(1 + mu * mu));
+    return static_cast<int>(groupForce_.size()) - 1;
+  }
   void BuildShapes(const Obstacles* obstacles) {
     hullCount_ = 0;
+    groupForce_.clear();
     constexpr double kBig = 1e3;
     if (obstacles) {
       for (std::size_t i = 0; i < obstacles->Prisms().size(); ++i) {
@@ -495,6 +580,7 @@ class CylinderPieces {
         h.hi = {pr.maxX, pr.maxY, std::isfinite(pr.zMax) ? pr.zMax : kBig};
         h.mu = p_.obstacleFriction;
         h.e = p_.obstacleRestitution;
+        h.srcIndex = static_cast<int>(i);
       }
     }
     for (std::size_t r = 0; r < robots_.size(); ++r) {
@@ -526,9 +612,13 @@ class CylinderPieces {
       h.e = p_.robotRestitution;
       h.robot = static_cast<int>(r);
       h.moving = true;
+      h.src = CylinderContactSource::Robot;
+      h.srcIndex = static_cast<int>(r);
+      h.group = NewGroup(p_.robotMaxForce, h.mu);
     }
     capsules_.clear();
-    for (const auto& col : colliders_) {
+    for (std::size_t ci = 0; ci < colliders_.size(); ++ci) {
+      const auto& col = colliders_[ci];
       if (!col.enabled) continue;
       // Frame in the world.
       Vec3 origin = col.position, v = col.velocity, w = col.angularVelocity;
@@ -561,6 +651,8 @@ class CylinderPieces {
         cap.e = col.restitution;
         cap.k = col.stiffness;
         cap.robot = col.robot;
+        cap.srcIndex = static_cast<int>(ci);
+        cap.group = NewGroup(col.maxForce, col.friction);
         capsules_.push_back(cap);
         continue;
       }
@@ -596,6 +688,9 @@ class CylinderPieces {
       h.k = col.stiffness;
       h.robot = col.robot;
       h.moving = true;
+      h.src = CylinderContactSource::Collider;
+      h.srcIndex = static_cast<int>(ci);
+      h.group = NewGroup(col.maxForce, col.friction);
     }
   }
 
@@ -718,7 +813,7 @@ class CylinderPieces {
     }
     if (bestFace < 0) return;
     const Plane& f = hull.faces[static_cast<std::size_t>(bestFace)];
-    Surf s{hull.origin, hull.vel, hull.omega, hull.mu, hull.e, hull.robot, hull.k};
+    Surf s{hull.origin, hull.vel, hull.omega, hull.mu, hull.e, hull.robot, hull.k, hull.src, hull.srcIndex, hull.group};
     SurfaceContacts(i, f.n, f.d, &hull.faces, bestFace, std::numeric_limits<double>::infinity(), s, m, dt);
   }
 
@@ -770,7 +865,7 @@ class CylinderPieces {
     for (int k = 0; k < 3; ++k) { clo[k] = std::min(cap.a[k], cap.b[k]); chi[k] = std::max(cap.a[k], cap.b[k]); }
     if (!Overlap(lo, hi, clo, chi)) return;
     const Vec3 c = pieces_[ui].position, a = axis_[ui];
-    Surf s{cap.origin, cap.vel, cap.omega, cap.mu, cap.e, cap.robot, cap.k};
+    Surf s{cap.origin, cap.vel, cap.omega, cap.mu, cap.e, cap.robot, cap.k, CylinderContactSource::Collider, cap.srcIndex, cap.group};
     double tBest = 0;
     const Surface best = SegmentToCylinder(c, a, cap.a, cap.b, tBest);
     const Vec3 e = vec::Sub(cap.b, cap.a);
@@ -824,7 +919,8 @@ class CylinderPieces {
           if (depth < -m) return;
           const Vec3 nrm = dist > 1e-9 ? vec::Scale(d, 1 / dist) : Vec3{0, 0, 1};  // toward A
           const Vec3 p = vec::Add(pb, vec::Scale(nrm, 0.5 * dist));
-          Surf none{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, p_.pieceFriction, p_.pieceRestitution, -1};
+          Surf none{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, p_.pieceFriction, p_.pieceRestitution, -1, 0,
+                    CylinderContactSource::Piece, static_cast<int>(j)};
           AddContact(static_cast<int>(i), static_cast<int>(j), p, nrm, depth, none, dt);
         };
         double s = 0, t = 0;
@@ -858,6 +954,9 @@ class CylinderPieces {
     k.n = n;
     k.depth = depth;
     k.mu = s.mu;
+    k.src = s.src;
+    k.srcIndex = s.srcIndex;
+    k.group = s.group;
     if (s.k > 0 && depth > p_.penetrationSlop) k.minJn = s.k * (depth - p_.penetrationSlop) * dt;
     const Cylinder& A = pieces_[static_cast<std::size_t>(a)];
     k.ra = vec::Sub(p, A.position);
@@ -876,6 +975,41 @@ class CylinderPieces {
     k.massT1 = 1 / EffectiveMass(k, k.t1);
     k.massT2 = 1 / EffectiveMass(k, k.t2);
     contacts_.push_back(k);
+  }
+  static constexpr double kGripSpeed = 0.05;  // m/s
+  bool Saturated(const Contact& k, double dt) const {
+    if (k.group < 0) return false;
+    const std::size_t g = static_cast<std::size_t>(k.group);
+    return groupSum_[g] >= 0.999 * groupForce_[g] * dt;
+  }
+  /** LastContacts: per (piece, thing) sums of the solved impulses. */
+  void BuildReports(double dt) {
+    reports_.clear();
+    auto entry = [&](int piece, CylinderContactSource src, int index, int robot) -> CylinderContact& {
+      for (auto& r : reports_)
+        if (r.piece == piece && r.source == src && r.index == index) return r;
+      CylinderContact r;
+      r.piece = piece;
+      r.source = src;
+      r.index = index;
+      r.robot = robot;
+      reports_.push_back(r);
+      return reports_.back();
+    };
+    for (const auto& k : contacts_) {
+      if (k.jn <= 0) continue;
+      const Vec3 j = vec::Add(vec::Scale(k.n, k.jn), vec::Add(vec::Scale(k.t1, k.jt1), vec::Scale(k.t2, k.jt2)));
+      const bool limited = Saturated(k, dt);
+      const auto add = [&](CylinderContact& r, Vec3 jj) {
+        r.impulse = vec::Add(r.impulse, jj);
+        r.point = vec::Add(vec::Scale(r.point, r.normalImpulse), vec::Scale(k.p, k.jn));
+        r.normalImpulse += k.jn;
+        r.point = vec::Scale(r.point, 1 / r.normalImpulse);
+        r.limited = r.limited || limited;
+      };
+      add(entry(k.a, k.src, k.srcIndex, k.robot), j);
+      if (k.b >= 0) add(entry(k.b, CylinderContactSource::Piece, k.a, -1), vec::Scale(j, -1));
+    }
   }
   double EffectiveMass(const Contact& k, Vec3 d) const {
     const Vec3 rna = vec::Cross(k.ra, d);
@@ -913,11 +1047,20 @@ class CylinderPieces {
   }
 
   void Solve(double dt) {
+    groupSum_.assign(groupForce_.size(), 0.0);
     for (int it = 0; it < p_.velocityIterations; ++it) {
       for (auto& k : contacts_) {
-        // Normal.
+        // Normal (within the collider's or bumper's remaining force budget, if it has one).
         const double vn = vec::Dot(Relative(k), k.n);
-        const double jn = std::max(k.minJn, k.jn + k.massN * (k.target - vn));
+        // The compliance floor only grips (holds a squeezed piece); it never throws one that is
+        // already moving away from the shape.
+        const double floorJn = vn < kGripSpeed ? k.minJn : 0.0;
+        double jn = std::max(floorJn, k.jn + k.massN * (k.target - vn));
+        if (k.group >= 0) {
+          const std::size_t g = static_cast<std::size_t>(k.group);
+          jn = std::min(jn, std::max(0.0, groupForce_[g] * dt - (groupSum_[g] - k.jn)));
+          groupSum_[g] += jn - k.jn;
+        }
         const double dj = jn - k.jn;
         k.jn = jn;
         if (dj != 0) Impulse(k, vec::Scale(k.n, dj));
@@ -936,6 +1079,7 @@ class CylinderPieces {
     for (int it = 0; it < p_.positionIterations; ++it) {
       for (auto& k : contacts_) {
         if (k.depth <= p_.penetrationSlop) continue;
+        if (Saturated(k, dt)) continue;  // a force-limited shape gives way instead of pushing the piece out
         const std::size_t a = static_cast<std::size_t>(k.a);
         Vec3 vp = vec::Add(pv_[a], vec::Cross(pw_[a], k.ra));
         if (k.b >= 0) {

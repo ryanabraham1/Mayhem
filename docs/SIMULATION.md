@@ -289,7 +289,31 @@ and a capsule collider cost ~17 us per 1 ms step on an M-series Mac.
 a squeezed piece a normal force even when nothing moves toward it, as a compliant roller does, so
 a roller or belt pressing on a coral grips it and drives it by friction. A capsule spinning about
 its own axis (`angularVelocity` along the capsule, `position` on the axis) is a roller: its
-surface moves at omega x r. Set `stiffness = 0` for a rigid plate.
+surface moves at omega x r. Set `stiffness = 0` for a rigid plate. The compliance force only
+grips: it is not applied once the piece is already moving away from the shape faster than 5 cm/s.
+
+**Force limits.** A kinematic collider is unstoppable by default: a coral pinched between it and
+the carpet, a wall, a prism or the robot's own box gets whatever impulse it takes to separate them,
+and that reaches the robot (an arm pressing a standing coral into the carpet at 1 m/s put ~8 kN on
+the robot in the tests). Real mechanisms back-drive or current-limit long before that. Set
+`MechanismCollider::maxForce` (N) to the most the mechanism can push, and
+`CylinderParams::robotMaxForce` for the bumper boxes: the total contact force that shape puts on
+all pieces in a step (normal plus friction) stays at or below it, so the reaction on the robot does
+too. Past the limit the shape gives way: it passes through the piece instead of pushing it out, and
+the piece is squeezed or slips rather than launched. Both default to infinity (rigid, the earlier
+behaviour).
+
+**Contact reports.** `LastContacts()` lists, for the last Step, each piece's contact with each
+thing (floor, wall, prism, robot box, collider, other piece) that pushed it: the source and its
+index (the AddCollider/AddRobot/Obstacles index, or the other piece), the robot that felt the
+reaction, the impulse on the piece, the normal impulse, the contact point and whether a force limit
+capped it. `LastContactsWith(CylinderContactSource::Collider, endEffector)` filters it, e.g. to log
+"end effector hit coral".
+
+`MechanismCollider::SetFromRobotFrame(robot, position, orientation, velocity, angularVelocity)`
+places a world-frame collider from a robot-frame pose and velocity (the same transform
+`robotFrame = true` applies), for robot code that positions the shape itself but keeps `robot` set
+for the reaction.
 
 ## AprilTag camera
 
@@ -519,8 +543,10 @@ goal entry direction; and bit-for-bit determinism. `sim_cylinders_test.cpp` chec
 falling over its base edge and pushed at the base sliding upright, rolling across the axis vs
 sliding along it at mu g (closed form), a bumper and an end-effector plate pushing a coral, a
 robot spawned on one, a wall and a prism stopping one, resting on and tipping off a box,
-stacking, the intake query and hold/release, a spinning roller driving a coral, 20 coral under a
-time budget, and determinism. `sim_sensors_test.cpp` checks the camera's projection, each
+stacking, the intake query and hold/release, a spinning roller driving a coral, a coral pinched by
+a force-limited plate against the carpet and against the robot's own box and by two jaws on one
+robot (robot impulse within maxForce dt, no tipping, no launch, reports naming the collider),
+SetFromRobotFrame matching a robot-frame collider, 20 coral under a time budget, and determinism. `sim_sensors_test.cpp` checks the camera's projection, each
 detection limit, occlusion by a prism and another robot (and not by the tag's own mount), motion
 blur against fx w t_exp, frame rate and latency, error growing with distance and smaller for
 non-coplanar tags, single-tag ambiguity and mirrored solutions frontal vs oblique, determinism,
