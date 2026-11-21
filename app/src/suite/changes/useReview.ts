@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyEdit } from "../core/review/edit.ts";
-import { readProject } from "../core/review/autos.ts";
-import { parseMachineSpecs } from "../core/review/machines.ts";
-import { buildReport, MACHINES_FILE, projectFile, SCENARIOS_FILE, settingsOf, WORKTREE, type ReviewReport, type Snapshot } from "../core/review/report.ts";
-import { scenarioSet } from "../core/review/scenarios.ts";
-import { runSimProof, type SimProof } from "../core/review/simproof.ts";
-import { parseWPILog } from "../core/wpilog.ts";
-import probe from "../core/review/probe.cpp?raw";
+import { buildReport, settingsOf, WORKTREE, type ReviewReport, type Snapshot } from "../core/review/report.ts";
 import type { Setting } from "../core/review/settings.ts";
-import { desktop, invoke, nativeRead } from "../native";
+import { desktop, invoke } from "../native";
+import { useSimProof } from "./useSimProof";
 import { takeCompareRequest, useRobotRepo } from "../robotRepo";
 
 export interface Revision {
@@ -75,22 +70,7 @@ export function useReview() {
   const [imported, setImported] = useState<ReviewReport>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
-  const [proof, setProof] = useState<SimProof>();
-  // The two versions the proof ran on (commits, or WORKTREE), to keep its result on the commit.
-  const [proofRevs, setProofRevs] = useState<{ before: string; after: string }>();
-  const [simProgress, setSimProgress] = useState<{ text: string; done: number; total: number }>();
-  const [simError, setSimError] = useState<string>();
-  const [simErrors, setSimErrors] = useState<string[]>([]);
-  // The latest proof started; a run left behind by a newer one (or by switching versions) is dropped.
-  const simRun = useRef(0);
-  const simBusy = useRef(0);
-  // A sim proof belongs to the two versions it ran on.
-  useEffect(() => {
-    simRun.current++;
-    setProof(undefined);
-    setSimError(undefined);
-    setSimProgress(undefined);
-  }, [repo, before, after]);
+  const sim = useSimProof(repo, `${before}\n${after}`);
 
   const setRepo = (path: string) => {
     setRepoState(path);
@@ -154,44 +134,12 @@ export function useReview() {
 
   /** Builds both versions with the probe and runs every scenario (desktop only). */
   const startSim = async () => {
-    if (!snapshots || !repo) return;
-    // Already running on these versions: a second proof would build into the same folders.
-    if (simBusy.current && simBusy.current === simRun.current) return;
-    const id = ++simRun.current;
-    simBusy.current = id;
-    const current = () => simRun.current === id;
-    setSimError(undefined);
-    setProof(undefined);
-    setSimProgress({ text: "Starting…", done: 0, total: 1 });
-    try {
-      const files = snapshots.after.files;
-      const machines = parseMachineSpecs(files[MACHINES_FILE]).machines;
-      const project = projectFile(files);
-      const set = scenarioSet(project ? readProject(files[project]).project : undefined, files[SCENARIOS_FILE]);
-      setSimErrors(set.errors);
-      const runner = {
-        prepare: (rev: string) => invoke<{ dir: string; cached: boolean }>("review_sim_prepare", { repo, rev, probe }),
-        run: (dir: string, id: string, scenario: string) =>
-          invoke<{ log?: string | null; result?: string | null; ok: boolean; output: string }>("review_sim_run", { dir, id, scenario }),
-        readLog: async (path: string) => parseWPILog(await nativeRead(path), path.split("/").pop() ?? path),
-      };
-      const revs = { before: snapshots.before.rev, after: after === WORKTREE ? WORKTREE : snapshots.after.rev };
-      const result = await runSimProof(runner, revs, set.scenarios, machines, (text, done, total) => {
-        if (current()) setSimProgress({ text, done, total });
-      });
-      if (!current()) return;
-      setProofRevs(revs);
-      setProof(result);
-    } catch (e) {
-      if (current()) setSimError(String(e));
-    } finally {
-      if (simBusy.current === id) simBusy.current = 0;
-      if (current()) setSimProgress(undefined);
-    }
+    if (!snapshots) return;
+    await sim.start(snapshots.after, { before: snapshots.before.rev, after: after === WORKTREE ? WORKTREE : snapshots.after.rev });
   };
 
   return {
-    sim: { proof, revs: proofRevs, progress: simProgress, error: simError, errors: simErrors, start: startSim, set: setProof },
+    sim: { ...sim, start: startSim },
     repo,
     setRepo,
     info,

@@ -4,14 +4,25 @@ import type { View3D } from "./Replay3D";
 import { FieldArt } from "../FieldArt";
 import { DEFAULT_SEASON, seasonOf, type Season } from "../core/seasons.ts";
 import type { ReviewReport } from "../core/review/report.ts";
-import { stepTimeline, type Outcome, type Track } from "../core/review/scenarios.ts";
+import { poseSegments, stepTimeline, type Outcome, type Track } from "../core/review/scenarios.ts";
 import { parseMachineSpecs } from "../core/review/machines.ts";
 import { MACHINES_FILE } from "../core/review/report.ts";
 import { ButtonMap } from "./ButtonMap";
 import type { ScenarioResult, SimProof } from "../core/review/simproof.ts";
 import { desktop, invoke } from "../native";
 import { Badge, Button, EmptyState, Segmented, Toggle } from "../ui";
-import type { Review } from "./useReview";
+import type { Snapshot } from "../core/review/report.ts";
+import type { SimState } from "./useSimProof";
+
+/**
+ * What the sim proof view needs: the Changes page's review (two versions), or one version alone
+ * (Robot → Simulation, `before` unset), where every run is judged only on its own checks.
+ */
+export interface SimSource {
+  sim: Omit<SimState, "start" | "revs" | "set"> & { start: () => Promise<void> };
+  snapshots?: { after: Snapshot };
+  before?: string;
+}
 
 // The 3D replay brings three.js; it loads when a replay is first shown in 3D, not with the app.
 const Replay3D = lazy(() => import("./Replay3D").then((m) => ({ default: m.Replay3D })));
@@ -126,7 +137,11 @@ export function Replay({ result, onTime, season = DEFAULT_SEASON }: { result: Sc
       </g>
     ) : null;
   };
-  const line = (o?: Outcome) => o?.poses.map((p) => `${p.x.toFixed(3)},${(field.width - p.y).toFixed(3)}`).join(" ");
+  // One line per stretch the robot drove; an odometry reset is a break, not a drive across the field.
+  const lines = (o: Outcome, className: string) =>
+    poseSegments(o.poses).map((seg, i) => (
+      <polyline key={`${className}${i}`} className={className} points={seg.map((p) => `${p.x.toFixed(3)},${(field.width - p.y).toFixed(3)}`).join(" ")} />
+    ));
   return (
     <div className="mx-replay-proof">
       {has3D && (
@@ -180,8 +195,8 @@ export function Replay({ result, onTime, season = DEFAULT_SEASON }: { result: Sc
           <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
             <FieldArt field={field} hideFuel />
           </g>
-          {result.before && <polyline className="is-before" points={line(result.before)} />}
-          {result.after && <polyline className="is-after" points={line(result.after)} />}
+          {result.before && lines(result.before, "is-before")}
+          {result.after && lines(result.after, "is-after")}
           {robot(result.before, "is-before")}
           {robot(result.after, "is-after")}
         </svg>
@@ -203,7 +218,7 @@ export function Replay({ result, onTime, season = DEFAULT_SEASON }: { result: Sc
                 <Timeline track={result.before.tracks.find((t) => t.name === name)} duration={duration} time={time} />
               </>
             )}
-            <small>After</small>
+            {result.before && <small>After</small>}
             <Timeline track={result.after?.tracks.find((t) => t.name === name)} duration={duration} time={time} />
           </div>
         ))}
@@ -224,7 +239,7 @@ function ScenarioHead({ r }: { r: ScenarioResult }) {
         ? { tone: "warn", text: `Behaves differently than before in ${r.differences.length} way${r.differences.length === 1 ? "" : "s"}, listed below` }
         : r.before
           ? { tone: "good", text: "Same as before: every machine, the drive and the path match the before version" }
-          : { tone: "good", text: "Ran on the after version only" };
+          : { tone: "good", text: r.checks.length ? "Passes every check" : "Ran to the end" };
   return (
     <div className="mx-scenario-head">
       <strong>{r.scenario.name.replace(/^Auto: /, "")}</strong>
@@ -245,10 +260,11 @@ function ScenarioHead({ r }: { r: ScenarioResult }) {
 function Status({ r }: { r: ScenarioResult }) {
   if (r.failed) return <Badge tone="bad">{r.error ? "crashed" : "fails"}</Badge>;
   if (r.differences.length) return <Badge tone="warn">different</Badge>;
-  return <Badge tone="good">same</Badge>;
+  return <Badge tone="good">{r.before ? "same" : "passes"}</Badge>;
 }
 
-export function SimProofView({ report, review, focus }: { report: ReviewReport; review: Review; focus?: string }) {
+export function SimProofView({ report, review, focus }: { report: ReviewReport; review: SimSource; focus?: string }) {
+  const single = !review.before;
   const proof: SimProof | undefined = review.sim.proof;
   const focused = proof?.results.find((r) => r.scenario.id === focus)?.scenario;
   const [group, setGroup] = useState<"custom" | "auto" | "button">(focused?.group ?? "auto");
@@ -270,15 +286,15 @@ export function SimProofView({ report, review, focus }: { report: ReviewReport; 
     <div className="mx-simproof">
       <div className="mx-panel mx-sim-head">
         <div>
-          <strong>Sim proof</strong>
+          <strong>{single ? "Simulation" : "Sim proof"}</strong>
           <p className="mx-help">
-            Builds both versions with the robot's own simulation and runs every auto, every controller button (tapped and held) and the team's scenarios on the full simulated field (every wall, structure and game piece) from{" "}
-            <code>tools/mayhem/scenarios.json</code>. About a minute per version the first time; repeat runs are cached.
+            {single ? "Builds the robot code on this computer" : "Builds both versions"} with the robot's own simulation and runs every auto, every controller button (tapped and held) and the team's scenarios on the full simulated field (every wall, structure and game piece) from{" "}
+            <code>tools/mayhem/scenarios.json</code>. About a minute{single ? "" : " per version"} the first time; repeat runs are cached.
           </p>
         </div>
         {desktop ? (
           <Button variant="primary" icon={FlaskConical} disabled={running || !review.snapshots} onClick={() => void review.sim.start()}>
-            {running ? "Running…" : proof ? "Run again" : "Run sim proof"}
+            {running ? "Running…" : proof ? "Run again" : single ? "Run simulation" : "Run sim proof"}
           </Button>
         ) : (
           <span className="mx-help">Runs in the desktop app (or <code>mayhem.mjs sim</code>).</span>
@@ -332,7 +348,9 @@ export function SimProofView({ report, review, focus }: { report: ReviewReport; 
       ))}
       {!proof && !running && !review.sim.error && (
         <EmptyState icon={FlaskConical} title="Not run yet">
-          Run the sim proof to see whether every auto still finishes, every button still does the same thing, and the team's scenarios pass.
+          {single
+            ? "Run the simulation to watch every auto drive, see what every button does, and check the team's scenarios."
+            : "Run the sim proof to see whether every auto still finishes, every button still does the same thing, and the team's scenarios pass."}
         </EmptyState>
       )}
       {proof && (
@@ -405,7 +423,7 @@ export function SimProofView({ report, review, focus }: { report: ReviewReport; 
                       </span>
                     </div>
                   )}
-                  {selected.checks.length > 0 && <h4 className="mx-scenario-label">What it checks (on the after version)</h4>}
+                  {selected.checks.length > 0 && <h4 className="mx-scenario-label">What it checks{single ? "" : " (on the after version)"}</h4>}
                   {selected.checks.length > 0 && (
                     <ul className="mx-change-list">
                       {selected.checks.map((c) => (

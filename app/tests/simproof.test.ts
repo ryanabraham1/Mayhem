@@ -48,3 +48,17 @@ describe("runSimProof", () => {
     expect(defaultParallel(64)).toBe(32);
   });
 });
+
+describe("replay path", () => {
+  it("breaks at the auto's odometry reset instead of drawing a line to its start pose", async () => {
+    const { poseSegments } = await import("../src/suite/core/review/scenarios.ts");
+    const p = (time: number, x: number, y: number) => ({ time, x, y, heading: 0 });
+    // Sitting where the sim spawned, then the auto resets the pose to its start and drives.
+    const poses = [p(0, 2, 1), p(0.1, 2, 1), p(0.2, 13, 6), p(0.3, 12.7, 6), p(0.4, 12.4, 6.1)];
+    const segments = poseSegments(poses);
+    expect(segments).toHaveLength(2);
+    expect(segments[1][0]).toMatchObject({ x: 13, y: 6 });
+    // Driving fast (4 m/s) stays one line.
+    expect(poseSegments([p(0, 1, 1), p(0.1, 1.4, 1), p(0.2, 1.8, 1)])).toHaveLength(1);
+  });
+});

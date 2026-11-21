@@ -3,6 +3,7 @@ import {
   ArrowDownToLine,
   Cable,
   CloudUpload,
+  FlaskConical,
   Gauge,
   ListTree,
   HardDriveDownload,
@@ -19,6 +20,7 @@ import { teamSite } from "../logSync";
 import { SignalsEditor } from "../SignalsEditor";
 import { RobotNow } from "./RobotNow";
 import { RobotValues } from "./RobotValues";
+import { RobotSim } from "./RobotSim";
 import { resolveConstraints } from "../core/model.ts";
 import type { SuiteState } from "../useSuiteProject";
 import {
@@ -340,9 +342,9 @@ function ViewerPanel() {
   );
 }
 
-export type RobotTab = "now" | "values" | "specs" | "connection" | "logs";
+export type RobotTab = "now" | "values" | "sim" | "specs" | "connection" | "logs";
 const TAB_KEY = "mayhem.robot-tab.v1";
-const tabs = ["now", "values", "specs", "connection", "logs"] as const;
+const tabs = ["now", "values", "sim", "specs", "connection", "logs"] as const;
 
 /** Remember which Robot tab to show next, e.g. before navigating there. */
 export function setRobotTab(tab: RobotTab) {
@@ -441,6 +443,8 @@ export function RobotPage({ s, openChanges }: { s: SuiteState; openChanges: () =
             ? "What code the robot is running, what changed since the last good version, and how the latest log looks."
             : tab === "values"
             ? "Every value in the robot code: CAN IDs, current limits, ratios, gains. Pick a kind or a part to narrow it down."
+            : tab === "sim"
+            ? "The robot code on this computer, run in its own simulation: every auto, every button and the team's scenarios."
             : tab === "specs"
             ? `${project.robot.name} · the size and limits every auto is planned with.`
             : tab === "connection"
@@ -456,6 +460,7 @@ export function RobotPage({ s, openChanges }: { s: SuiteState; openChanges: () =
           options={[
             { value: "now", label: "On the robot now", icon: Rocket },
             { value: "values", label: "Values", icon: ListTree },
+            { value: "sim", label: "Simulation", icon: FlaskConical },
             { value: "specs", label: "Specs & limits", icon: SlidersHorizontal },
             { value: "connection", label: "Connection", icon: Cable },
             { value: "logs", label: "Log collection", icon: HardDriveDownload },
@@ -464,6 +469,7 @@ export function RobotPage({ s, openChanges }: { s: SuiteState; openChanges: () =
       </div>
       {tab === "now" && <RobotNow openChanges={openChanges} />}
       {tab === "values" && <RobotValues />}
+      {tab === "sim" && <RobotSim />}
       {tab === "specs" && (
         <>
           <div className="mx-robot-grid">

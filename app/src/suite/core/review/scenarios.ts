@@ -190,6 +190,30 @@ export interface Outcome {
   duration: number;
 }
 
+/**
+ * A run's poses split where the pose jumped instead of driving: an odometry reset (the auto setting
+ * its start pose) or a gap in the log. Drawn as separate lines, so the replay doesn't draw a line
+ * across the field from where the robot sat to the auto's start. Same rule as `poseTrail` in plot.ts.
+ */
+export function poseSegments<P extends { time: number; x: number; y: number }>(poses: P[]): P[][] {
+  const segments: P[][] = [];
+  let current: P[] = [];
+  for (const p of poses) {
+    const last = current[current.length - 1];
+    if (last) {
+      const d = Math.hypot(p.x - last.x, p.y - last.y);
+      const dt = p.time - last.time;
+      if (d > 0.4 && (dt <= 0 || dt > 0.25 || d / dt > 8)) {
+        segments.push(current);
+        current = [];
+      }
+    }
+    current.push(p);
+  }
+  if (current.length) segments.push(current);
+  return segments.filter((seg) => seg.length > 1);
+}
+
 const STATUS_CHANNEL = /Mayhem\/Auto\/Status$/;
 const plainId = (id: string) => id.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
 /** Every machine's state (Mayhem's `Mayhem/States/<id>/state`, or a manifest's state channel), the drive mode and the auto status: what a driver would notice. */
