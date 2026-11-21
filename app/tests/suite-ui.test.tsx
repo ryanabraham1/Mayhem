@@ -215,3 +215,60 @@ it("opens the shortcut sheet with ? and closes it", () => {
   fireEvent.click(screen.getByRole("button", { name: "Close shortcuts" }));
   expect(screen.queryByRole("dialog", { name: "Keyboard shortcuts" })).toBeNull();
 });
+it("edits a step of a step group: parameter values for that use, everything else for every use", async () => {
+  const { sampleProject } = await import("../src/suite/core/sample.ts");
+  const { DEFAULT_GOAL, parseProject } = await import("../src/suite/core/model.ts");
+  const goal = (x: number, y: number) => ({ ...DEFAULT_GOAL, x, y });
+  const always = { kind: "always" };
+  const project = {
+    ...structuredClone(sampleProject),
+    signals: [],
+    groups: [
+      {
+        id: "cycle", name: "Cycle", params: [{ name: "pickup" }, { name: "next" }],
+        nodes: [
+          { id: "pickup", name: "Pickup", kind: "pose", timeout: 15, goal: "$pickup" },
+          { id: "arm", name: "Arm", kind: "action", timeout: 3, action: "arm.up" },
+        ],
+        transitions: [
+          { id: "got", from: "pickup", to: "arm", condition: always },
+          { id: "up", from: "arm", to: "$next", condition: always },
+        ],
+      },
+    ],
+    routines: [
+      {
+        id: "two", name: "Two cycles", initial: "c1.pickup",
+        nodes: [{ id: "done", name: "Done", kind: "finish", timeout: 1 }],
+        transitions: [],
+        uses: [
+          { id: "c1", group: "cycle", name: "Cycle 1", args: { pickup: goal(3, 1), next: "c2.pickup" } },
+          { id: "c2", group: "cycle", name: "Cycle 2", args: { pickup: goal(5, 1), next: "done" } },
+        ],
+      },
+    ],
+  };
+  localStorage.setItem(PROJECT_KEY, JSON.stringify(parseProject(JSON.stringify(project))));
+  render(<SuiteApp />);
+  const saved = () => JSON.parse(localStorage.getItem(PROJECT_KEY)!);
+  const node = (id: string) => saved().routines[0].nodes.find((n: { id: string }) => n.id === id);
+  // The pose is a parameter: moving cycle 2's pickup changes only cycle 2.
+  fireEvent.click(screen.getByRole("button", { name: "4 Pickup (Cycle 2)", exact: true }));
+  expect(screen.getByRole("note").textContent).toContain("one of 2 uses of the step group Cycle");
+  expect(screen.getByRole("note").textContent).toContain("Changes to goal apply to this use only");
+  const x = screen.getByRole("spinbutton", { name: "X position", exact: true });
+  fireEvent.change(x, { target: { value: "5.5" } });
+  fireEvent.blur(x);
+  expect(saved().routines[0].uses[1].args.pickup.x).toBe(5.5);
+  expect([node("c1.pickup").goal.x, node("c2.pickup").goal.x]).toEqual([3, 5.5]);
+  expect(saved().groups[0].nodes[0].goal).toBe("$pickup");
+  // The watchdog is in the template: changing it on one arm step changes both.
+  fireEvent.click(screen.getByRole("button", { name: "3 Arm (Cycle 1)", exact: true }));
+  const watchdog = screen.getByRole("spinbutton", { name: "Failure watchdog", exact: true });
+  fireEvent.change(watchdog, { target: { value: "4" } });
+  fireEvent.blur(watchdog);
+  expect([node("c1.arm").timeout, node("c2.arm").timeout, saved().groups[0].nodes[1].timeout]).toEqual([4, 4, 4]);
+  // A step of a group is not deleted on its own.
+  fireEvent.click(screen.getByRole("button", { name: "Delete selected state" }));
+  expect(node("c1.arm")).toBeTruthy();
+});

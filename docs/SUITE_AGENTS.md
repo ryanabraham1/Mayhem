@@ -8,6 +8,12 @@ Movement: the path follower is ported from BLine-Lib (BSD 3-Clause; see THIRD_PA
 
 - **Heading through pickups.** The robot's front is +x (its intake on most robots). Heading blends by path progress from the last rotation target to the next Fixed anchor or rotation marker; Free anchors are not targets, so a route of Free points ending in one Fixed heading rotates the whole way and can hit pieces sideways. On a step where the front must lead, set `goal.headingMode: "motion"`: the robot faces its direction of travel on that segment, is already facing it when the segment starts (the previous segment blends toward it, finishing at the handoff circle), and later segments blend on from the heading actually commanded, with no snap. `goal.headingOffset` (radians) is added to Motion and PointAt headings (`Math.PI`: drive backward through it). To hold a heading until progress t on a segment and only then rotate, put a rotation marker at t with the heading to hold (`{ kind: "rotation", t: 0.7, heading: <held> }`); the segment then blends from the marker to the anchor's heading. `simulate` returns `headingWarnings` for any event marker that fires with the front more than 45° off the direction of travel; preview playback shows the robot's heading on the field.
 - **Speed caps ahead.** By default (BLine) a step's `maxVelocity` applies only after its handoff, so the robot reaches a slow step fast and brakes there. `constraints.anticipateSpeedCaps: true` (robot, routine, or step) instead limits speed to `sqrt(cap² + 2·maxAcceleration·d)`, where d is the distance to that step's handoff point, so it arrives at the cap. The editor previews such paths with the native follower. Generated constraints still assume the BLine behavior and may be conservative when this is on.
+- **Stopping without overshoot.** The P law asks for more braking than a robot with a low limit (arm up, anti-tip) can give; it then overshoots the stop point and crawls back. `constraints.stopDeceleration` (m/s², robot, routine, or step; 0 = off) adds a braking profile for the end of a path: speed ≤ `sqrt(2·stopDeceleration·room)`, `room` being the remaining distance less `(stopLag + dt)`·speed (`constraints.stopLag`, seconds, is how long the drivetrain trails its command). Set it to what the robot can really brake at. When the limit depends on the mechanism's pose, robot code supplies it each tick: `runner.SetStopDeceleration([&](const mayhem::StopQuery& q) { return antiTip.MaxBrake(q.pose, q.end); })` (the lower of that and the step's value is used; a non-positive value leaves the step's setting). `simulate` and the preview use the project's value only. Editor: Robot page and the path's **More limits**.
+- **Leaving a step early.** An exit with `interrupt: true` is checked every tick while its step runs, so the step ends as soon as its condition is true: `driveToPoint(...).raceWith(waitForCoralPickup())` is a pose step with `{ "condition": coralSeen, "interrupt": true }` to the next step and an ordinary `Always` exit for "arrived and nothing else was true". Exits are tried in list order; ordinary ones only once the pose is reached (or the action is done). It works on action and custom steps too. Not allowed with `Always`. The next pose step starts from the live pose and speed. An `interrupt` exit does not make a step "conditional": a pose step whose one ordinary exit is `Always` to another pose step still passes through (set `goal.stop` to stop on it). Path-only preview ignores early exits and drives each step to its end. Editor: the step's **Continue when** list, **Leave early when true**.
+- **Conditional pass-through look-ahead.** While a conditional pass-through's exit is open, the step after it is known (its first true exit), so its pose, heading and speed cap are looked ahead to like any chained step's: with `anticipateSpeedCaps` the robot crosses the gate at that step's `maxVelocity`.
+- **Event markers by distance.** An event marker with `distance` (meters) fires when the robot is that close to the step's goal (`{ "kind": "event", "t": 1, "key": "arm.up", "distance": 1.2 }`, "arm up 1.2 m before the end"), or to a field point with `at` (`"at": { "x": 4.2, "y": 1.1 }`, blue origin; `AllianceRoutine` moves it). `t` is then only where the editor draws it. Distance markers fire on their own; markers placed by `t` fire in list order.
+- **Event markers that keep trying.** `"hold": true` on an event marker starts the bound action at the marker and ticks it every loop until it succeeds or the step exits (a `during` action started at the marker), for a request the mechanism may refuse for a moment. Bind it as `{begin, tick, end}`: `tick` returns Running until the request is taken; `end(cancelled)` is called with `true` when the step exited first. Without `hold` a marker only runs `begin`.
+- **Robot-side speed limits.** When robot code slows a step in a way Mayhem cannot see (a keep-out around a game piece, a live anti-tip limit), put a short reason in the step's `robotSpeedLimit`. The preview and `simulate` still drive the step at the project's limits, and say so: the preview bar marks the step and shows the routine time as a lower bound, and `simulate_auto` lists it under `notModeled`.
 - Coordinates are blue-origin meters, radians, seconds, and field-relative velocities. Explicitly convert any vendor API that expects robot-relative speeds. Apply alliance transformations once, consistently, including point-at targets.
 - Final goals require translation and heading tolerance, measured low speed, and a settling interval. Intermediate goals can use a moving handoff radius. Translation goals may leave heading unconstrained.
 - Advance actions on observed conditions: possession, mechanism readiness, action completion, or pose arrival. Timeouts are watchdog failures, never evidence that a movement or mechanism succeeded. The one exception is a deliberate fixed window on an action or custom step (aim and shoot for 3.5 s): set `onTimeout: "succeed"` on that step and its `timeout` becomes the window (editor: Advanced, **Done when time runs out**). Pose steps cannot use it.
@@ -74,6 +80,42 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 ```
 
 Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `run_scenarios` (see "Sim proof"), `list_changes` (see "How your changes get reviewed"), `log_diagnose`, `log_compare`, `log_states`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+
+## Step groups: repeated cycles without a generator script
+
+A routine made of the same few steps several times (approach, pick up, drive in, arm, score) is written once as a **step group** and used several times with different arguments.
+
+```json
+"groups": [{
+  "id": "cycle", "name": "Cycle",
+  "params": [{ "name": "pickup" }, { "name": "score" }, { "name": "level", "default": "superstructure.prepL3" }, { "name": "next" }],
+  "nodes": [
+    { "id": "pickup", "name": "Pickup", "kind": "pose", "timeout": 6, "goal": "$pickup", "during": ["superstructure.markPickup"] },
+    { "id": "arm", "name": "Arm", "kind": "action", "timeout": 3, "action": "$level" },
+    { "id": "score", "name": "Score", "kind": "pose", "timeout": 6, "goal": "$score" }
+  ],
+  "transitions": [
+    { "id": "got", "from": "pickup", "to": "arm", "condition": { "kind": "signal", "key": "superstructure.coralSeen", "op": "eq", "value": true }, "interrupt": true },
+    { "id": "up", "from": "arm", "to": "score", "condition": { "kind": "always" } },
+    { "id": "scored", "from": "score", "to": "$next", "condition": { "kind": "always" } }
+  ]
+}],
+"routines": [{
+  "id": "abba", "name": "ABBA 4 Coral", "initial": "c1.pickup",
+  "nodes": [{ "id": "done", "name": "Done", "kind": "finish", "timeout": 1 }],
+  "transitions": [],
+  "uses": [
+    { "id": "c1", "group": "cycle", "name": "Cycle 1", "args": { "pickup": { "x": 1.2, "y": 5.8, "heading": 0, "…": "a whole goal" }, "score": { "…": "" }, "next": "c2.pickup" } },
+    { "id": "c2", "group": "cycle", "name": "Cycle 2", "args": { "pickup": { "…": "" }, "score": { "…": "" }, "level": "superstructure.prepL4", "next": "done" } }
+  ]
+}]
+```
+
+- In a group's `nodes` and `transitions`, any JSON value that is the string `"$name"` of a declared parameter is replaced by the use's argument: a whole goal, one number, an action ID, a list entry, the ID of the step that follows. A parameter may have a `default`.
+- A use produces the steps `<use id>.<step id>` (`c2.pickup`) and exits `<use id>.<exit id>`. An exit's `from`/`to` that names a step of the group means that use's own step; anything else (a `$parameter`, or a routine step such as `done`) is used as written. Other transitions of the routine, and `initial`, refer to produced steps by those IDs.
+- The file keeps three things: `groups`, each routine's `uses`, and the produced steps and exits in `nodes` / `transitions` (marked `fromGroup`), so validation, the preview, `simulate`, the C++ exporter, generated headers and older versions of the app all read ordinary steps. The group and the arguments are the source: write or edit those and leave the produced steps out or stale; they are regenerated whenever a project is loaded or saved through the tools (`validate` warns when the file's copy is out of date; a wrong argument is reported on the step it produces). State names in logs are the produced IDs.
+- **In the app** a produced step shows its group in the step list, and the inspector says what an edit changes: a value that comes from a parameter (drag the pose, change the level) changes that use's argument; anything else changes the group, and so every use. Right-click a produced step to add another use (a copy of that one's arguments), detach a use into ordinary steps, or remove it. Creating a group and choosing its parameters is done with the tool below or in the JSON; the app does not have that dialog yet.
+- **Tool.** `create_step_group` (`node scripts/mayhem.mjs tool create_step_group '<JSON>'`) turns existing steps into a group, kept as its first use: `{ "path": …, "routine": "abba", "group": { "id": "cycle", "name": "Cycle", "steps": ["pickup", "arm", "score"], "params": { "pickup": "pickup.goal", "score": "score.goal", "level": "arm.action", "next": "exit:scored.to" } } }`. Each `params` entry is a path inside a step (`<step id>.<field>…`) or an exit (`exit:<transition id>.to`); the value there becomes the parameter and that use's argument. `{ "path": …, "routine": "abba", "use": { "group": "cycle", "like": "cycle1", "args": { … } } }` adds another use. Both take `dryRun` and `expectedRevision`.
 
 ## Authoring machines and routines
 
@@ -247,7 +289,7 @@ runner.SetClock([] { return frc::Timer::GetFPGATimestamp().value(); });   // or 
 // each loop:      drive(runner.Tick(pose, velocity));   // dt from the clock
 ```
 
-- `Bind(id, {begin, tick, end})`: `begin` on entering the step, `tick` every loop until it returns Succeeded or Failed (an empty `tick` succeeds at once), `end(cancelled)` once on exit. `Instant(fn)` runs `fn` and succeeds. A path event marker with that ID runs `begin` when it fires.
+- `Bind(id, {begin, tick, end})`: `begin` on entering the step, `tick` every loop until it returns Succeeded or Failed (an empty `tick` succeeds at once), `end(cancelled)` once on exit. `Instant(fn)` runs `fn` and succeeds. A path event marker with that ID runs `begin` when it fires; with `"hold": true` on the marker it is begun there and ticked until it succeeds or the step exits.
 - `BindSignal(key, fn)` supplies a guard input.
 - `Unbound()` / `UnboundReport()` list every action, `during` action, path event and guard signal of the routine with no binding (each once, with the first node using it). Check it at boot so a missing binding fails then, not mid-match. An unbound action fails its step.
 - `RobotHooks` still works: `AutoRunner(routine, hooks)` sends everything that is not bound to the hooks, so you can migrate one ID at a time (bindings win). Guards receive your hooks object unless you bind signals.

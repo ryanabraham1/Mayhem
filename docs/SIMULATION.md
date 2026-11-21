@@ -328,7 +328,15 @@ high and slides when pushed low (then trips when it stops, as mu 0.8 > r / h_cm)
 resistance is a torque `rollingResistance * N * radius` about the axis. Prisms, bumper boxes
 (`bumperBottomM` up to `robotBoxTopM` or `RobotHeight()`) and polygon colliders are convex hulls
 tested on their face normals, which can stop a piece up to `r (sqrt 2 - 1)` (2.4 cm for coral)
-early near a hull's edge; capsules use the exact point-to-cylinder distance. Piece-piece
+early near a hull's edge. The contact face is the one the piece is least deep behind, measured on
+the part of the piece inside the hull, so a shape smaller than the piece (a bar or the sloped face
+of an end effector against a standing coral) pushes with the face that touches it: the coral tips
+over its base edge when pushed above `r / mu` (7 cm) and slides when pushed lower. (Before 0.14.0
+the whole piece was measured, and a coral leaning 10 degrees away from a small shape was pushed
+back down by the shape's underside, so it was carried along upright.) A lying coral rolls with
+`rollingResistance` 0.04, an estimate, not a measurement: 0.21 m/s^2, so one nudged to 0.5 m/s
+rolls 0.6 m and one at 1 m/s rolls 2.4 m; set `CylinderParams::rollingResistance` from a roll
+test on your carpet (coefficient = 1.9 v^2 / (2 g distance)); capsules use the exact point-to-cylinder distance. Piece-piece
 contacts treat each piece as a capsule of the same radius and length: pieces rest on each other
 side-on (crosswise, in a groove), not balanced end-on; `pieceContacts = false` turns them off.
 Pieces at rest sleep until something moving comes within 2 cm. 20 coral with a robot, a plate
@@ -351,6 +359,18 @@ all pieces in a step (normal plus friction) stays at or below it, so the reactio
 too. Past the limit the shape gives way: it passes through the piece instead of pushing it out, and
 the piece is squeezed or slips rather than launched. Both default to infinity (rigid, the earlier
 behaviour).
+
+The limit is per collider. An arm built from several shapes (stages, end-effector body, wheel
+stacks, a held piece) can push with all of their limits at once: give them the same
+`MechanismCollider::forceGroup` (any number >= 0) and the shapes of that robot share one budget, the
+smallest `maxForce` among them. Choose the limit from the mechanism: the most the arm can push at
+its tip (stall torque at the current limit over the reach). A push F up on the arm at reach d
+ahead of the robot's centre lifts the front wheels once `F (d + a) > m g a` (a: centre to the rear
+wheels): 151 N at 0.9 m for the 68 kg reference robot, about 135 N for a 55 kg one. Below that the
+robot stays down; above it the front comes up until the arm no longer presses on the piece, which
+for a coral under the end effector is 5 to 6 degrees lying and about 15 degrees standing. That is
+what a real arm driven into something it cannot crush does; if your arm cannot push that hard, its
+limit is too high.
 
 **Contact reports.** `LastContacts()` lists, for the last Step, each piece's contact with each
 thing (floor, wall, prism, robot box, collider, other piece) that pushed it: the source and its
@@ -595,6 +615,9 @@ robot spawned on one, a wall and a prism stopping one, resting on and tipping of
 stacking, the intake query and hold/release, a spinning roller driving a coral, a coral pinched by
 a force-limited plate against the carpet and against the robot's own box and by two jaws on one
 robot (robot impulse within maxForce dt, no tipping, no launch, reports naming the collider),
+bars and sloped faces tipping a standing coral at 15 to 28 cm (and one pressed low sliding
+upright), an arm of three shapes sharing one force budget (reaction within it, robot not lifted
+below the lifting force, lifted onto the coral and no further above it),
 SetFromRobotFrame matching a robot-frame collider, 20 coral under a time budget, and determinism.
 `sim_algae_test.cpp` checks a ball's bounce against e^2 h and rolling without slip, low and high
 reef algae settling and sleeping in a cradle of capsule pipes, surviving 1 and 6 cm scrapes and a

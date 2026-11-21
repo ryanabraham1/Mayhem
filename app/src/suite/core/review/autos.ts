@@ -99,7 +99,7 @@ export function diffRoutine(before: { project: SuiteProject; routine: AutoRoutin
     else {
       const details = stepDetails(o, n);
       const exits = (route: AutoRoutine, id: string) =>
-        route.transitions.filter((t) => t.from === id).map((t) => `${t.to}${t.condition.kind === "always" ? "" : ` when ${formatCondition(t.condition)}`}`).join("; ");
+        route.transitions.filter((t) => t.from === id).map((t) => `${t.to}${t.condition.kind === "always" ? "" : ` ${t.interrupt ? "as soon as" : "when"} ${formatCondition(t.condition)}`}`).join("; ");
       const was = exits(before.routine, n.id),
         is = exits(after.routine, n.id);
       if (was !== is) details.push(`next: ${was || "end"} → ${is || "end"}`);

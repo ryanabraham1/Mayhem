@@ -29,6 +29,7 @@ import { sampleProject } from "../app/src/suite/core/sample.ts";
 const { exportCpp } = await import("../app/src/suite/core/export-cpp.ts");
 const { simulate, unmodeledLimits } = await import("../app/src/suite/core/runtime.ts");
 const { headingLints } = await import("../app/src/suite/core/headingLint.ts");
+const { createGroup, addGroupUse } = await import("../app/src/suite/core/groups.ts");
 import { analyze, parseRecordingJSON, currentBreakdown } from "../app/src/suite/core/analysis.ts";
 import { listChannels, logTable, findAnomalies, whatChanged, logEvents, machineStates } from "../app/src/suite/core/logquery.ts";
 import { diagnoseLog, compareLogs } from "../app/src/suite/core/logdiagnose.ts";
@@ -67,6 +68,23 @@ const tools = [
     name: "machine_spec",
     description: "Return the compact spec of a machine in a project (conditions as text), to edit and pass back to apply_machine_spec.",
     inputSchema: { type: "object", properties: { path: { type: "string" }, machine: { type: "string" } }, required: ["path", "machine"] },
+  },
+  {
+    name: "create_step_group",
+    description:
+      "Turn steps of a routine into a reusable step group (a template with parameters), kept as the group's first use; or add another use of an existing group. Create: { routine, group: { id, name?, steps: [step IDs], params: { <name>: \"<step id>.<field path>\" | \"exit:<transition id>.to\" } } }: each param path (e.g. \"pickup.goal\", \"arm.action\", \"exit:scored.to\") becomes \"$name\" in the template and an argument of the use. Add a use: { routine, use: { group, like?: <use id to copy arguments from>, args?: { ... } } }. The file then holds project.groups, routine.uses and the produced steps `<use id>.<step id>` (marked fromGroup); edit the group or a use's args, never the produced steps (they are regenerated on load). Saves atomically with a revision bump; dryRun returns the result without writing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Project file (*.mayhem.json)." },
+        routine: { type: "string" },
+        group: { type: "object" },
+        use: { type: "object" },
+        expectedRevision: { type: "integer" },
+        dryRun: { type: "boolean" },
+      },
+      required: ["path", "routine"],
+    },
   },
   {
     name: "import_mtraj_route",
@@ -570,6 +588,31 @@ export async function execute(name, args) {
     const machine = (project.extensions.machines ?? []).find((m) => m?.id === args.machine);
     if (!machine) throw new Error(`No machine ${args.machine}. Machines: ${(project.extensions.machines ?? []).map((m) => m?.id).join(", ") || "none"}.`);
     return specFromMachine(machine);
+  }
+  if (name === "create_step_group") {
+    return updateProject(path, args, (project) => {
+      const routine = project.routines.find((r) => r.id === args.routine);
+      if (!routine) throw new Error(`No routine ${args.routine}. Routines: ${project.routines.map((r) => r.id).join(", ")}.`);
+      if (!!args.group === !!args.use) throw new Error("Give `group` (make a group from steps) or `use` (add a use of a group).");
+      let use;
+      if (args.group) {
+        const group = createGroup(project, routine, args.group);
+        use = routine.uses.find((u) => u.group === group.id);
+      } else {
+        if (!project.groups?.some((g) => g.id === args.use.group)) throw new Error(`No step group ${args.use.group}. Groups: ${(project.groups ?? []).map((g) => g.id).join(", ") || "none"}.`);
+        use = addGroupUse(project, routine, args.use.group, routine.uses?.find((u) => u.id === args.use.like));
+        Object.assign(use.args, args.use.args ?? {});
+      }
+      // Regenerate and check (wrong arguments are reported on the steps they produce).
+      const next = parseProject(JSON.stringify(project));
+      const made = next.routines.find((r) => r.id === routine.id);
+      return {
+        project: next,
+        group: next.groups.find((g) => g.id === use.group),
+        use: made.uses.find((u) => u.id === use.id),
+        steps: made.nodes.filter((n) => n.fromGroup?.use === use.id).map((n) => n.id),
+      };
+    });
   }
   if (name === "import_mtraj_route") {
     const specs = routeSpecs(args.spec);
