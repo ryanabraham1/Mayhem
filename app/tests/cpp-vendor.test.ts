@@ -26,9 +26,9 @@ describe("vendoring the C++ headers into a robot project", () => {
     expect(names).toEqual(expect.arrayContaining(["pose_driver.hpp", "wpilib_log.hpp", "wpilib.hpp"]));
     const frc2 = names.filter((n) => /#include\s*[<"](frc2\/|mayhem\/wpilib\.hpp)/.test(readFileSync(join(headers, n), "utf8")));
     expect(frc2).toEqual(["wpilib.hpp"]);
-    // The physics sim core is dependency-free; only its two adapter headers include WPILib/Phoenix.
+    // The physics sim core is dependency-free; only its adapter headers include WPILib/Phoenix.
     const external = names.filter((n) => n.startsWith("sim/") && /#include\s*<(frc|ctre|units)\//.test(readFileSync(join(headers, n), "utf8")));
-    expect(external).toEqual(["sim/phoenix6.hpp", "sim/wpilib_sim.hpp"]);
+    expect(external).toEqual(["sim/phoenix6.hpp", "sim/wpilib_apriltag.hpp", "sim/wpilib_sim.hpp"]);
     expect(readFileSync(join(headers, "wpilib.hpp"), "utf8")).toMatch(/#include "mayhem\/wpilib_log\.hpp"/);
   });
 

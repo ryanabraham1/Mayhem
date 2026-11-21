@@ -7,8 +7,9 @@ autonomous simulates in well under a second (a swerve with a bump and walls: ~20
 plus 500 game pieces: ~0.7 s), so agents can run hundreds of seeded Monte Carlo autos. It is
 deterministic: the same inputs and seed give bit-identical results on the same build.
 
-The core headers include only the standard library. Two optional adapters include vendor code:
-`wpilib_sim.hpp` (WPILib 2026, C++20) and `phoenix6.hpp` (Phoenix 6 v26 + WPILib, C++20).
+The core headers include only the standard library. Three optional adapters include vendor code:
+`wpilib_sim.hpp` (WPILib 2026, C++20), `wpilib_apriltag.hpp` (also WPILib's apriltag library) and
+`phoenix6.hpp` (Phoenix 6 v26 + WPILib, C++20).
 Season-specific things (field layout, piece placement, scoring rules, robot IO wiring) live in
 robot code and are built from these primitives.
 
