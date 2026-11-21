@@ -28,7 +28,7 @@ import { ReviewProvider, useReviews } from "./changes/reviewList";
 import { ChangesPage } from "./changes/ChangesPage";
 import { OverviewPage } from "./overview/OverviewPage";
 import { SettingsPage, type ThemeChoice } from "./settings/SettingsPage";
-import { desktop } from "./native";
+import { desktop, invoke } from "./native";
 import { ContextMenuHost } from "./ContextMenu";
 import { installUpdate, startUpdateChecks, useUpdater } from "../updater";
 import "./suite.css";
@@ -137,9 +137,29 @@ function Shell({
   const [projectPicker, setProjectPicker] = useState(false);
   // Picking the robot code folder shows that robot: its own project file (autos, state machines)
   // opens and stays linked. A folder already chosen at launch is left to the Overview's prompt.
-  const [repo] = useRobotRepo();
+  const [repo, setRepo] = useRobotRepo();
   const repoProject = useRepoProject(repo);
   const shownRepo = useRef(repo);
+  // And the other way: opening a project file that lives in a git repository makes that repository
+  // the robot code folder, so Changes, Robot values and the rest follow the project. A project
+  // outside any repository leaves the chosen folder alone.
+  const repoRef = useRef(repo);
+  repoRef.current = repo;
+  useEffect(() => {
+    const path = s.projectPath;
+    if (!desktop || !path) return;
+    let current = true;
+    invoke<string | null>("review_git_root", { path })
+      .then((root) => {
+        if (!current || !root || samePath(root, repoRef.current)) return;
+        shownRepo.current = root; // the project is already open; don't reopen the repo's own
+        setRepo(root);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [s.projectPath]);
   const openProjectFile = useRef(s.openProjectFile);
   openProjectFile.current = s.openProjectFile;
   const projectPath = useRef(s.projectPath);

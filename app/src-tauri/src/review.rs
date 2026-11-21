@@ -84,6 +84,19 @@ pub struct RepoInfo {
     revisions: Vec<Revision>,
 }
 
+/// The git repository a file or folder is in (its top-level folder), or None when it isn't in one.
+/// Lets the robot code folder follow whichever project file is open.
+#[tauri::command]
+pub async fn review_git_root(path: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = std::path::Path::new(&path);
+        let dir = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
+        Ok(git(&dir.to_string_lossy(), &["rev-parse", "--show-toplevel"]).ok().map(|r| r.trim().to_string()).filter(|r| !r.is_empty()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn review_repo(repo: String) -> Result<RepoInfo, String> {
     tauri::async_runtime::spawn_blocking(move || {
