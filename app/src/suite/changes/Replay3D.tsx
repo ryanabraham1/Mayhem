@@ -113,10 +113,15 @@ interface Rig {
   components: THREE.Group[];
   /** Every game piece of this run, on the ground and in the air. */
   pieces: PieceMesh;
+  /**
+   * 2025 runs that log Sim/Coral: coral drawn from its poses (rotation applied) and algae from
+   * Sim/Algae. Then Sim/Fuel and Sim/FlyingFuel are not drawn: they repeat these as points.
+   */
+  posed?: { coral: PieceMesh; algae: PieceMesh };
   /** The robot code's pose estimate, a see-through copy of the robot (AdvantageScope's ghost). */
   estimate?: THREE.Group;
   /** Which samples are drawn now, so pieces are only rewritten when they change. */
-  drawn: { fuel?: unknown; flying?: unknown };
+  drawn: { fuel?: unknown; flying?: unknown; coral?: unknown; algae?: unknown };
 }
 
 /** A robot (base plus articulated components) from an AdvantageScope robot asset. */
@@ -161,7 +166,10 @@ function paint(root: THREE.Object3D, material: THREE.Material | undefined) {
 }
 const setGhost = (rig: Rig, ghost: boolean) => paint(rig.root, ghost ? GHOST : undefined);
 
-async function buildRig(asset: Asset, shape: Awaited<ReturnType<typeof pieceModel>>, track: Track3D): Promise<Rig> {
+type Shape = Awaited<ReturnType<typeof pieceModel>>;
+const pieceMeshes = (rig: Rig) => [...rig.pieces.meshes, ...(rig.posed ? [...rig.posed.coral.meshes, ...rig.posed.algae.meshes] : [])];
+
+async function buildRig(asset: Asset, shape: Shape, track: Track3D, posed?: { coral: Shape; algae: Shape }): Promise<Rig> {
   const robot = await robotModel(asset);
   let estimate: THREE.Group | undefined;
   if (track.estimate.length) {
@@ -169,13 +177,51 @@ async function buildRig(asset: Asset, shape: Awaited<ReturnType<typeof pieceMode
     paint(estimate, ESTIMATE);
     estimate.renderOrder = 1;
   }
-  return { ...robot, pieces: pieceMesh(shape, track.maxPieces), estimate, drawn: {} };
+  return {
+    ...robot,
+    pieces: pieceMesh(shape, posed ? 0 : track.maxPieces),
+    posed: posed && { coral: pieceMesh(posed.coral, track.maxCoral), algae: pieceMesh(posed.algae, track.maxAlgae) },
+    estimate,
+    drawn: {},
+  };
 }
 
 const place = new THREE.Matrix4();
+const turn = new THREE.Quaternion();
+const spot = new THREE.Vector3();
+const ONE = new THREE.Vector3(1, 1, 1);
+function finish(pieces: PieceMesh, n: number) {
+  for (const m of pieces.meshes) {
+    m.count = Math.min(n, m.instanceMatrix.count);
+    m.instanceMatrix.needsUpdate = true;
+  }
+}
 function drawPieces(rig: Rig, track: Track3D, t: number, offset: THREE.Vector2) {
   // Before a list's first sample nothing is known yet: draw none of it rather than the future.
   const at = <T extends { t: number }>(list: T[]) => (list.length && t + 1e-6 >= list[0].t ? sampleAt(list, t) : undefined);
+  if (rig.posed) {
+    const coral = at(track.coral),
+      algae = at(track.algae);
+    if (rig.drawn.coral === coral && rig.drawn.algae === algae) return;
+    rig.drawn = { coral, algae };
+    const { coral: cm, algae: am } = rig.posed;
+    const v = coral?.pose ?? new Float32Array();
+    let n = 0;
+    for (let i = 0; i + 6 < v.length; i += 7, n++) {
+      // WPILib's quaternion is w, x, y, z; the model's base transform puts its axis on the pose's x.
+      place.compose(spot.set(v[i] - offset.x, v[i + 1] - offset.y, v[i + 2]), turn.set(v[i + 4], v[i + 5], v[i + 6], v[i + 3]).normalize(), ONE).multiply(cm.base);
+      for (const m of cm.meshes) if (n < m.instanceMatrix.count) m.setMatrixAt(n, place);
+    }
+    finish(cm, n);
+    const xyz = algae?.xyz ?? new Float32Array();
+    n = 0;
+    for (let i = 0; i + 2 < xyz.length; i += 3, n++) {
+      place.makeTranslation(xyz[i] - offset.x, xyz[i + 1] - offset.y, xyz[i + 2]).multiply(am.base);
+      for (const m of am.meshes) if (n < m.instanceMatrix.count) m.setMatrixAt(n, place);
+    }
+    finish(am, n);
+    return;
+  }
   const fuel = at(track.fuel),
     flying = at(track.flying);
   if (rig.drawn.fuel === fuel && rig.drawn.flying === flying) return;
@@ -190,10 +236,7 @@ function drawPieces(rig: Rig, track: Track3D, t: number, offset: THREE.Vector2) 
       n++;
     }
   }
-  for (const m of rig.pieces.meshes) {
-    m.count = Math.min(n, m.instanceMatrix.count);
-    m.instanceMatrix.needsUpdate = true;
-  }
+  finish(rig.pieces, n);
 }
 
 function pose(rig: Rig, track: Track3D, t: number, offset: THREE.Vector2) {
@@ -311,11 +354,19 @@ export function Replay3D({
         if (!before && !after) throw new Error("These runs did not log a 3D robot pose (/RealOutputs/Sim/RobotPose).");
         state.current!.tracks = { before, after };
         const shape = await pieceModel(field, season.gamePiece);
+        // 2025 runs that log every coral's pose (Sim/Coral) draw coral and algae as they really sit.
+        const posedRun = (track?: Track3D) => season.year === 2025 && !!track?.coral.length;
+        const posed = posedRun(before) || posedRun(after) ? { coral: await pieceModel(field, /coral/i), algae: await pieceModel(field, /algae/i) } : undefined;
+        // Those runs log every piece themselves, so the field's staged ones would be drawn twice.
+        if (posed) {
+          const staged = new Set(((fieldConfig.gamePieces ?? []) as { stagedObjects?: string[] }[]).flatMap((g) => g.stagedObjects ?? []).map((n) => THREE.PropertyBinding.sanitizeNodeName(n)));
+          fieldModel.traverse((o) => void (staged.has(o.name) && (o.visible = false)));
+        }
         for (const [side, track] of [["before", before], ["after", after]] as const) {
           if (!track) continue;
-          const rig = await buildRig(robot, shape, track);
+          const rig = await buildRig(robot, shape, track, posedRun(track) ? posed : undefined);
           if (cancelled) return;
-          scene.add(rig.root, ...rig.pieces.meshes);
+          scene.add(rig.root, ...pieceMeshes(rig));
           if (rig.estimate) scene.add(rig.estimate);
           state.current!.rigs[side] = rig;
         }
@@ -359,7 +410,7 @@ export function Replay3D({
       const show = (rig: Rig | undefined, on: boolean, extras = on) => {
         if (!rig) return;
         rig.root.visible = on;
-        for (const m of rig.pieces.meshes) m.visible = extras;
+        for (const m of pieceMeshes(rig)) m.visible = extras;
         if (rig.estimate) rig.estimate.visible = extras && estimateRef.current;
       };
       if (side) {

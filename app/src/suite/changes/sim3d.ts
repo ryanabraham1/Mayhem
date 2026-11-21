@@ -25,6 +25,11 @@ export interface Points {
   t: number;
   xyz: Float32Array;
 }
+/** A changing set of poses: each sample holds every pose as x, y, z, qw, qx, qy, qz (WPILib's Pose3d order). */
+export interface Poses {
+  t: number;
+  pose: Float32Array;
+}
 export interface Track3D {
   robot: Pose3[];
   components: Pose3[][];
@@ -32,10 +37,20 @@ export interface Track3D {
   fuel: Points[];
   /** Pieces in the air (shots). */
   flying: Points[];
+  /**
+   * 2025: every coral with its orientation (Sim/Coral), so a held coral turns with the robot and a
+   * scored one lines up with its branch. Empty when the run did not log it (then Sim/Fuel has the
+   * coral as points). The tube's axis is the pose's x axis.
+   */
+  coral: Poses[];
+  /** 2025: every algae (Sim/Algae), loose, held, flying and on the reef. */
+  algae: Points[];
   /** The robot code's own pose estimate (odometry and vision), drawn as a ghost. */
   estimate: Pose2[];
   /** The most points any sample holds (ground and flying together), to size the instanced meshes. */
   maxPieces: number;
+  maxCoral: number;
+  maxAlgae: number;
   duration: number;
 }
 
@@ -46,6 +61,8 @@ const KEYS = {
   components: names("Sim/Components"),
   fuel: names("Sim/Fuel"),
   flying: names("Sim/FlyingFuel"),
+  coral: names("Sim/Coral"),
+  algae: names("Sim/Algae"),
   estimate: ["NT:/DriveState/Pose", ...names("DriveState/Pose"), ...names("Odometry/Robot")],
 };
 
@@ -131,17 +148,24 @@ export function track3D(buffer: ArrayBuffer): Track3D | undefined {
   const points = (r?: Raw): Points[] => (r?.samples ?? []).map((s) => ({ t: s.t, xyz: Float32Array.from(s.values.subarray(0, s.values.length - (s.values.length % 3))) }));
   const fuel = points(pick(KEYS.fuel));
   const flying = points(pick(KEYS.flying));
+  const coral: Poses[] = (pick(KEYS.coral)?.samples ?? []).map((s) => ({ t: s.t, pose: Float32Array.from(s.values.subarray(0, s.values.length - (s.values.length % 7))) }));
+  const algae = points(pick(KEYS.algae));
   const estimate = (pick(KEYS.estimate)?.samples ?? []).filter((s) => s.values.length >= 3).map((s) => ({ t: s.t, x: s.values[0], y: s.values[1], heading: s.values[2] }));
   const most = (list: Points[]) => list.reduce((m, s) => Math.max(m, s.xyz.length / 3), 0);
+  const mostPoses = coral.reduce((m, s) => Math.max(m, s.pose.length / 7), 0);
   const last = (list: { t: number }[]) => list[list.length - 1]?.t ?? 0;
   return {
     robot,
     components,
     fuel,
     flying,
+    coral,
+    algae,
     estimate,
     maxPieces: most(fuel) + most(flying),
-    duration: Math.max(last(robot), last(fuel), last(flying), ...components.map(last)),
+    maxCoral: mostPoses,
+    maxAlgae: most(algae),
+    duration: Math.max(last(robot), last(fuel), last(flying), last(coral), last(algae), ...components.map(last)),
   };
 }
 

@@ -48,6 +48,37 @@ describe("track3D", () => {
     expect(track.robot[0].t).toBe(1);
   });
 
+  it("reads 2025 coral as poses (orientation kept) and algae as points", () => {
+    const half = Math.SQRT1_2;
+    const log = wpilog([
+      { name: "/RealOutputs/Sim/RobotPose", type: "struct:Pose3d", samples: [{ t: 0, values: [2, 3, 0, 1, 0, 0, 0] }] },
+      // Two coral: one on the carpet (identity), one turned 90 degrees about z (w, x, y, z).
+      { name: "NT:/AdvantageKit/RealOutputs/Sim/Coral", type: "struct:Pose3d[]", samples: [{ t: 1, values: [1, 2, 0.057, 1, 0, 0, 0, 4, 5, 1.2, half, 0, 0, half] }] },
+      { name: "/RealOutputs/Sim/Algae", type: "struct:Translation3d[]", samples: [{ t: 1, values: [6, 7, 0.2] }] },
+      { name: "/RealOutputs/Sim/Fuel", type: "struct:Translation3d[]", samples: [{ t: 1, values: [1, 2, 0.057, 4, 5, 1.2] }] },
+    ]);
+    const track = track3D(log)!;
+    expect(track.coral).toHaveLength(1);
+    expect(track.coral[0].pose.length / 7).toBe(2);
+    expect(Array.from(track.coral[0].pose.subarray(7, 14))).toEqual(Array.from(Float32Array.from([4, 5, 1.2, half, 0, 0, half])));
+    expect(track.maxCoral).toBe(2);
+    expect(Array.from(track.algae[0].xyz)).toEqual(Array.from(Float32Array.from([6, 7, 0.2])));
+    expect(track.maxAlgae).toBe(1);
+    // Sim/Fuel is still read for runs and seasons that draw it.
+    expect(track.fuel[0].xyz.length / 3).toBe(2);
+  });
+
+  it("has no coral poses when the run logs only Sim/Fuel", () => {
+    const log = wpilog([
+      { name: "/RealOutputs/Sim/RobotPose", type: "struct:Pose3d", samples: [{ t: 0, values: [2, 3, 0, 1, 0, 0, 0] }] },
+      { name: "/RealOutputs/Sim/Fuel", type: "struct:Translation3d[]", samples: [{ t: 1, values: [1, 2, 0.057] }] },
+    ]);
+    const track = track3D(log)!;
+    expect(track.coral).toEqual([]);
+    expect(track.algae).toEqual([]);
+    expect(track.maxCoral).toBe(0);
+  });
+
   it("has nothing to draw without a robot pose", () => {
     expect(track3D(wpilog([{ name: "/RealOutputs/Sim/Fuel", type: "struct:Translation3d[]", samples: [{ t: 0, values: [1, 2, 3] }] }]))).toBeUndefined();
   });
