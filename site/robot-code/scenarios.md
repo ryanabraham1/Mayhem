@@ -3,7 +3,7 @@
 The **sim proof** on the [Changes](/suite/changes#sim-proof) page builds two versions of your robot code and runs both in simulation:
 
 - every controller button, tapped and held for 2 s in teleop,
-- every routine in `robot.mayhem.json`, as a 20 s auto on the full field,
+- every routine in `robot.mayhem.json`, as a full-length auto (20 s in 2026, 15 s in 2025) on the full field,
 - your team's scenarios from `tools/mayhem/scenarios.json`.
 
 Then it compares what the robot did. The first two come for free. The third is your regression suite: add a scenario for every behavior a driver relies on.

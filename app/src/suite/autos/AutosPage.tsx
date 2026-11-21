@@ -17,7 +17,8 @@ import {
 import { FieldView } from "../FieldView";
 import { routineLegs } from "../core/legs.ts";
 import { resolveConstraints } from "../core/model.ts";
-import { AUTO_PERIOD_SECONDS, type PlaceTool, type SuiteState } from "../useSuiteProject";
+import { type PlaceTool, type SuiteState } from "../useSuiteProject";
+import { seasonOf } from "../core/seasons.ts";
 import { Badge, Button, IconButton, PageHeader, Segmented } from "../ui";
 import { AutoInspector } from "./AutoInspector";
 import { LegStrip } from "./LegStrip";
@@ -183,6 +184,7 @@ export function AutosPage({ s }: { s: SuiteState }) {
   const steps = s.routine.nodes.filter((n) => n.kind !== "finish").length;
   const errors = s.issues.filter((i) => i.severity === "error").length;
   const runTime = s.forecast.status === "completed" ? s.forecast.frame.time : undefined;
+  const AUTO_PERIOD_SECONDS = seasonOf(s.project.field).autoSeconds;
   const fits = runTime !== undefined && runTime <= AUTO_PERIOD_SECONDS;
 
   return (

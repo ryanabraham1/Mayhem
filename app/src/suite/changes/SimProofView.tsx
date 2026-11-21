@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { CircleCheck, CircleX, FileCode2, FlaskConical, Pause, Play, TriangleAlert, Video } from "lucide-react";
 import type { View3D } from "./Replay3D";
-import { FieldArt, type FieldDrawing as FieldModel } from "../FieldArt";
-import field from "../core/rebuilt-2026.json";
+import { FieldArt } from "../FieldArt";
+import { DEFAULT_SEASON, seasonOf, type Season } from "../core/seasons.ts";
 import type { ReviewReport } from "../core/review/report.ts";
 import { stepTimeline, type Outcome, type Track } from "../core/review/scenarios.ts";
 import { parseMachineSpecs } from "../core/review/machines.ts";
@@ -44,7 +44,8 @@ function Timeline({ track, duration, time }: { track?: Track; duration: number; 
 const poseAt = (o: Outcome | undefined, t: number) => o?.poses.reduce<Outcome["poses"][number] | undefined>((best, p) => (p.time <= t + 1e-6 ? p : best), o.poses[0]);
 
 /** Before and after robots on the field, with a shared clock, and each machine's states below. */
-export function Replay({ result, onTime }: { result: ScenarioResult; onTime?: (t: number) => void }) {
+export function Replay({ result, onTime, season = DEFAULT_SEASON }: { result: ScenarioResult; onTime?: (t: number) => void; season?: Season }) {
+  const field = season.field;
   const duration = Math.max(result.before?.duration ?? 0, result.after?.duration ?? 0, 0.1);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -144,7 +145,7 @@ export function Replay({ result, onTime }: { result: ScenarioResult; onTime?: (t
       )}
       {mode === "3d" && has3D && (
         <Suspense fallback={<p className="mx-help">Loading the 3D view…</p>}>
-          <Replay3D logs={result.logs} time={time} view={view} estimate={estimate} onCanvas={(c) => (canvas.current = c)} />
+          <Replay3D season={season} logs={result.logs} time={time} view={view} estimate={estimate} onCanvas={(c) => (canvas.current = c)} />
         </Suspense>
       )}
       {clip && (
@@ -177,7 +178,7 @@ export function Replay({ result, onTime }: { result: ScenarioResult; onTime?: (t
           aria-label="Before and after replay"
         >
           <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
-            <FieldArt field={field as FieldModel} hideFuel />
+            <FieldArt field={field} hideFuel />
           </g>
           {result.before && <polyline className="is-before" points={line(result.before)} />}
           {result.after && <polyline className="is-after" points={line(result.after)} />}
@@ -271,7 +272,7 @@ export function SimProofView({ report, review, focus }: { report: ReviewReport; 
         <div>
           <strong>Sim proof</strong>
           <p className="mx-help">
-            Builds both versions with the robot's own simulation and runs every auto, every controller button (tapped and held) and the team's scenarios on the full simulated field (bumps, walls, hub, every ball) from{" "}
+            Builds both versions with the robot's own simulation and runs every auto, every controller button (tapped and held) and the team's scenarios on the full simulated field (every wall, structure and game piece) from{" "}
             <code>tools/mayhem/scenarios.json</code>. About a minute per version the first time; repeat runs are cached.
           </p>
         </div>
@@ -443,7 +444,7 @@ export function SimProofView({ report, review, focus }: { report: ReviewReport; 
                               </button>
                             </p>
                           )}
-                          <Replay key={`${selected.scenario.id}:${shown === selected}`} result={shown} />
+                          <Replay key={`${selected.scenario.id}:${shown === selected}`} result={shown} season={seasonOf(report.field)} />
                         </>
                       );
                     })()}

@@ -271,7 +271,7 @@ Risk: **red** = a CAN ID, motor direction, brake/coast, current limit, travel li
 `run_scenarios` (CLI: `node scripts/mayhem.mjs sim <robot repo> [after] [--before <rev>] [--only button,auto,custom]`; the app: Changes → Sim proof) builds a revision with Mayhem's probe test (`app/src/suite/core/review/probe.cpp`, copied into a clean export of that revision, never committed) and runs each scenario through the robot's own `RobotHarness`, one process each, logging a WPILOG:
 
 - every controller button tapped and held for 2 s from teleop (the button → outcome map),
-- every routine in the root `*.mayhem.json` as a 20 s auto on the full field (`auto completes`, `no tip-over`),
+- every routine in the root `*.mayhem.json` as a full-length auto (20 s for 2026 REBUILT, 15 s for 2025 REEFSCAPE, from the project's field) on the full field (`auto completes`, `no tip-over`),
 - the team's `tools/mayhem/scenarios.json`.
 
 `tools/mayhem/scenarios.json` is the regression gate; keep it passing and add a scenario for every behavior a driver relies on:

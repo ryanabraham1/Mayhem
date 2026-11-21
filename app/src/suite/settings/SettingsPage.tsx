@@ -1,4 +1,5 @@
-import { History, Keyboard, LifeBuoy, Monitor, Moon, Palette, RefreshCw, Sun } from "lucide-react";
+import { CalendarDays, History, Keyboard, LifeBuoy, Monitor, Moon, Palette, RefreshCw, Sun } from "lucide-react";
+import { SEASONS } from "../core/seasons.ts";
 import { recoverySnapshot, download } from "../storage";
 import { Button, PageHeader, Panel, Segmented } from "../ui";
 import { shortcutGroups } from "../autos/ShortcutSheet";
@@ -29,6 +30,21 @@ export function SettingsPage({
       <PageHeader title="Settings" subtitle={`Mayhem ${version}`} />
       <div className="mx-robot-grid">
         <div className="mx-col">
+          <Panel title="Game" icon={CalendarDays}>
+            <Segmented<string>
+              label="Game year"
+              value={String(s.season.year)}
+              onChange={(year) => {
+                const next = SEASONS.find((g) => String(g.year) === year);
+                if (next) s.setSeason(next);
+              }}
+              options={SEASONS.map((g) => ({ value: String(g.year), label: g.name, title: `${g.autoSeconds} s auto period` }))}
+            />
+            <p className="mx-help">
+              Sets the field the autos are drawn and checked on, its size in the exported header, and the length of the
+              auto period ({s.season.autoSeconds} s in {s.season.year}). Autos keep their goals; undo switches back.
+            </p>
+          </Panel>
           <Panel title="Appearance" icon={Palette}>
             <Segmented<ThemeChoice>
               label="Theme"

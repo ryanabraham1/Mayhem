@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Navigation } from "lucide-react";
-import { FieldArt, type FieldDrawing as FieldModel } from "../FieldArt";
-import field from "../core/rebuilt-2026.json";
+import { FieldArt, type FieldDrawing } from "../FieldArt";
+import { seasonOf } from "../core/seasons.ts";
 import type { DrivenPath, RoutineDiff } from "../core/review/autos.ts";
 import type { ReviewReport } from "../core/review/report.ts";
 import { Badge, EmptyState, Segmented, Stat, type Tone } from "../ui";
@@ -9,9 +9,9 @@ import { speedColor, speedRunsFor } from "../FieldView";
 
 type Show = "both" | "before" | "after";
 const TONE: Record<string, Tone> = { added: "good", removed: "bad", changed: "warn", same: "neutral" };
-const points = (p: DrivenPath) => p.poses.map((q) => `${q.x.toFixed(3)},${(field.width - q.y).toFixed(3)}`).join(" ");
+const points = (field: FieldDrawing, p: DrivenPath) => p.poses.map((q) => `${q.x.toFixed(3)},${(field.width - q.y).toFixed(3)}`).join(" ");
 
-function Robot({ pose, className }: { pose: { x: number; y: number; heading: number }; className: string }) {
+function Robot({ field, pose, className }: { field: FieldDrawing; pose: { x: number; y: number; heading: number }; className: string }) {
   return (
     <g className={className} transform={`translate(${pose.x},${field.width - pose.y}) rotate(${(-pose.heading * 180) / Math.PI})`}>
       <rect x="-.42" y="-.42" width=".84" height=".84" rx=".06" />
@@ -21,8 +21,8 @@ function Robot({ pose, className }: { pose: { x: number; y: number; heading: num
 }
 
 /** The path colored by speed, red (slow) to green (fast), like the Autonomous editor; plain when the review has no speeds. */
-function SpeedPath({ path, max, className }: { path: DrivenPath; max: number; className: string }) {
-  if (!path.speeds) return <polyline className={className} points={points(path)} />;
+function SpeedPath({ field, path, max, className }: { field: FieldDrawing; path: DrivenPath; max: number; className: string }) {
+  if (!path.speeds) return <polyline className={className} points={points(field, path)} />;
   const runs = speedRunsFor(path.poses.map((p, i) => ({ x: p.x, y: p.y, speed: path.speeds![i] ?? 0 })), max);
   return (
     <g className={`${className} is-speed`}>
@@ -35,7 +35,7 @@ function SpeedPath({ path, max, className }: { path: DrivenPath; max: number; cl
 
 const topSpeed = (r: RoutineDiff) => Math.max(0.5, ...(r.before?.speeds ?? []), ...(r.after?.speeds ?? []));
 
-function Overlay({ r, show }: { r: RoutineDiff; show: Show }) {
+function Overlay({ field, r, show }: { field: FieldDrawing; r: RoutineDiff; show: Show }) {
   const max = topSpeed(r);
   return (
     <svg
@@ -44,12 +44,12 @@ function Overlay({ r, show }: { r: RoutineDiff; show: Show }) {
       aria-label={`${r.name}: old and new paths`}
     >
       <g aria-hidden="true" transform={`translate(0 ${field.width}) scale(1 -1)`}>
-        <FieldArt field={field as FieldModel} hideFuel />
+        <FieldArt field={field} hideFuel />
       </g>
-      {r.before && show !== "after" && <SpeedPath path={r.before} max={max} className={`is-before${show === "before" ? " is-alone" : ""}`} />}
-      {r.after && show !== "before" && <SpeedPath path={r.after} max={max} className="is-after" />}
-      {r.before && show !== "after" && <Robot pose={r.before.end} className="mx-overlay-robot is-before" />}
-      {r.after && show !== "before" && <Robot pose={r.after.end} className="mx-overlay-robot is-after" />}
+      {r.before && show !== "after" && <SpeedPath field={field} path={r.before} max={max} className={`is-before${show === "before" ? " is-alone" : ""}`} />}
+      {r.after && show !== "before" && <SpeedPath field={field} path={r.after} max={max} className="is-after" />}
+      {r.before && show !== "after" && <Robot field={field} pose={r.before.end} className="mx-overlay-robot is-before" />}
+      {r.after && show !== "before" && <Robot field={field} pose={r.after.end} className="mx-overlay-robot is-after" />}
     </svg>
   );
 }
@@ -58,6 +58,7 @@ const stat = (b?: number, a?: number, unit = "") =>
   b === undefined ? `${a?.toFixed(1)}${unit}` : a === undefined ? `${b.toFixed(1)}${unit} → removed` : Math.abs(a - b) < 0.05 ? `${a.toFixed(1)}${unit}` : `${b.toFixed(1)} → ${a.toFixed(1)}${unit}`;
 
 export function AutosView({ report }: { report: ReviewReport }) {
+  const field = seasonOf(report.field).field;
   const routines = [...report.routines].sort((a, b) => Number(a.kind === "same") - Number(b.kind === "same"));
   const [picked, setPicked] = useState(routines[0]?.id);
   const [show, setShow] = useState<Show>("both");
@@ -102,7 +103,7 @@ export function AutosView({ report }: { report: ReviewReport }) {
               )}
             </div>
           </div>
-          <Overlay r={r} show={show} />
+          <Overlay field={field} r={r} show={show} />
           <div className="mx-stats">
             <Stat label="Time" value={stat(r.before?.time, r.after?.time, " s")} />
             <Stat label="Distance" value={stat(r.before?.distance, r.after?.distance, " m")} />
