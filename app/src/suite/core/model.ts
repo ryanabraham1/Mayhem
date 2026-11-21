@@ -67,7 +67,8 @@ export const resolveConstraints = (
  * An event marker with `distance` fires by distance instead of t: once the robot is within
  * `distance` m of the step's goal ("arm up 1.2 m before the end"), or of the field point `at`
  * when given ("lower the intake 1.3 m from this point"); `t` is then only where the editor
- * draws it. Event markers fire in list order: one waits for those before it.
+ * draws it. Markers placed by t fire in list order (one waits for those before it); a distance
+ * marker fires on its own, whatever its place in the list.
  *
  * `hold`: the bound action is begun at the marker and ticked every loop until it succeeds or
  * the step exits (a `during` action started at the marker), for a request the mechanism may

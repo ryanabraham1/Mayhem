@@ -337,9 +337,11 @@ class AutoRunner {
       if(!result.valid) return Fail();
       last_=result; command=result.command;ready=result.reached;handedOff=result.handoff;
       if(observer_) observer_->GoalProgress(current_->id,result.translationError,result.rotationError,result.reached,Now());
-      for(std::size_t i=result.eventsBegin;i<result.eventsEnd && i<current_->goal.markerCount;i++)
+      for(std::size_t i=0;i<current_->goal.markerCount;i++)
         if(current_->goal.markers[i].kind==MarkerKind::Event) {
           const auto& marker=current_->goal.markers[i];
+          if(marker.trigger==MarkerTrigger::Progress ? i<result.eventsBegin||i>=result.eventsEnd
+                                                     : i>=64||!(result.distanceEvents>>i&1)) continue;
           if(!marker.hold) {dispatch_.PathEvent(marker.key);continue;}
           // Begun and ticked now, then every loop until it succeeds (or the step exits).
           dispatch_.BeginAction(marker.key);

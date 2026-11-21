@@ -57,6 +57,8 @@ export interface ControllerState extends Velocity {
   rotRemaining?: number;
   /** Event markers already fired on the active segment. */
   events?: number;
+  /** Indices of the active segment's distance-triggered event markers already fired. */
+  distanceFired?: number[];
   /** Smallest remaining path distance reached; rotation progress is monotonic. */
   acceptedRemaining?: number;
   /**
@@ -180,7 +182,7 @@ export function follow(
             !Number.isFinite(m.t) ||
             (m.kind === "rotation" && !Number.isFinite(m.heading)) ||
             (m.kind === "event" && m.distance !== undefined &&
-              !(Number.isFinite(m.distance) && m.distance >= 0 &&
+              !((g.markers ?? []).indexOf(m) < 64 && Number.isFinite(m.distance) && m.distance >= 0 &&
                 (!m.at || (Number.isFinite(m.at.x) && Number.isFinite(m.at.y))))),
         ),
     )
@@ -217,16 +219,26 @@ export function follow(
     (L <= 1e-9 ||
       distance <= radius ||
       ((T.projectedHandoff ?? false) && L > 1e-9 && progress >= Math.min(1, Math.max(0, 1 - radius / L))));
-  // Event triggers on this segment fire in list order once progress passes t (or, for a
-  // distance marker, once the robot is that close to the goal or to its field point).
-  const fired: string[] = [];
+  // Event triggers on this segment fire in list order once progress passes t. A distance
+  // marker fires on its own, once the robot is that close to the goal or to its field point.
   let events = prior.events ?? 0;
+  const begin = events;
   const markers = T.markers ?? [];
   for (; events < markers.length; events++) {
     const m = markers[events];
-    if (m.kind === "event" && !handoff && !markerPassed(m, progress, distance, pose)) break;
-    if (m.kind === "event") fired.push(m.key);
+    if (m.kind === "event" && m.distance === undefined && !handoff && m.t > progress) break;
   }
+  const distanceFired = [...(prior.distanceFired ?? [])];
+  const fired: string[] = [];
+  markers.forEach((m, i) => {
+    if (m.kind !== "event") return;
+    if (m.distance === undefined) {
+      if (i >= begin && i < events) fired.push(m.key);
+    } else if (i < 64 && !distanceFired.includes(i) && (handoff || markerPassed(m, progress, distance, pose))) {
+      distanceFired.push(i);
+      fired.push(m.key);
+    }
+  });
   // Rotation: from the last passed target to the next target ahead, by progress.
   // Rotation progress never moves backward along the path (BLine RotationProgress).
   const progressAlong = Math.min(along, prior.acceptedRemaining ?? along);
@@ -301,7 +313,7 @@ export function follow(
   if (done)
     return {
       command: { vx: 0, vy: 0, omega: 0 },
-      state: { ...prior, vx: 0, vy: 0, omega: 0, settled, events },
+      state: { ...prior, vx: 0, vy: 0, omega: 0, settled, events, distanceFired },
       reached: true,
       handoff: false,
       valid: true,
@@ -369,8 +381,8 @@ export function follow(
   return {
     command: { vx, vy, omega },
     state: handoff
-      ? { vx, vy, omega, settled: 0, sx: T.x, sy: T.y, events: 0, acceptedRemaining: Math.min(progressAlong, tail), ...carry }
-      : { vx, vy, omega, settled, sx, sy, events, acceptedRemaining: progressAlong, ...carry },
+      ? { vx, vy, omega, settled: 0, sx: T.x, sy: T.y, events: 0, distanceFired: [], acceptedRemaining: Math.min(progressAlong, tail), ...carry }
+      : { vx, vy, omega, settled, sx, sy, events, distanceFired, acceptedRemaining: progressAlong, ...carry },
     reached: handoff,
     handoff,
     valid: true,

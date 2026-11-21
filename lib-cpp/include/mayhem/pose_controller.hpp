@@ -36,6 +36,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <string_view>
 
 namespace mayhem {
@@ -64,8 +65,9 @@ enum class MarkerKind { Rotation, Event };
 // step's goal (GoalDistance), or within `distance` of the field point (x, y) (PointDistance).
 enum class MarkerTrigger { Progress, GoalDistance, PointDistance };
 // Rotation target or event trigger on the segment leading into its anchor,
-// placed by projected progress t in [0, 1]. Event markers fire in list order (one waits for
-// those before it) and may use a distance trigger instead of t. `hold` (AutoRunner): the
+// placed by projected progress t in [0, 1]. Progress event markers fire in list order (one
+// waits for those before it); an event marker with a distance trigger fires on its own, by
+// distance instead of t (first 64 markers of a step). `hold` (AutoRunner): the
 // bound action is begun at the marker and ticked every loop until it succeeds or the step
 // exits (a `during` action started at the marker), instead of only running its `begin`.
 struct PathMarker {
@@ -96,15 +98,20 @@ struct ControlState {
   Velocity previous; double settled = 0;
   double sx = 0, sy = 0, rotHeading = 0, rotRemaining = NAN;
   std::size_t events = 0; bool started = false; double acceptedRemaining = INFINITY;
+  // Distance-triggered event markers of the active anchor already fired (bit i = marker i).
+  std::uint64_t distanceFired = 0;
 };
 struct ControlResult {
   Velocity command; bool reached = false; bool valid = true; bool handoff = false;
-  // Markers [eventsBegin, eventsEnd) of the active anchor were passed this tick.
+  // Markers [eventsBegin, eventsEnd) of the active anchor were passed this tick: its
+  // progress-triggered event markers fired (other markers in the range did not).
   std::size_t eventsBegin = 0, eventsEnd = 0;
   double progress = 0, remaining = 0;
   // Distance to the active anchor, and |heading error| against the heading the
   // follower is steering to this tick (PointAt, Motion, markers included).
   double translationError = 0, rotationError = 0;
+  // Distance-triggered event markers of the active anchor that fired this tick (bit i = marker i).
+  std::uint64_t distanceEvents = 0;
 };
 inline double Wrap(double angle) { return std::atan2(std::sin(angle), std::cos(angle)); }
 // Path follower ported from BLine-Lib's FollowPath, RotationProgress and ChassisRateLimiter
@@ -122,7 +129,7 @@ class PathFollower {
   void SetMaxDt(double maxDt) { if (std::isfinite(maxDt) && maxDt > 0) maxDt_ = maxDt; }
   double MaxDt() const { return maxDt_; }
   void Reset(Pose pose, Velocity measured = {}) {
-    state_ = {measured, 0, pose.x, pose.y, pose.heading, NAN, 0, true, INFINITY};
+    state_ = {measured, 0, pose.x, pose.y, pose.heading, NAN, 0, true, INFINITY, 0};
   }
   // caps (optional, `count` entries): max velocity of the step owning each anchor; used
   // only with c.anticipateSpeedCaps.
@@ -158,7 +165,7 @@ class PathFollower {
         if (!std::isfinite(g->markers[m].t) ||
             (g->markers[m].kind == MarkerKind::Rotation && !std::isfinite(g->markers[m].heading)) ||
             (g->markers[m].trigger != MarkerTrigger::Progress &&
-             !(std::isfinite(g->markers[m].distance) && g->markers[m].distance >= 0 &&
+             !(m < 64 && std::isfinite(g->markers[m].distance) && g->markers[m].distance >= 0 &&
                std::isfinite(g->markers[m].x) && std::isfinite(g->markers[m].y))))
           return Invalid();
     }
@@ -184,8 +191,14 @@ class PathFollower {
     std::size_t events = state_.events;
     for (; events < T.markerCount; ++events)
       if (T.markers[events].kind == MarkerKind::Event && !handoff &&
-          !MarkerPassed(T.markers[events], progress, distance, pose.x, pose.y)) break;
+          T.markers[events].trigger == MarkerTrigger::Progress && T.markers[events].t > progress) break;
     out.eventsEnd = events;
+    std::uint64_t distanceFired = state_.distanceFired;
+    for (std::size_t m = 0; m < T.markerCount && m < 64; ++m) {
+      const std::uint64_t bit = std::uint64_t{1} << m;
+      if (T.markers[m].kind != MarkerKind::Event || T.markers[m].trigger == MarkerTrigger::Progress || (distanceFired & bit)) continue;
+      if (handoff || MarkerPassed(T.markers[m], progress, distance, pose.x, pose.y)) { distanceFired |= bit; out.distanceEvents |= bit; }
+    }
     const double progressAlong = std::min(along, state_.acceptedRemaining);
     double fromHeading = state_.rotHeading;
     double fromRemaining = std::isfinite(state_.rotRemaining) ? state_.rotRemaining : along;
@@ -250,7 +263,7 @@ class PathFollower {
                       std::abs(measured.omega) <= T.velocityTolerance;
     const double settled = inPose && (T.settleTime <= 0 || slow) ? state_.settled + dt : 0;
     if (inPose && (T.settleTime <= 0 || settled >= T.settleTime)) {
-      state_.previous = {}; state_.settled = settled; state_.events = events;
+      state_.previous = {}; state_.settled = settled; state_.events = events; state_.distanceFired = distanceFired;
       out.reached = true; return out;
     }
     // Translation: P on remaining distance clamped to max velocity, optional floor,
@@ -294,11 +307,11 @@ class PathFollower {
     if (handoff) {
       // Continue from the heading requested now (Motion/PointAt included), so it never jumps.
       state_.rotHeading = desiredHeading; state_.rotRemaining = tail;
-      state_.sx = T.pose.x; state_.sy = T.pose.y; state_.events = 0; state_.settled = 0;
+      state_.sx = T.pose.x; state_.sy = T.pose.y; state_.events = 0; state_.distanceFired = 0; state_.settled = 0;
       state_.acceptedRemaining = std::min(progressAlong, tail);
     } else {
       if (!std::isfinite(state_.rotRemaining)) state_.rotRemaining = along;
-      state_.events = events; state_.settled = settled; state_.acceptedRemaining = progressAlong;
+      state_.events = events; state_.distanceFired = distanceFired; state_.settled = settled; state_.acceptedRemaining = progressAlong;
     }
     out.command = state_.previous; out.reached = handoff; out.handoff = handoff;
     return out;

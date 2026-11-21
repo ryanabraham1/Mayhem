@@ -429,15 +429,19 @@ int main() {
   // Event markers by distance (to the step's goal, or to a field point), and `hold` markers:
   // the action is begun at the marker and ticked until it succeeds.
   {
+    // Distance markers fire on their own: "late" (t = 0.95) listed first does not hold them back.
     const mayhem::PathMarker events[]={
-      {mayhem::MarkerKind::Event,1,0,"near.point",true,mayhem::MarkerTrigger::PointDistance,.5,1,.3},
-      {mayhem::MarkerKind::Event,1,0,"arm.up",true,mayhem::MarkerTrigger::GoalDistance,1.2,0,0,true}};
-    mayhem::Goal g{{4,0,0}}; g.markers=events; g.markerCount=2;
+      {mayhem::MarkerKind::Event,.95,0,"late",true},
+      {mayhem::MarkerKind::Event,1,0,"arm.up",true,mayhem::MarkerTrigger::GoalDistance,1.2,0,0,true},
+      {mayhem::MarkerKind::Event,1,0,"near.point",true,mayhem::MarkerTrigger::PointDistance,.5,1,.3}};
+    mayhem::Goal g{{4,0,0}}; g.markers=events; g.markerCount=3;
     const mayhem::AutoNode nodes[]={{"go",mayhem::NodeKind::Pose,g,10,"",{}},{"done",mayhem::NodeKind::Finish,{},1,"",{}}};
     const mayhem::AutoTransition arrive[]={{"t","go","done",[](const mayhem::RobotHooks&){return true;}}};
     for(int refusals:{6,100000}) {
       mayhem::AutoRunner r({"e","go",nodes,2,arrive,1});
       mayhem::Pose at; double pointAt=-1, armAt=-1; int begins=0, ticks=0, done=0, cancelled=0;
+      double lateAt=-1;
+      r.Bind("late",mayhem::Instant([&]{assert(lateAt<0&&pointAt>0&&armAt>0); lateAt=at.x;}));
       r.Bind("near.point",mayhem::Instant([&]{assert(pointAt<0); pointAt=at.x;}));
       r.Bind("arm.up",{[&]{begins++; armAt=at.x;},
                         [&]{return ++ticks>refusals?mayhem::ActionStatus::Succeeded:mayhem::ActionStatus::Running;},
@@ -447,7 +451,7 @@ int main() {
       for(int i=0;i<1000&&r.Status()==mayhem::RunStatus::Running;i++){v=r.Tick(at,v,.02);at.x+=v.vx*.02;at.y+=v.vy*.02;}
       assert(r.Status()==mayhem::RunStatus::Completed);
       // Fired on the first tick within 0.5 m of (1, 0.3), and within 1.2 m of the goal.
-      assert(pointAt>.5&&pointAt<=.6+.09&&armAt>2.7&&armAt<=2.8+.09&&begins==1);
+      assert(pointAt>.5&&pointAt<=.6+.09&&armAt>2.7&&armAt<=2.8+.09&&begins==1&&lateAt>=3.8);
       if(refusals==6) assert(ticks==7&&done==1&&cancelled==0);   // ticked until it succeeded
       else assert(ticks>20&&done==0&&cancelled==1);              // still running when the step exits
     }

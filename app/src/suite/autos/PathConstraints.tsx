@@ -52,6 +52,18 @@ const motionFields = [
     unit: "m/s",
     group: "More limits",
   },
+  {
+    key: "stopDeceleration",
+    label: "Stop deceleration",
+    unit: "m/s²",
+    group: "More limits",
+  },
+  {
+    key: "stopLag",
+    label: "Stop lag",
+    unit: "s",
+    group: "More limits",
+  },
 ] as const;
 type MotionKey = (typeof motionFields)[number]["key"];
 export function withoutMotionOverrides(
@@ -85,7 +97,7 @@ export function ConstraintFields({
               label={f.label}
               value={value}
               unit={f.unit}
-              min={f.key === "minVelocity" ? 0 : 0.001}
+              min={f.group === "More limits" ? 0 : 0.001}
               step={0.1}
               digits={4}
               change={(v) => change(f.key, v)}
@@ -124,7 +136,11 @@ export function ConstraintFields({
         <div className="mx-disclosure-body">
           {fields("More limits")}
           <p className="mx-help">
-            Leave minimum speed at 0 to stop at the end of the path.
+            Leave minimum speed at 0 to stop at the end of the path. Stop
+            deceleration is what the robot can really brake at: the end of a
+            path is then approached no faster than it can stop from, so it
+            does not overshoot (0 = off). Stop lag is how long the drivetrain
+            trails its command. Robot code can supply a live limit.
           </p>
         </div>
       </details>

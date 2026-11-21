@@ -46,7 +46,11 @@ const constraintLabels: Record<string, [string, string]> = {
   handoffRadius: ["Handoff radius", "m"],
   crossTrackKp: ["Cross-track kP", ""],
   minVelocity: ["Min speed", "m/s"],
+  stopDeceleration: ["Stop deceleration (0 = off)", "m/s²"],
+  stopLag: ["Stop lag", "s"],
 };
+// Settings where 0 means off.
+const zeroAllowed = new Set(["minVelocity", "stopDeceleration", "stopLag"]);
 
 export function ConnectionPanel() {
   const robot = useRobot();
@@ -401,7 +405,7 @@ function LimitsPanel({ s }: { s: SuiteState }) {
               value={value}
               digits={4}
               step={0.05}
-              min={key === "minVelocity" ? 0 : 0.001}
+              min={zeroAllowed.has(key) ? 0 : 0.001}
               change={(v) =>
                 s.commit((p) => {
                   (p.robot.constraints as unknown as Record<string, number>)[key] = v;

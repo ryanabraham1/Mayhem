@@ -115,8 +115,9 @@ function MarkerSection({
     <Section title="On the way here">
       <p className="mx-help">
         Rotation targets and event triggers sit on the segment leading into this
-        step, placed by progress (0 = previous step, 1 = this step). They do not
-        bend the route.
+        step, placed by progress (0 = previous step, 1 = this step). An event
+        can instead fire a set distance before this step, or from a field
+        point. They do not bend the route.
       </p>
       {markers.map((m, i) => (
         <div
@@ -129,16 +130,26 @@ function MarkerSection({
           }}
         >
           <div className="mx-pair">
-            <NumberField
-              label={
-                m.kind === "rotation"
-                  ? "Rotation at progress"
-                  : "Event at progress"
-              }
-              value={m.t}
-              step={0.05}
-              change={(t) => update(i, { t: Math.min(1, t) })}
-            />
+            {m.kind === "event" && m.distance !== undefined ? (
+              <NumberField
+                label={m.at ? "Event within distance of point" : "Event at distance before this step"}
+                value={m.distance}
+                unit="m"
+                step={0.05}
+                change={(distance) => update(i, { distance })}
+              />
+            ) : (
+              <NumberField
+                label={
+                  m.kind === "rotation"
+                    ? "Rotation at progress"
+                    : "Event at progress"
+                }
+                value={m.t}
+                step={0.05}
+                change={(t) => update(i, { t: Math.min(1, t) })}
+              />
+            )}
             {m.kind === "rotation" ? (
               <NumberField
                 label="Heading"
@@ -163,6 +174,22 @@ function MarkerSection({
               </Field>
             )}
           </div>
+          {m.kind === "event" && m.at && (
+            <div className="mx-pair">
+              <NumberField
+                label="Point X"
+                value={m.at.x}
+                unit="m"
+                change={(x) => update(i, { at: { ...m.at!, x } })}
+              />
+              <NumberField
+                label="Point Y"
+                value={m.at.y}
+                unit="m"
+                change={(y) => update(i, { at: { ...m.at!, y } })}
+              />
+            </div>
+          )}
           <div
             className="mx-marker-row"
             style={{
@@ -177,6 +204,37 @@ function MarkerSection({
                 label="Smooth"
                 checked={m.profiled ?? true}
                 onChange={(profiled) => update(i, { profiled })}
+              />
+            )}
+            {m.kind === "event" && (
+              <select
+                aria-label="Event trigger"
+                value={m.distance === undefined ? "progress" : m.at ? "point" : "goal"}
+                onChange={(e) => {
+                  const { distance, at, ...rest } = m;
+                  const next: PathMarker =
+                    e.target.value === "progress"
+                      ? rest
+                      : e.target.value === "goal"
+                        ? { ...rest, distance: distance ?? 1 }
+                        : { ...rest, distance: distance ?? 1, at: at ?? { x: goal.x, y: goal.y } };
+                  setGoal({ markers: markers.map((x, j) => (j === i ? next : x)) });
+                }}
+              >
+                <option value="progress">By progress</option>
+                <option value="goal">Distance before this step</option>
+                <option value="point">Distance from a field point</option>
+              </select>
+            )}
+            {m.kind === "event" && (
+              <Toggle
+                label="Until done"
+                hint="Start the action here and keep running it until it succeeds or this step ends, instead of calling it once."
+                checked={!!m.hold}
+                onChange={(hold) => {
+                  const { hold: _, ...rest } = m;
+                  setGoal({ markers: markers.map((x, j) => (j === i ? (hold ? { ...rest, hold } : rest) : x)) });
+                }}
               />
             )}
             <IconButton
@@ -593,7 +651,8 @@ export function AutoInspector({
           )}
           {node.kind === "pose" && outgoing.length > 0 && (
             <p className="mx-help">
-              Arrival is checked first, then these conditions in order.
+              Arrival is checked first, then these conditions in order. A
+              condition set to leave early is checked every loop on the way.
             </p>
           )}
           {outgoing.map((t) => {
@@ -607,6 +666,7 @@ export function AutoInspector({
                     <Circle size={13} />
                   )}
                   {t.name && <strong>{t.name}</strong>}
+                  {t.interrupt && <span className="mx-kind is-custom" title="Checked every loop: leaves this step early">early</span>}
                   <code title={t.description}>{compactCondition(t.condition)}</code>
                   <span className="mx-transition-to">
                     → {routine.nodes.find((n) => n.id === t.to)?.name}
@@ -670,9 +730,26 @@ export function AutoInspector({
                     signals={project.signals}
                     change={(condition) =>
                       s.editRoutine((r) => {
-                        r.transitions.find(
-                          (edge) => edge.id === t.id,
-                        )!.condition = condition;
+                        const edge = r.transitions.find((edge) => edge.id === t.id)!;
+                        edge.condition = condition;
+                        if (condition.kind === "always") delete edge.interrupt;
+                      })
+                    }
+                  />
+                  <Toggle
+                    label="Leave early when true"
+                    hint={
+                      node.kind === "pose"
+                        ? "Checked every loop while driving here, so the step ends as soon as the condition is true (drive to a point, raced with a condition). Off: checked once the pose is reached."
+                        : "Checked every loop while the action runs, so the step ends as soon as the condition is true. Off: checked once the action is done."
+                    }
+                    checked={!!t.interrupt}
+                    disabled={t.condition.kind === "always"}
+                    onChange={(on) =>
+                      s.editRoutine((r) => {
+                        const edge = r.transitions.find((edge) => edge.id === t.id)!;
+                        if (on) edge.interrupt = true;
+                        else delete edge.interrupt;
                       })
                     }
                   />
