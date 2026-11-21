@@ -869,6 +869,10 @@
   grid-column: 1 / -1;
   font-size: 13px;
 }
+.mx-timeline-row > strong + .mx-timeline {
+  /* One run only (no Before/After labels): the timeline takes the whole row. */
+  grid-column: 1 / -1;
+}
 .mx-timeline-row > small {
   color: var(--mx-muted);
   font-size: 11px;

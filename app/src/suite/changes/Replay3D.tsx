@@ -19,17 +19,25 @@ interface Asset {
 const loader = new GLTFLoader();
 const models = new Map<string, Promise<THREE.Group>>();
 function model(path: string) {
-  if (!models.has(path))
-    models.set(
-      path,
-      invoke<ArrayBuffer | number[]>("ascope_model", { path })
-        .then((raw) => (raw instanceof ArrayBuffer ? raw : Uint8Array.from(raw).buffer))
-        .then((bytes) => new Promise<THREE.Group>((done, fail) => loader.parse(bytes, "", (g) => done(g.scene), fail))),
-    );
+  if (!models.has(path)) {
+    const loading = invoke<ArrayBuffer | number[]>("ascope_model", { path })
+      .then((raw) => (raw instanceof ArrayBuffer ? raw : Uint8Array.from(raw).buffer))
+      .then((bytes) => new Promise<THREE.Group>((done, fail) => loader.parse(bytes, "", (g) => done(g.scene), fail)));
+    // A failed load is not remembered: the next replay tries again instead of failing forever.
+    loading.catch(() => models.get(path) === loading && models.delete(path));
+    models.set(path, loading);
+  }
   return models.get(path)!;
 }
 let assetList: Promise<Asset[]> | undefined;
-const assets = () => (assetList ??= invoke<Asset[]>("ascope_assets", {}));
+const assets = () => {
+  if (!assetList) {
+    const loading = invoke<Asset[]>("ascope_assets", {});
+    loading.catch(() => assetList === loading && (assetList = undefined));
+    assetList = loading;
+  }
+  return assetList;
+};
 
 export async function loadTrack3D(path: string) {
   return track3D(await nativeRead(path));
@@ -371,7 +379,10 @@ export function Replay3D({
           state.current!.rigs[side] = rig;
         }
         // Start above the robot, looking at it from the middle of the field (never from inside a wall).
-        const start = (after ?? before)!.robot[0];
+        // Where it is now, not where it spawned: opened mid-replay, or after the auto moved it to its
+        // start pose, the spawn spot can be across the field and the robot would be out of view.
+        const lead = (after ?? before)!;
+        const start = sampleAt(lead.robot, timeRef.current) ?? lead.robot[0];
         const at = new THREE.Vector3(start.p[0] - offset.x, start.p[1] - offset.y, 0.4);
         const toCenter = new THREE.Vector3(-at.x, -at.y * 0.4, 0).normalize();
         controls.target.copy(at);
@@ -443,6 +454,9 @@ export function Replay3D({
       scene.environment?.dispose();
       pmrem.dispose();
       renderer.dispose();
+      // Give the GL context back now: WebKit allows only a few at once, and a context left for
+      // garbage collection counts against the next replay's.
+      renderer.forceContextLoss();
       el.removeChild(renderer.domElement);
       onCanvas?.(null);
     };
