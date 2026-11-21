@@ -17,6 +17,7 @@ import {
   type PreviewMode,
 } from "./core/runtime.ts";
 import { interpolatePreviewFrame } from "./core/playback.ts";
+import { addGroupUse, detachGroupUse, reconcileGroups, removeGroupUse } from "./core/groups.ts";
 import { sketchGoals } from "./core/sketch.ts";
 import { applySeason, seasonOf, type Season } from "./core/seasons.ts";
 import { activateProject, keepCopy, listProjects, loadProject, projectLink, saveProject, setProjectLink } from "./storage";
@@ -187,6 +188,8 @@ export function useSuiteProject() {
         throw new Error("Finish opening or saving the project before editing.");
       const next = structuredClone(project);
       edit(next);
+      // An edit of a step produced by a step group goes back to the group or the use's arguments.
+      reconcileGroups(next);
       next.revision = project.revision + 1;
       const errors = validateProject(next).filter(
         (i) => i.severity === "error",
@@ -673,7 +676,7 @@ export function useSuiteProject() {
     const next = editRoutine((r) => {
       const nextNode: AutoNode = copyId
         ? {
-            ...structuredClone(anchorNode),
+            ...structuredClone({ ...anchorNode, fromGroup: undefined }),
             id,
             name: `${anchorNode.name} copy`,
             goal,
@@ -762,6 +765,10 @@ export function useSuiteProject() {
     const target = routine.nodes.find((n) => n.id === id);
     if (!target || target.kind === "finish") {
       notify("Every routine keeps its finish step.");
+      return;
+    }
+    if (target.fromGroup) {
+      notify("This step belongs to a step group. Remove that use of the group, or detach it first (right-click the step).");
       return;
     }
     const next = editRoutine((r) => {
@@ -904,6 +911,18 @@ export function useSuiteProject() {
     switchProject,
     applyJson,
     // routine editing
+    /** Step groups: add another use like `useId`, remove a use, or turn its steps into ordinary ones. */
+    addGroupUse: (useId: string) =>
+      commit((p) => {
+        const r = p.routines.find((r) => r.id === routine.id)!;
+        const like = r.uses?.find((u) => u.id === useId);
+        if (like) addGroupUse(p, r, like.group, like);
+      }),
+    removeGroupUse: (useId: string) => {
+      const next = commit((p) => removeGroupUse(p, p.routines.find((r) => r.id === routine.id)!, useId));
+      if (next) setSelected(next.routines.find((r) => r.id === routine.id)!.initial);
+    },
+    detachGroupUse: (useId: string) => commit((p) => detachGroupUse(p, p.routines.find((r) => r.id === routine.id)!, useId)),
     addGoal,
     addSketch,
     addActionStep,

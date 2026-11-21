@@ -1,4 +1,5 @@
 /** Public, versioned authoring contract. Coordinates: blue-origin meters/radians. */
+import { syncGroups } from "./groups.ts";
 export type Pose = { x: number; y: number; heading: number };
 export type Velocity = { vx: number; vy: number; omega: number };
 export type SignalValue = boolean | number | string;
@@ -141,6 +142,36 @@ export interface AutoNode {
   source?: string;
   constraints?: Partial<Constraints>;
   during?: string[];
+  /** Produced by a use of a step group (`routine.uses`): edit the group or the use's arguments. */
+  fromGroup?: { use: string; node: string };
+  /**
+   * Robot code limits the speed on this step in a way Mayhem cannot see (a keep-out, an
+   * anti-tip limit): a short reason. The preview and `simulate` drive the step at its Mayhem
+   * limits and say so.
+   */
+  robotSpeedLimit?: string;
+}
+/**
+ * A reusable group of steps: a template used any number of times by a routine (`uses`), e.g.
+ * one scoring cycle. In `nodes` and `transitions` any JSON value that is the string "$name" of
+ * a parameter is replaced by each use's argument (a whole goal, an action ID, a number, the ID
+ * of the step that follows). An exit's `from`/`to` naming a step of the group means that use's
+ * own step. See core/groups.ts.
+ */
+export interface StepGroup {
+  id: string;
+  name: string;
+  description?: string;
+  params: { name: string; description?: string; default?: unknown }[];
+  nodes: AutoNode[];
+  transitions: Transition[];
+}
+/** One use of a step group in a routine. Its steps are `<id>.<step>`, e.g. `cycle2.approach`. */
+export interface GroupUse {
+  id: string;
+  group: string;
+  name?: string;
+  args: Record<string, unknown>;
 }
 export function autoStepLabel(node: AutoNode): string {
   if (node.kind === "pose")
@@ -169,6 +200,8 @@ export interface Transition {
    * step is done, in list order together with these. Not allowed with an "Always" condition.
    */
   interrupt?: boolean;
+  /** Produced by a use of a step group (see AutoNode.fromGroup). */
+  fromGroup?: { use: string; transition: string };
 }
 /** The exits checked only once a step is done (not `interrupt`). */
 export const reachedExits = (routine: Pick<AutoRoutine, "transitions">, node: string) =>
@@ -197,6 +230,8 @@ export interface AutoRoutine {
   initial: string;
   nodes: AutoNode[];
   transitions: Transition[];
+  /** Uses of step groups; their steps and exits are in `nodes` / `transitions`, marked `fromGroup`. */
+  uses?: GroupUse[];
 }
 /** Where an input comes from; shown as a glyph and color on state-graph conditions. */
 export const INPUT_CATEGORY_KEYS = ["operator", "sensor", "internal", "timer", "auto"] as const;
@@ -274,6 +309,8 @@ export interface SuiteProject {
   };
   signals: SignalDefinition[];
   routines: AutoRoutine[];
+  /** Reusable step groups (templates with parameters) that routines use. */
+  groups?: StepGroup[];
   /** Vendor/application extensions are preserved by every round trip. */
   extensions: Record<string, unknown>;
 }
@@ -367,8 +404,22 @@ export function conditionLabel(c: Condition): string {
     .join(c.kind === "all" ? " AND " : " OR ");
 }
 /** Runtime validation is intentionally independent of any UI or robot framework. */
-export function validateProject(input: unknown): Issue[] {
+export function validateProject(raw: unknown): Issue[] {
   const issues: Issue[] = [];
+  // Step groups: check the templates and uses, then validate the steps they produce.
+  let input = raw as any;
+  if (raw && typeof raw === "object" && (Array.isArray((raw as any).groups) || (Array.isArray((raw as any).routines) && (raw as any).routines.some((r: any) => r && Array.isArray(r.uses))))) {
+    input = structuredClone(raw);
+    issues.push(...groupIssues(input));
+    const before = JSON.stringify(input.routines);
+    syncGroups(input);
+    if (!issues.length && before !== JSON.stringify(input.routines))
+      issues.push({
+        severity: "warning",
+        path: "groups",
+        message: "Steps produced by step groups are out of date in the file; they are regenerated from the groups and each use's arguments when the project is loaded. Edit the group or the arguments, not the produced steps.",
+      });
+  }
   const error = (path: string, message: string) =>
     issues.push({ severity: "error", path, message });
   const record = (v: unknown): v is Record<string, any> =>
@@ -578,6 +629,8 @@ export function validateProject(input: unknown): Issue[] {
           (n.source !== undefined && typeof n.source !== "string")
         )
           error(p, "Description and source references must be text.");
+        if (n.robotSpeedLimit !== undefined && (typeof n.robotSpeedLimit !== "string" || !n.robotSpeedLimit.trim()))
+          error(p + ".robotSpeedLimit", "Expected a short reason (text).");
         if (
           typeof n.name !== "string" ||
           !["pose", "action", "custom", "finish"].includes(n.kind)
@@ -775,10 +828,68 @@ export function validateProject(input: unknown): Issue[] {
     });
   return issues;
 }
+/** Problems in the step group templates and their uses (before the produced steps are checked). */
+function groupIssues(input: any): Issue[] {
+  const issues: Issue[] = [];
+  const error = (path: string, message: string) => issues.push({ severity: "error", path, message });
+  const record = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v);
+  const groups = new Map<string, any>();
+  if (input.groups !== undefined && !Array.isArray(input.groups)) error("groups", "Expected a list of step groups.");
+  (Array.isArray(input.groups) ? input.groups : []).forEach((g: any, gi: number) => {
+    const p = `groups.${gi}`;
+    if (!record(g) || typeof g.id !== "string" || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(g.id) || groups.has(g.id))
+      return error(p, "Group IDs must be unique and made of letters, digits, - and _.");
+    if (typeof g.name !== "string" || !g.name.trim()) error(p + ".name", "Group name must be text.");
+    const params = new Set<string>();
+    if (!Array.isArray(g.params)) return error(p + ".params", "Expected a parameter list (it may be empty).");
+    for (const [i, param] of g.params.entries())
+      if (!record(param) || typeof param.name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(param.name) || params.has(param.name))
+        error(`${p}.params.${i}`, "Parameter names must be unique plain identifiers.");
+      else params.add(param.name);
+    if (!Array.isArray(g.nodes) || !g.nodes.length || !Array.isArray(g.transitions))
+      return error(p, "A group needs steps (nodes) and exits (transitions).");
+    const ids = new Set<string>();
+    for (const [i, n] of g.nodes.entries())
+      if (!record(n) || typeof n.id !== "string" || !n.id || ids.has(n.id)) error(`${p}.nodes.${i}`, "Step IDs must be nonempty and unique within the group.");
+      else {
+        ids.add(n.id);
+        if (n.kind === "finish") error(`${p}.nodes.${i}`, "A group cannot contain a finish step.");
+      }
+    const exits = new Set<string>();
+    for (const [i, t] of g.transitions.entries())
+      if (!record(t) || typeof t.id !== "string" || !t.id || exits.has(t.id)) error(`${p}.transitions.${i}`, "Exit IDs must be nonempty and unique within the group.");
+      else {
+        exits.add(t.id);
+        if (typeof t.from !== "string" || !ids.has(t.from)) error(`${p}.transitions.${i}.from`, "An exit of a group must leave one of the group's steps.");
+        if (typeof t.to !== "string") error(`${p}.transitions.${i}.to`, "Expected a step ID or a $parameter.");
+      }
+    if (issues.every((i) => !i.path.startsWith(p))) groups.set(g.id, { ...g, paramNames: params });
+  });
+  (Array.isArray(input.routines) ? input.routines : []).forEach((r: any, ri: number) => {
+    if (!record(r) || r.uses === undefined) return;
+    const p = `routines.${ri}.uses`;
+    if (!Array.isArray(r.uses)) return error(p, "Expected a list of group uses.");
+    const seen = new Set<string>();
+    r.uses.forEach((u: any, ui: number) => {
+      if (!record(u) || typeof u.id !== "string" || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(u.id) || seen.has(u.id))
+        return error(`${p}.${ui}`, "Use IDs must be unique and made of letters, digits, - and _.");
+      seen.add(u.id);
+      if (u.name !== undefined && typeof u.name !== "string") error(`${p}.${ui}.name`, "Use names must be text.");
+      const group = groups.get(u.group);
+      if (!group) return error(`${p}.${ui}.group`, `Unknown step group ${String(u.group)}.`);
+      if (!record(u.args)) return error(`${p}.${ui}.args`, "Expected an object of arguments.");
+      for (const name of Object.keys(u.args)) if (!group.paramNames.has(name)) error(`${p}.${ui}.args.${name}`, `Group ${group.id} has no parameter ${name}.`);
+      for (const param of group.params)
+        if (!(param.name in u.args) && !("default" in param)) error(`${p}.${ui}.args`, `Missing argument ${param.name} of group ${group.id}.`);
+    });
+  });
+  return issues;
+}
+/** Parse and validate a project. Steps produced by step groups are regenerated from their templates. */
 export function parseProject(text: string): SuiteProject {
   const value: unknown = JSON.parse(text);
   const errors = validateProject(value).filter((i) => i.severity === "error");
   if (errors.length)
     throw new Error(errors.map((i) => `${i.path}: ${i.message}`).join("\n"));
-  return value as SuiteProject;
+  return syncGroups(value as SuiteProject);
 }

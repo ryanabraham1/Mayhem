@@ -11,6 +11,7 @@ import {
   type PathMarker,
 } from "../core/model.ts";
 import { isIntermediate } from "../core/runtime.ts";
+import { groupParamFields } from "../core/groups.ts";
 import { compactCondition } from "../core/edgeLabels.ts";
 import { ConditionEditor } from "../ConditionEditor";
 import type { SuiteState } from "../useSuiteProject";
@@ -274,6 +275,27 @@ function MarkerSection({
   );
 }
 
+/** A step produced by a step group: what an edit here changes. */
+function GroupNote({ s }: { s: SuiteState }) {
+  const { node, routine, project } = s;
+  const use = routine.uses?.find((u) => u.id === node.fromGroup?.use);
+  const group = project.groups?.find((g) => g.id === use?.group);
+  const template = group?.nodes.find((n) => n.id === node.fromGroup?.node);
+  if (!use || !group || !template) return null;
+  const own = groupParamFields(group, template);
+  const uses = project.routines.reduce((n, r) => n + (r.uses?.filter((u) => u.group === group.id).length ?? 0), 0);
+  return (
+    <p className="mx-help" role="note">
+      Part of <strong>{use.name ?? use.id}</strong>, one of {uses} use{uses === 1 ? "" : "s"} of
+      the step group <strong>{group.name}</strong>.{" "}
+      {own.length
+        ? `Changes to ${own.join(", ")} apply to this use only; anything else you change here changes every use.`
+        : "Changes here change every use."}{" "}
+      Right-click the step to add another use, detach this one, or remove it.
+    </p>
+  );
+}
+
 export function AutoInspector({
   s,
   close,
@@ -337,6 +359,14 @@ export function AutoInspector({
         </div>
       </div>
 
+      {node.fromGroup && <GroupNote s={s} />}
+      {node.robotSpeedLimit && (
+        <p className="mx-help" role="note">
+          Robot code limits the speed on this step ({node.robotSpeedLimit}).
+          The preview drives it at the limits set here, so the robot will be
+          slower than shown.
+        </p>
+      )}
       {node.kind === "pose" && (
         <Segmented
           label="Pose inspector"

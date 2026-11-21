@@ -191,6 +191,9 @@ export function RoutineRail({
         </li>
         {routine.nodes.map((n, i) => {
           const running = s.frame.node === n.id && s.frame.time > 0;
+          // A step produced by a step group: which use, of which group.
+          const use = n.fromGroup && routine.uses?.find((u) => u.id === n.fromGroup!.use);
+          const group = use && project.groups?.find((g) => g.id === use.group);
           return (
             <li
               key={n.id}
@@ -258,7 +261,22 @@ export function RoutineRail({
                         onSelect: () => live.current.reorder(n.id, 0),
                       },
                       "separator",
-                      n.kind !== "finish" && {
+                      !!use && {
+                        label: `Add another ${group?.name ?? use.group}`,
+                        icon: Plus,
+                        onSelect: () => live.current.addGroupUse(use.id),
+                      },
+                      !!use && {
+                        label: `Detach ${use.name ?? use.id} from the group`,
+                        onSelect: () => live.current.detachGroupUse(use.id),
+                      },
+                      !!use && {
+                        label: `Remove ${use.name ?? use.id}`,
+                        icon: Trash2,
+                        danger: true,
+                        onSelect: () => live.current.removeGroupUse(use.id),
+                      },
+                      n.kind !== "finish" && !use && {
                         label: "Delete step",
                         icon: Trash2,
                         danger: true,
@@ -276,7 +294,10 @@ export function RoutineRail({
                 </span>
                 <span className="mx-step-text">
                   <strong>{n.name}</strong>
-                  <small>{stepDetail(n)}</small>
+                  <small title={use ? `From step group ${group?.name ?? use.group}` : undefined}>
+                    {stepDetail(n)}
+                    {use ? ` · ${group?.name ?? use.group} group` : ""}
+                  </small>
                 </span>
               </button>
               {n.kind !== "finish" && (
