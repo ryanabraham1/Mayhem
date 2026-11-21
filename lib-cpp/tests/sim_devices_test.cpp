@@ -1,5 +1,6 @@
 // Motor curves, TalonFX emulation, battery and 1-DOF mechanisms.
 #include "mayhem/sim/battery.hpp"
+#include "mayhem/sim/canrange.hpp"
 #include "mayhem/sim/mechanisms.hpp"
 #include "mayhem/sim/motor.hpp"
 #include "mayhem/sim/talonfx.hpp"
@@ -354,6 +355,192 @@ void BatteryCoupling() {
   }
 }
 
+void CanRangeSensor() {
+  CanRange range;  // ShortRange100Hz, threshold 0.4 m, hysteresis 0.01 m
+  SIM_NEAR(range.Period(), 0.010, 1e-12, "ShortRange100Hz period");
+  range.SetDistance(0.2);
+  SIM_CHECK(!range.IsDetected(), "nothing detected before the first sample");
+  SIM_CHECK(range.Step(kDt), "the first Step measures");
+  SIM_CHECK(range.IsDetected() && range.Distance() == 0.2, "detected at 0.2 m");
+  // Hysteresis: 0.405 m keeps it detected; above 0.41 m clears it; 0.395 m does not re-detect.
+  int samples = 0;
+  auto settle = [&](double d) { range.SetDistance(d); for (int i = 0; i < 10; ++i) samples += range.Step(kDt); };
+  settle(0.405);
+  SIM_CHECK(range.IsDetected(), "inside the hysteresis band stays detected");
+  settle(0.415);
+  SIM_CHECK(!range.IsDetected(), "above threshold + hysteresis clears");
+  settle(0.395);
+  SIM_CHECK(!range.IsDetected(), "inside the band stays undetected");
+  settle(0.385);
+  SIM_CHECK(range.IsDetected(), "below threshold - hysteresis detects");
+  SIM_CHECK(samples == 4, "one sample per 10 ms: %d", samples);
+  // The reading only changes on a sample.
+  range.SetDistance(1.0);
+  for (int i = 0; i < 9; ++i) range.Step(kDt);
+  SIM_CHECK(range.IsDetected() && range.Distance() == 0.385, "holds the last sample between samples");
+  range.Step(kDt);
+  SIM_CHECK(!range.IsDetected() && range.Distance() == 1.0, "new sample after 10 ms");
+  CanRangeConfig user;
+  user.updateMode = CanRangeConfig::UpdateMode::ShortRangeUserFreq;
+  user.updateFrequency = 25;
+  SIM_NEAR(CanRange(user).Period(), 0.04, 1e-12, "user frequency period");
+}
+
+void HardwareLimits() {
+  // Default config: the pin is enabled but unwired and normally open, so nothing asserts.
+  TalonFx t(DcMotor::KrakenX60());
+  t.SetControl(VoltageOut{6});
+  t.Step(kDt, 12, 0, 0);
+  SIM_CHECK(!t.IsNeutral() && !t.ForwardLimit(), "unwired normally-open pin does not limit");
+  t.SetForwardLimitPin(true);
+  t.Step(kDt, 12, 0, 0);
+  SIM_CHECK(t.ForwardLimit() && t.IsNeutral() && t.ForwardHardLimitStopped(), "closed forward pin stops forward output");
+  t.SetControl(VoltageOut{-6});
+  t.Step(kDt, 12, 0, 0);
+  SIM_CHECK(!t.IsNeutral() && t.MotorVoltage() < -3, "reverse output is allowed at the forward limit: %.2f V", t.MotorVoltage());
+  t.SetControl(VoltageOut{6, true, false, false, true});
+  t.Step(kDt, 12, 0, 0);
+  SIM_CHECK(!t.IsNeutral() && t.MotorVoltage() > 3, "ignoreHardwareLimits drives through the limit: %.2f V", t.MotorVoltage());
+  // The request's own limit flags, with no switch.
+  t.SetForwardLimitPin(false);
+  VoltageOut forced{-6};
+  forced.limitReverseMotion = true;
+  t.SetControl(forced);
+  t.Step(kDt, 12, 0, 0);
+  SIM_CHECK(t.IsNeutral() && t.ReverseHardLimitStopped(), "limitReverseMotion stops reverse output");
+  forced.ignoreHardwareLimits = true;
+  t.SetControl(forced);
+  t.Step(kDt, 12, 0, 0);
+  SIM_CHECK(!t.IsNeutral(), "ignoreHardwareLimits overrides limitReverseMotion");
+  // Torque-current and closed loops limit by the sign of their output.
+  t.SetForwardLimitPin(true);
+  t.SetControl(TorqueCurrentFOC{20});
+  t.Step(kDt, 12, 0, 0);
+  SIM_CHECK(t.IsNeutral(), "torque current into the limit is stopped");
+  TalonFxConfig gains;
+  gains.slots[0].kP = 4;
+  TalonFx loop(DcMotor::KrakenX60(), gains);
+  loop.SetForwardLimitPin(true);
+  loop.SetControl(PositionVoltage{5});
+  loop.Step(kDt, 12, 0, 0);
+  SIM_CHECK(loop.IsNeutral(), "position loop pushing forward into the limit is neutral");
+  loop.SetControl(PositionVoltage{-5});
+  loop.Step(kDt, 12, 0, 0);
+  SIM_CHECK(!loop.IsNeutral() && loop.MotorVoltage() < -3, "position loop backing off the limit drives: %.2f V", loop.MotorVoltage());
+
+  // Normally closed and unwired: always asserted (the real gotcha). Disabled: never.
+  TalonFxConfig nc;
+  nc.reverseHardwareLimit.normallyClosed = true;
+  TalonFx ncTalon(DcMotor::KrakenX60(), nc);
+  ncTalon.SetControl(VoltageOut{-3});
+  ncTalon.Step(kDt, 12, 0, 0);
+  SIM_CHECK(ncTalon.ReverseLimit() && ncTalon.IsNeutral(), "unwired normally-closed pin asserts");
+  nc.reverseHardwareLimit.enable = false;
+  ncTalon.Configure(nc);
+  ncTalon.Step(kDt, 12, 0, 0);
+  SIM_CHECK(ncTalon.ReverseLimit() && !ncTalon.IsNeutral(), "a disabled limit reports but does not stop");
+
+  // Brake vs coast while stopped by the limit.
+  TalonFxConfig brake;
+  brake.neutral = TalonFxConfig::Neutral::Brake;
+  Flywheel wb{0.002, 1, 0, 0}, wc{0.002, 1, 0, 0};
+  wb.SetState(0, 300);
+  wc.SetState(0, 300);
+  TalonFx tb(DcMotor::KrakenX60(), brake), tc(DcMotor::KrakenX60());
+  for (auto* talon : {&tb, &tc}) { talon->SetForwardLimitPin(true); talon->SetControl(VoltageOut{12}); }
+  for (int i = 0; i < 300; ++i) {
+    wb.Step(kDt, tb.Step(kDt, 12, wb.RotorPosition(), wb.RotorVelocity()), tb.RotorDamping());
+    wc.Step(kDt, tc.Step(kDt, 12, wc.RotorPosition(), wc.RotorVelocity()), tc.RotorDamping());
+  }
+  SIM_CHECK(wb.Velocity() < 0.2 * wc.Velocity(), "limit neutral honors brake: %.1f vs coast %.1f", wb.Velocity(), wc.Velocity());
+
+  // Remote sensors by source and ID.
+  TalonFxConfig remote;
+  remote.forwardHardwareLimit.source = LimitSource::RemoteCANcoder;
+  remote.forwardHardwareLimit.remoteSensorId = 3;
+  TalonFx rt(DcMotor::KrakenX60(), remote);
+  rt.SetControl(VoltageOut{6});
+  rt.SetForwardLimitPin(true);
+  rt.SetRemoteLimit(LimitSource::RemoteCANrange, 3, true);
+  rt.SetRemoteLimit(LimitSource::RemoteCANcoder, 4, true);
+  rt.Step(kDt, 12, 0, 0);
+  SIM_CHECK(!rt.IsNeutral(), "the pin, another source and another ID do not count");
+  rt.SetRemoteLimit(LimitSource::RemoteCANcoder, 3, true);
+  rt.Step(kDt, 12, 0, 0);
+  SIM_CHECK(rt.IsNeutral(), "remote CANcoder 3 stops it");
+
+  // Autoset: the reverse limit zeroes the position while asserted.
+  TalonFxConfig home;
+  home.sensorToMechanismRatio = 10;
+  home.reverseHardwareLimit.autosetPositionEnable = true;
+  home.reverseHardwareLimit.autosetPositionValue = 0.25;
+  TalonFx ht(DcMotor::KrakenX60(), home);
+  ht.Step(kDt, 12, 37, 0);
+  SIM_NEAR(ht.Position(), 3.7, 1e-9, "position before homing");
+  ht.SetReverseLimitPin(true);
+  ht.Step(kDt, 12, 37, 0);
+  SIM_NEAR(ht.Position(), 0.25, 1e-9, "autoset at the reverse limit");
+  ht.SetReverseLimitPin(false);
+  ht.Step(kDt, 12, 47, 0);
+  SIM_NEAR(ht.Position(), 1.25, 1e-9, "position counts on from the autoset value");
+
+  // ignoreSoftwareLimits.
+  TalonFxConfig soft;
+  soft.forwardSoftLimitEnable = true;
+  soft.forwardSoftLimitThreshold = 0;
+  TalonFx st(DcMotor::KrakenX60(), soft);
+  st.SetControl(VoltageOut{6});
+  st.Step(kDt, 12, 1, 0);
+  SIM_NEAR(st.MotorVoltage(), 0, 1e-9, "past the forward soft limit");
+  VoltageOut past{6};
+  past.ignoreSoftwareLimits = true;
+  st.SetControl(past);
+  st.Step(kDt, 12, 1, 0);
+  SIM_CHECK(st.MotorVoltage() > 3, "ignoreSoftwareLimits: %.2f V", st.MotorVoltage());
+}
+
+// A roller pulls a game piece in; a CANrange 0.1 m along the path is the forward limit. The
+// Talon sees the CANrange at 100 Hz, so it stops within one sample (plus the coast-down) of
+// the piece reaching the detection distance, never before.
+void RemoteCanRangeLimit() {
+  CanRangeConfig rangeConfig;
+  rangeConfig.proximityThreshold = 0.03;
+  rangeConfig.proximityHysteresis = 0.005;
+  CanRange range(rangeConfig);
+  TalonFxConfig cfg;
+  cfg.neutral = TalonFxConfig::Neutral::Brake;
+  cfg.forwardHardwareLimit.source = LimitSource::RemoteCANrange;
+  cfg.forwardHardwareLimit.remoteSensorId = 21;
+  TalonFx talon(DcMotor::KrakenX60(), cfg);
+  talon.AttachCanRange(21, &range);
+  Flywheel roller{0.0005, 5, 0, 0};  // 5:1, light load
+  const double wheelRadius = 0.025, sensorAt = 0.10;
+  talon.SetControl(VoltageOut{2});
+  double piece = 0, detectedAt = -1, stoppedAt = -1, detectionCrossed = -1;
+  for (int i = 0; i < 2000; ++i) {
+    const double t = i * kDt;
+    const double gap = sensorAt - piece;
+    range.SetDistance(gap > 0 ? gap : 0);
+    range.Step(kDt);
+    if (detectionCrossed < 0 && gap <= rangeConfig.proximityThreshold - rangeConfig.proximityHysteresis) detectionCrossed = t;
+    roller.Step(kDt, talon.Step(kDt, 12, roller.RotorPosition(), roller.RotorVelocity()), talon.RotorDamping());
+    piece += roller.Velocity() * 2 * kPi * wheelRadius * kDt;
+    if (detectedAt < 0 && talon.ForwardLimit()) detectedAt = t;
+    if (detectedAt >= 0 && stoppedAt < 0 && std::abs(roller.Velocity()) < 0.05) stoppedAt = t;
+    if (detectionCrossed < 0) SIM_CHECK(!talon.IsNeutral(), "running before the piece is in range (t=%.3f)", t);
+  }
+  SIM_CHECK(detectionCrossed > 0 && detectedAt >= detectionCrossed, "the limit asserts no earlier than the piece arrives");
+  SIM_CHECK(detectedAt - detectionCrossed <= 0.010 + 1e-9, "the Talon sees it within one 10 ms sample: %.4f s",
+            detectedAt - detectionCrossed);
+  SIM_CHECK(stoppedAt > 0 && talon.IsNeutral(), "the roller stops and stays stopped");
+  SIM_CHECK(piece < sensorAt, "the piece stops before the sensor: %.4f m", piece);
+  std::printf("CANrange limit: in range at %.3f s, Talon limited at %.3f s, stopped at %.3f s, piece at %.4f m\n",
+              detectionCrossed, detectedAt, stoppedAt, piece);
+  talon.AttachCanRange(21, nullptr);
+  talon.Step(kDt, 12, roller.RotorPosition(), roller.RotorVelocity());
+  SIM_CHECK(!talon.IsNeutral(), "a detached CANrange no longer limits");
+}
+
 int main() {
   MotorCurves();
   FocCurve();
@@ -365,5 +552,8 @@ int main() {
   BatteryAndStops();
   RegenStatorLimit();
   BatteryCoupling();
+  CanRangeSensor();
+  HardwareLimits();
+  RemoteCanRangeLimit();
   return SimResult("sim_devices");
 }

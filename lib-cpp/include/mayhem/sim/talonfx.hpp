@@ -5,7 +5,8 @@
 // SensorToMechanismRatio * RotorToSensorRatio, slot gains (kP kI kD kS kV kA kG), Motion Magic
 // profiles (trapezoid, jerk-limited, Expo, velocity), peak-voltage clamps, the stator and supply
 // current limits (with SupplyCurrentLowerLimit / LowerTime), neutral brake/coast and FOC vs
-// trapezoidal motor curves. Call Step() at 1 kHz (the device's closed-loop rate).
+// trapezoidal motor curves, software limits and hardware limit switches (the device's own pin
+// or a remote sensor such as a CANrange). Call Step() at 1 kHz (the device's closed-loop rate).
 //
 // Frames. Step() takes the rotor position/velocity in the device's positive direction (what
 // Phoenix reports as RotorPosition, i.e. after Inverted) and returns the shaft torque in that
@@ -30,7 +31,15 @@
 //   regular limit once the demand drops below the lower limit. Regenerated current is not
 //   supply-limited.
 // - Velocity signals are noise- and latency-free (the device filters its velocity).
-// - No voltage ramps, limit switches or deadbands other than TorqueCurrentFOC's.
+// - Hardware limits: an asserted limit (or the request's LimitForward/ReverseMotion) puts the
+//   output in neutral (the configured brake/coast) whenever the demanded output (volts or amps,
+//   before the stator and supply limits) pushes in the blocked direction; output away from it
+//   is allowed. IgnoreHardwareLimits overrides both. The pin and remote states are read at each
+//   Step (a remote CANrange at its own measurement rate). Autoset holds the position at the
+//   autoset value while the limit is asserted. Followers apply the leader's output and do not
+//   check their own limits.
+// - No voltage ramps or deadbands other than TorqueCurrentFOC's.
+#include "mayhem/sim/canrange.hpp"
 #include "mayhem/sim/motor.hpp"
 
 #include <algorithm>
@@ -39,6 +48,7 @@
 #include <limits>
 #include <type_traits>
 #include <variant>
+#include <vector>
 
 namespace mayhem::sim {
 
@@ -47,6 +57,21 @@ struct SlotGains {
   enum class Gravity { ElevatorStatic, ArmCosine } gravity = Gravity::ElevatorStatic;
   enum class StaticSign { VelocitySign, ClosedLoopSign } staticSign = StaticSign::VelocitySign;
   double gravityArmPositionOffset = 0;  // mechanism rotations
+};
+
+// Where a hardware limit reads its state (Phoenix ForwardLimitSourceValue / ReverseLimitSourceValue).
+enum class LimitSource { LimitSwitchPin, RemoteTalonFX, RemoteCANifier, RemoteCANcoder, RemoteCANrange,
+                         RemoteCANdiS1, RemoteCANdiS2, Disabled };
+
+// One direction of HardwareLimitSwitchConfigs. Phoenix 6 defaults: enabled, the device's own
+// pin, normally open (so an unwired pin never asserts; a normally-closed one always does).
+struct HardwareLimitConfig {
+  bool enable = true;
+  LimitSource source = LimitSource::LimitSwitchPin;
+  int remoteSensorId = 0;
+  bool normallyClosed = false;   // ForwardLimitTypeValue::NormallyClosed: asserted when the switch is open
+  bool autosetPositionEnable = false;
+  double autosetPositionValue = 0;  // mechanism rotations
 };
 
 // Defaults are Phoenix 6 (2026) factory defaults.
@@ -67,27 +92,30 @@ struct TalonFxConfig {
   double peakForwardDutyCycle = 1, peakReverseDutyCycle = -1;
   bool forwardSoftLimitEnable = false, reverseSoftLimitEnable = false;
   double forwardSoftLimitThreshold = 0, reverseSoftLimitThreshold = 0;  // mechanism rotations
+  HardwareLimitConfig forwardHardwareLimit, reverseHardwareLimit;
 };
 
 // Control requests. Positions and velocities are mechanism units (rotations, rot/s).
-// enableFoc picks the FOC motor curve (Phoenix's default is true).
+// enableFoc picks the FOC motor curve (Phoenix's default is true). limitForwardMotion /
+// limitReverseMotion force that limit on; ignoreHardwareLimits ignores the limit switches and
+// both flags; ignoreSoftwareLimits ignores the soft limits (Phoenix's request parameters).
 struct NeutralOut {};
 struct CoastOut {};
 struct StaticBrake {};
-struct DutyCycleOut { double output = 0; bool enableFoc = true; };
-struct VoltageOut { double volts = 0; bool enableFoc = true; };
-struct TorqueCurrentFOC { double amps = 0; double maxAbsDutyCycle = 1; double deadband = 0; };
-struct VelocityVoltage { double velocity = 0, acceleration = 0, feedForward = 0; int slot = 0; bool enableFoc = true; };
-struct PositionVoltage { double position = 0, velocity = 0, feedForward = 0; int slot = 0; bool enableFoc = true; };
-struct MotionMagicVoltage { double position = 0, feedForward = 0; int slot = 0; bool enableFoc = true; };
-struct MotionMagicExpoVoltage { double position = 0, feedForward = 0; int slot = 0; bool enableFoc = true; };
-struct MotionMagicVelocityVoltage { double velocity = 0, acceleration = 0, feedForward = 0; int slot = 0; bool enableFoc = true; };
+struct DutyCycleOut { double output = 0; bool enableFoc = true; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct VoltageOut { double volts = 0; bool enableFoc = true; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct TorqueCurrentFOC { double amps = 0; double maxAbsDutyCycle = 1; double deadband = 0; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct VelocityVoltage { double velocity = 0, acceleration = 0, feedForward = 0; int slot = 0; bool enableFoc = true; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct PositionVoltage { double position = 0, velocity = 0, feedForward = 0; int slot = 0; bool enableFoc = true; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct MotionMagicVoltage { double position = 0, feedForward = 0; int slot = 0; bool enableFoc = true; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct MotionMagicExpoVoltage { double position = 0, feedForward = 0; int slot = 0; bool enableFoc = true; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct MotionMagicVelocityVoltage { double velocity = 0, acceleration = 0, feedForward = 0; int slot = 0; bool enableFoc = true; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
 // Torque-current (FOC) closed loops: gains and feedForward are in amps.
-struct VelocityTorqueCurrentFOC { double velocity = 0, acceleration = 0, feedForward = 0; int slot = 0; };
-struct PositionTorqueCurrentFOC { double position = 0, velocity = 0, feedForward = 0; int slot = 0; };
-struct MotionMagicTorqueCurrentFOC { double position = 0, feedForward = 0; int slot = 0; };
-struct MotionMagicExpoTorqueCurrentFOC { double position = 0, feedForward = 0; int slot = 0; };
-struct MotionMagicVelocityTorqueCurrentFOC { double velocity = 0, acceleration = 0, feedForward = 0; int slot = 0; };
+struct VelocityTorqueCurrentFOC { double velocity = 0, acceleration = 0, feedForward = 0; int slot = 0; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct PositionTorqueCurrentFOC { double position = 0, velocity = 0, feedForward = 0; int slot = 0; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct MotionMagicTorqueCurrentFOC { double position = 0, feedForward = 0; int slot = 0; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct MotionMagicExpoTorqueCurrentFOC { double position = 0, feedForward = 0; int slot = 0; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
+struct MotionMagicVelocityTorqueCurrentFOC { double velocity = 0, acceleration = 0, feedForward = 0; int slot = 0; bool limitForwardMotion = false, limitReverseMotion = false, ignoreHardwareLimits = false, ignoreSoftwareLimits = false; };
 // Followers: the caller resolves leaderId to a TalonFx and passes it to SetLeader().
 // Follower: this motor's rotor turns the same raw direction as the leader's (opposed: the
 // opposite), ignoring this motor's Inverted, like Phoenix's MotorAlignmentValue.
@@ -305,6 +333,27 @@ class TalonFx {
     havePending_ = true;
   }
 
+  // Hardware limit inputs, read at each Step by the limits whose source matches.
+  /** The device's own limit pins: true when the switch is closed (pressed, for a normally-open switch). */
+  void SetForwardLimitPin(bool closed) { forwardPin_ = closed; }
+  void SetReverseLimitPin(bool closed) { reversePin_ = closed; }
+  /**
+   * A remote sensor's limit state, by source and device ID (a remote CANrange: detected; a
+   * remote TalonFX: its limit pin; a CANdi: the input state). Holds until set again. Call it
+   * when that sensor's state changes, at the sensor's rate, or attach a CanRange instead.
+   */
+  void SetRemoteLimit(LimitSource source, int id, bool closed) {
+    Remote(source, id).closed = closed;
+  }
+  /** Read a CANrange's IsDetected() at each Step for limits sourced from RemoteCANrange `id` (nullptr detaches). */
+  void AttachCanRange(int id, const CanRange* range) { Remote(LimitSource::RemoteCANrange, id).range = range; }
+  /** Whether each limit was asserted at the last Step (Phoenix GetForward/ReverseLimit() == ClosedToGround). */
+  bool ForwardLimit() const { return forwardAsserted_; }
+  bool ReverseLimit() const { return reverseAsserted_; }
+  /** The last Step's output was put in neutral by a hardware limit (Phoenix's hard limit faults). */
+  bool ForwardHardLimitStopped() const { return forwardStopped_; }
+  bool ReverseHardLimitStopped() const { return reverseStopped_; }
+
   /**
    * Run one device update: closed loop, profile, current limits. rotorPositionRot and
    * rotorVelocityRps are the rotor's position (rot) and velocity (rot/s) in this motor's
@@ -339,7 +388,9 @@ class TalonFx {
     lastIndex_ = index;
     lastSlot_ = slot;
 
+    ReadLimits();
     Demand demand = Compute(dt);
+    demand = HardLimited(demand);
     Apply(demand, dt);
     return sign_ * Torque(rotorVel_);
   }
@@ -397,6 +448,71 @@ class TalonFx {
   bool foc_active_ = true, limited_ = false, lowered_ = false;
   double volts_ = 0, current_ = 0, stator_ = 0, supply_ = 0, lowerTimer_ = 0;
   double reference_ = 0, referenceSlope_ = 0, error_ = 0, closedLoopOutput_ = 0;
+  struct RemoteLimit { LimitSource source; int id; bool closed = false; const CanRange* range = nullptr; };
+  std::vector<RemoteLimit> remotes_;
+  bool forwardPin_ = false, reversePin_ = false;
+  bool forwardAsserted_ = false, reverseAsserted_ = false, forwardStopped_ = false, reverseStopped_ = false;
+  bool ignoreSoftLimits_ = false;
+
+  template <class T, class = void> struct HasLimits : std::false_type {};
+  template <class T> struct HasLimits<T, std::void_t<decltype(T::ignoreHardwareLimits)>> : std::true_type {};
+  RemoteLimit& Remote(LimitSource source, int id) {
+    for (auto& r : remotes_) if (r.source == source && r.id == id) return r;
+    remotes_.push_back({source, id});
+    return remotes_.back();
+  }
+  bool Closed(const HardwareLimitConfig& l, bool pin) const {
+    switch (l.source) {
+      case LimitSource::Disabled: return false;
+      case LimitSource::LimitSwitchPin: return pin;
+      default:
+        for (const auto& r : remotes_)
+          if (r.source == l.source && r.id == l.remoteSensorId) return r.range ? r.range->IsDetected() : r.closed;
+        return false;
+    }
+  }
+  bool Asserted(const HardwareLimitConfig& l, bool pin) const {
+    if (l.source == LimitSource::Disabled) return false;
+    return Closed(l, pin) != l.normallyClosed;
+  }
+  // Limit states and autoset, at the rotor reading of this Step.
+  void ReadLimits() {
+    forwardAsserted_ = Asserted(cfg_.forwardHardwareLimit, forwardPin_);
+    reverseAsserted_ = Asserted(cfg_.reverseHardwareLimit, reversePin_);
+    for (const auto* l : {&cfg_.forwardHardwareLimit, &cfg_.reverseHardwareLimit}) {
+      const bool asserted = l == &cfg_.forwardHardwareLimit ? forwardAsserted_ : reverseAsserted_;
+      if (!asserted || !l->enable || !l->autosetPositionEnable) continue;
+      offset_ = l->autosetPositionValue - rotorPos_ / Ratio();
+      rotorOffset_ = l->autosetPositionValue * Ratio() - rotorPos_;
+      if (profileActive_) profile_.position = l->autosetPositionValue;
+    }
+    ignoreSoftLimits_ = std::visit([](const auto& r) -> bool {
+      if constexpr (HasLimits<std::decay_t<decltype(r)>>::value) return r.ignoreSoftwareLimits; else return false;
+    }, request_);
+  }
+  // Neutral output when an active limit blocks the demanded direction.
+  Demand HardLimited(const Demand& d) {
+    forwardStopped_ = reverseStopped_ = false;
+    if (d.mode != Mode::Voltage && d.mode != Mode::Current) return d;
+    bool forward = false, reverse = false;
+    const bool limits = std::visit([&](const auto& r) -> bool {
+      if constexpr (HasLimits<std::decay_t<decltype(r)>>::value) {
+        if (r.ignoreHardwareLimits) return false;
+        forward = r.limitForwardMotion;
+        reverse = r.limitReverseMotion;
+        return true;
+      } else {
+        return false;  // neutral requests and followers
+      }
+    }, request_);
+    if (!limits) return d;
+    forward = forward || (cfg_.forwardHardwareLimit.enable && forwardAsserted_);
+    reverse = reverse || (cfg_.reverseHardwareLimit.enable && reverseAsserted_);
+    forwardStopped_ = forward && d.value > 0;
+    reverseStopped_ = reverse && d.value < 0;
+    if (!forwardStopped_ && !reverseStopped_) return d;
+    return {cfg_.neutral == TalonFxConfig::Neutral::Brake ? Mode::Brake : Mode::Coast, 0, d.foc};
+  }
 
   double Ratio() const { return cfg_.sensorToMechanismRatio * cfg_.rotorToSensorRatio; }
   const DcMotor& motor() const { return foc_active_ ? foc_ : trap_; }
@@ -579,8 +695,8 @@ class TalonFx {
     }
     // Soft limits stop output that drives further past the threshold.
     const double pos = Position();
-    if (cfg_.forwardSoftLimitEnable && pos >= cfg_.forwardSoftLimitThreshold && v > 0) v = 0;
-    if (cfg_.reverseSoftLimitEnable && pos <= cfg_.reverseSoftLimitThreshold && v < 0) v = 0;
+    if (!ignoreSoftLimits_ && cfg_.forwardSoftLimitEnable && pos >= cfg_.forwardSoftLimitThreshold && v > 0) v = 0;
+    if (!ignoreSoftLimits_ && cfg_.reverseSoftLimitEnable && pos <= cfg_.reverseSoftLimitThreshold && v < 0) v = 0;
     v = std::clamp(v, -bus_, bus_);
     // Supply limit: I_supply = V (V - emf) / (R Vbus).
     if (cfg_.supplyLimitEnable && bus_ > 0) {

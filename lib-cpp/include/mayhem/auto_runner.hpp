@@ -35,7 +35,9 @@ struct AutoNode {
   std::string_view action; Constraints constraints;
   const std::string_view* during = nullptr; std::size_t duringCount = 0;
   // Pass-through anchor: the robot hands off here instead of stopping. `next` is
-  // the pose node reached through this node's single "Always" transition, or -1.
+  // the pose node reached through this node's single "Always" transition, or -1. An
+  // intermediate node with next -1 (explicit handoff radius, conditional exits) passes
+  // through while one of its exits is true and holds its own pose while none is.
   int next = -1; bool intermediate = false;
   TimeoutOutcome onTimeout = TimeoutOutcome::Fail;
 };
@@ -271,8 +273,16 @@ class AutoRunner {
         caps[count]=walk->constraints.maxVelocity;
         anchors[count++]=&walk->goal;
         if(!walk->intermediate) {final=true;break;}
+        if(walk->next<0 || static_cast<std::size_t>(walk->next)>=routine_.nodeCount) {
+          // A pass-through step with conditional exits (an explicit handoff radius): the path
+          // continues through it only while one of its exits is true. Otherwise it ends here,
+          // so the robot slows to this step's pose and waits like a stop step; once an exit
+          // turns true it hands off again without a restart.
+          final=!ExitOpen(*walk);
+          break;
+        }
         final=false;
-        walk=walk->next>=0 && static_cast<std::size_t>(walk->next)<routine_.nodeCount ? &routine_.nodes[walk->next] : nullptr;
+        walk=&routine_.nodes[walk->next];
         if(walk==current_) break;
       }
       const auto result=follower_.Calculate(pose,measured,anchors.data(),count,final,current_->constraints,dt,caps.data());
@@ -300,6 +310,15 @@ class AutoRunner {
       return current_->kind==NodeKind::Pose ? command : Velocity{};
     }
     return command;
+  }
+  // Whether any transition out of `node` is true now. A lookahead probe: it reports nothing to
+  // the hooks or the observer (the transition itself is evaluated and reported as usual).
+  bool ExitOpen(const AutoNode& node) const {
+    for(std::size_t i=0;i<routine_.transitionCount;i++) {
+      const auto& transition=routine_.transitions[i];
+      if(transition.from==node.id && transition.guard && transition.guard(GuardHooks())) return true;
+    }
+    return false;
   }
   const AutoNode* Find(std::string_view id) const {for(std::size_t i=0;i<routine_.nodeCount;i++) if(routine_.nodes[i].id==id) return &routine_.nodes[i];return nullptr;}
   std::string_view Qualified(std::size_t i) const {return i<qualified_.size()?std::string_view{qualified_[i]}:routine_.transitions[i].id;}

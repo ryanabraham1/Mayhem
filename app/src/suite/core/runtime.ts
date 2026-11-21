@@ -391,7 +391,17 @@ export const isIntermediate = (routine: AutoRoutine, node: AutoNode) =>
   node.kind === "pose" && !!node.goal && !node.goal.stop &&
   (!!autoNext(routine, node) || node.goal.handoffRadius > 0);
 /** Anchors ahead of a pose step, following unconditional pose chains. */
-export function pathAhead(routine: AutoRoutine, node: AutoNode, project?: SuiteProject): PathAhead {
+/**
+ * Anchors ahead of a pose step. A pass-through step with conditional exits (explicit
+ * handoff radius) ends the path while `exitOpen` says none of its exits is true, so the
+ * robot slows to it and waits; without `exitOpen` the route is open past it.
+ */
+export function pathAhead(
+  routine: AutoRoutine,
+  node: AutoNode,
+  project?: SuiteProject,
+  exitOpen?: (node: AutoNode) => boolean,
+): PathAhead {
   const anchors: Goal[] = [node.goal!];
   const nodes = [node];
   const seen = new Set([node.id]);
@@ -403,7 +413,8 @@ export function pathAhead(routine: AutoRoutine, node: AutoNode, project?: SuiteP
   });
   while (anchors.length < MAX_LOOKAHEAD && isIntermediate(routine, current)) {
     const next = autoNext(routine, current);
-    if (!next || seen.has(next.id)) return result(false);
+    if (!next) return result(exitOpen ? !exitOpen(current) : false);
+    if (seen.has(next.id)) return result(false);
     seen.add(next.id);
     anchors.push(next.goal!);
     nodes.push(next);
@@ -586,7 +597,11 @@ export function step(
     const result = follow(
       frame.pose,
       frame.velocity,
-      pathAhead(routine, node, project),
+      pathAhead(routine, node, project, (n) =>
+        routine.transitions.some(
+          (t) => t.from === n.id && (options.mode === "path" || evaluate(t.condition, signals)),
+        ),
+      ),
       resolveNodeConstraints(project, routine, node),
       frame.controller,
       dt,

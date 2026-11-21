@@ -244,5 +244,65 @@ int main() {
     for(int i=0;i<1000&&r.Status()==mayhem::RunStatus::Running;i++){v=r.Tick(at,v,.02);at.x+=v.vx*.02;at.y+=v.vy*.02;}
     assert(r.Status()==mayhem::RunStatus::Completed&&on==1);
   }
+  // A pass-through step whose exit is conditional ("go through the approach point if the arm
+  // is up, otherwise wait there"): while the guard is false the path ends at the approach and
+  // the robot slows to it and waits; once it is true the robot hands off and drives on.
+  {
+    struct Arm final : mayhem::RobotHooks {
+      bool up=false; int guards=0;
+      mayhem::SignalValue Signal(std::string_view key) const override {
+        return key=="superstructure.atGoal" ? mayhem::SignalValue{up} : mayhem::SignalValue{};
+      }
+      void GuardEvaluated(std::string_view id,bool) override {if(id=="armUp") guards++;}
+    };
+    struct Run {double maxX=-1e9, speedAtHandoff=-1, waitSpeed=-1; bool completed=false; int guardsBeforeArrival=-1; std::string stateAtArmUp;};
+    // lead: optional always-chained point before the approach. armUpAt: time the arm is up (<0 never).
+    auto run=[](bool lead,double armUpAt) {
+      mayhem::Goal leadGoal{{1.5,0,0}};
+      mayhem::Goal approach{{3,0,0}}; approach.handoffRadius=.4;
+      mayhem::Goal reef{{5,0,0}};
+      const mayhem::AutoNode nodes[]={
+        {"lead",mayhem::NodeKind::Pose,leadGoal,15,"",{},nullptr,0,1,true},
+        {"approach",mayhem::NodeKind::Pose,approach,15,"",{},nullptr,0,-1,true},
+        {"reef",mayhem::NodeKind::Pose,reef,15,"",{}},
+        {"done",mayhem::NodeKind::Finish,{},1,"",{}}};
+      const mayhem::AutoTransition edges[]={
+        {"go","lead","approach",[](const mayhem::RobotHooks&){return true;}},
+        {"armUp","approach","reef",[](const mayhem::RobotHooks& h){return mayhem::Compare(h.Signal("superstructure.atGoal"),mayhem::CompareOp::Eq,true).value_or(false);}},
+        {"score","reef","done",[](const mayhem::RobotHooks&){return true;}}};
+      Arm arm; mayhem::AutoRunner r({"wait",lead?"lead":"approach",nodes,4,edges,3},arm);
+      mayhem::Pose pose{0,0,0}; mayhem::Velocity v; Run out;
+      arm.up=armUpAt==0; r.Start();
+      for(int i=0;i<1500&&r.Status()==mayhem::RunStatus::Running;i++){
+        const double t=i*.02;
+        if(armUpAt>0&&t>=armUpAt&&!arm.up) {arm.up=true; out.stateAtArmUp=std::string(r.ActiveState()); out.waitSpeed=std::hypot(v.vx,v.vy);}
+        const bool before=r.ActiveState()!="reef";
+        v=r.Tick(pose,v,.02);
+        if(before&&r.ActiveState()=="reef"&&out.speedAtHandoff<0) out.speedAtHandoff=std::hypot(v.vx,v.vy);
+        if(out.guardsBeforeArrival<0&&std::hypot(pose.x-3,pose.y)<=.4) out.guardsBeforeArrival=arm.guards;
+        pose.x+=v.vx*.02;pose.y+=v.vy*.02;pose.heading=mayhem::Wrap(pose.heading+v.omega*.02);
+        if(r.ActiveState()!="reef"&&r.ActiveState()!="done") out.maxX=std::max(out.maxX,pose.x);
+      }
+      out.completed=r.Status()==mayhem::RunStatus::Completed;
+      return out;
+    };
+    for(bool lead:{false,true}) {
+      // Arm never up in time: the robot stops at the approach (no overshoot) and waits there.
+      const Run waiting=run(lead,6);
+      assert(waiting.completed);
+      assert(waiting.maxX<=3.03);
+      assert(waiting.stateAtArmUp=="approach"&&waiting.waitSpeed<.05);
+      // The lookahead probe does not report guards; only the arrival evaluation does.
+      assert(waiting.guardsBeforeArrival==0);
+      // Arm already up: the robot drives through the approach at speed.
+      const Run through=run(lead,0);
+      assert(through.completed&&through.speedAtHandoff>2);
+      // Arm comes up while the robot is still slowing for the approach: it hands off and
+      // carries on without stopping.
+      const Run late=run(lead,.8);
+      assert(late.completed&&late.stateAtArmUp=="approach"&&late.waitSpeed>.3);
+      assert(late.speedAtHandoff>.3&&late.maxX<=3.03);
+    }
+  }
   std::cout<<"Auto runner checks passed\n";
 }
