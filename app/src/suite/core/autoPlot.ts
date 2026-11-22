@@ -17,6 +17,8 @@ export interface PlotInput {
   planned: PlotPose[];
   /** The editor preview, drawn faintly when it differs. */
   editor?: PlotPose[];
+  /** Legend for the faint path (default "Editor preview"; the optimizer draws the route before it). */
+  editorLabel?: string;
   /** What the robot did, from a log (seconds from the routine start). */
   actual?: PlotPose[];
   issues: (MotionIssue & { source: "preview" | "log" })[];
@@ -190,7 +192,7 @@ export function plotAuto(input: PlotInput, deflate: (data: Uint8Array) => Uint8A
   let lx = pad;
   const legend = (color: RGB, label: string) => { c.line(lx, 56, lx + 28, 56, 4, color); lx += 36; lx += c.text(lx, 49, label, C.muted, 2) + 28; };
   legend(C.planned, "Planned (robot's follower)");
-  if (input.editor?.length) legend(C.editor, "Editor preview");
+  if (input.editor?.length) legend(C.editor, input.editorLabel ?? "Editor preview");
   if (actual?.length) legend(C.actual, "Actual (log)");
   c.ring(lx + 8, 56, 8, 3, C.issue); lx += 24; lx += c.text(lx, 49, "Problem", C.muted, 2) + 28;
   c.ring(lx + 6, 56, 6, 2, C.goal); lx += 20; lx += c.text(lx, 49, "Stop goal #", C.muted, 2) + 28;

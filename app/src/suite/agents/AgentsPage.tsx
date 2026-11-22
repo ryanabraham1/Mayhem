@@ -91,6 +91,7 @@ export function reviewPrompt(repo: string) {
     "Before you tell me a change is ready, run these Mayhem tools (the MCP server, or node /path/to/Mayhem/scripts/mayhem.mjs tool <name> '<JSON>'):",
     `- behavior_diff {"repo": "${where}", "base": "main", "after": "HEAD"}: what I will be shown. Anything in it you did not mean to change is a problem.`,
     `- run_scenarios {"repo": "${where}", "base": "main", "after": "HEAD", "by": "<your name>"}: every button, auto and team scenario. It records the sim proof on the commit; I read that record, so don't describe a proof in words instead.`,
+    `- After you build or change an auto: optimize_auto {"path": "<project>.mayhem.json", "routine": "<id>", "plot": true}, read the plot, then run it again with "apply": true if the faster route is right (lock any point that is there for a reason Mayhem cannot see).`,
     "Never remove or loosen a scenario to make a run pass, and never deploy to the robot. I review the branch in Mayhem and merge it myself.",
   ].join("\n");
 }

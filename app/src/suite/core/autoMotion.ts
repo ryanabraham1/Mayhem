@@ -207,7 +207,8 @@ export function analyzeMotion(samples: GoalSample[], info: (goal: string) => Goa
       if (rise > best.rise) best = { rise, peakAt: k, from: min, fromAt: minAt };
     });
     const e0 = seg[0].error;
-    const approached = e0 - best.from >= 0.1 && best.from <= Math.max(0.3, 4 * i.tolerance);
+    // Close to the goal, or a pass that then swings out several times farther (a wide loop past it).
+    const approached = e0 - best.from >= 0.1 && (best.from <= Math.max(0.3, 4 * i.tolerance) || (best.from <= 0.6 && best.rise >= 3 * best.from));
     const backAfter = seg.slice(best.peakAt).some((s) => s.error <= best.from + best.rise * 0.5) || seg[seg.length - 1].reached;
     const peak = best.from + best.rise;
     if (i.stop && approached && backAfter && best.rise >= Math.max(0.02, 0.5 * i.tolerance) && peak > i.tolerance) {

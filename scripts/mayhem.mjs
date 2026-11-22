@@ -51,6 +51,7 @@ const { proofText } = await import("../app/src/suite/core/review/proofs.ts");
 const { motionOfFrames, motionOfLog, logToSamples, logPose, goalRunners, goalInfos, analyzeMotion } = await import("../app/src/suite/core/autoMotion.ts");
 const { plotAuto } = await import("../app/src/suite/core/autoPlot.ts");
 const { editAuto } = await import("../app/src/suite/core/autoEdit.ts");
+const { optimizeAuto, OPTIMIZE_PHASES } = await import("../app/src/suite/core/autoOptimize.ts");
 const { valueAt } = await import("../app/src/suite/core/analysis.ts");
 import { deflateSync } from "node:zlib";
 import { tmpdir } from "node:os";
@@ -245,6 +246,29 @@ const tools = [
         plot: { type: "boolean" },
       },
       required: ["path", "ops"],
+    },
+  },
+  {
+    name: "optimize_auto",
+    description:
+      "Make an auto faster without leaving the BLine model: it searches the knobs a person would turn (remove pass-through points that do nothing, move them to cut corners, retune their handoff radii, reroute a chain of pass-through points as the shortest way around the field's obstacles, and the braking fixes motion findings suggest) and scores every candidate by driving it with the robot runner's own follower (native, path mode). Stop steps, action points, steps with event markers or `during` actions on their segments, step-group steps, conditional pass-throughs and `lock`ed steps never move. A change is kept only if the routine still finishes, the robot's footprint (at its heading, plus `clearance`) is no deeper into obstacles or walls, motion and heading warnings do not grow, and every event still fires. Returns `before`/`after` (time, distance, pass-through count, warnings, clearance with what was hit), `timeSaved`, `ops` (edit_auto ops that reproduce it), `changes` (each with why and its time change), `suggestions` (faster changes it will not make itself because they change what the auto does: drive through a stop, remove a speed cap) and `fixed` (steps it left alone and why). Writes nothing unless `apply: true` (saved like edit_auto, with a revision bump and the generated header). `plot: true` draws the optimized routine with the old route faint. Use it after building or changing an auto, then read the plot and run run_scenarios: the follower runs on an ideal drive.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Project file (*.mayhem.json)." },
+        routine: { type: "string", description: "Routine to optimize (default the first)." },
+        lock: { type: "array", items: { type: "string" }, description: "Step IDs never moved, removed or retuned (e.g. a point that keeps the robot in a lane for a reason Mayhem cannot see)." },
+        maxMove: { type: "number", description: "Farthest a pass-through point may move from where it was, meters (default 1)." },
+        clearance: { type: "number", description: "Margin around the robot footprint for obstacle and wall checks, meters (default 0.05)." },
+        phases: { type: "array", items: { type: "string", enum: [...OPTIMIZE_PHASES] }, description: "Searches to run (default all): motion (braking fixes), route (around obstacles), prune, move, handoff." },
+        budget: { type: "integer", description: "Most follower runs (default 2500, about 5 ms each)." },
+        signals: { type: "object" },
+        apply: { type: "boolean", description: "Save the result (default false: only report)." },
+        expectedRevision: { type: "integer" },
+        plot: { type: "boolean" },
+        out: { type: "string", description: "PNG path for plot." },
+      },
+      required: ["path"],
     },
   },
   {
@@ -611,7 +635,10 @@ async function routineRuns(project, args) {
   return { routine, result, editor, planned: series(result), editorPlanned: series(editor), preview: motionOfFrames(project, routine, result.frames), log };
 }
 async function plotRoutine(path, args) {
-  const project = parseProject(await readFile(path, "utf8"));
+  return plotProject(parseProject(await readFile(path, "utf8")), args);
+}
+/** `args.faint`: { series, label } drawn in place of the editor preview (the route before optimizing). */
+async function plotProject(project, args) {
   const { routine, result, editor, planned, editorPlanned, preview, log } = await routineRuns(project, args);
   const shift = (i, dt) => ({ ...i, time: i.time - dt, start: i.start - dt, end: i.end - dt });
   const issues = [
@@ -619,15 +646,15 @@ async function plotRoutine(path, args) {
     ...preview.issues.filter((i) => !log?.motion.issues.some((l) => l.step === i.step && l.kind === i.kind)).map((i) => ({ ...i, source: "preview" })),
   ];
   const png = plotAuto({
-    project, routine, planned, editor: editorPlanned, actual: log?.actual.filter((p) => Number.isFinite(p.x)), issues,
-    title: `${routine.name} · follower ${round3(result.frame.time)} s ${result.status} · editor ${round3(editor.frame.time)} s${log ? ` · log ${Math.round((log.actual.at(-1)?.time ?? 0) * 100) / 100} s` : ""}`,
+    project, routine, planned, editor: args.faint?.series ?? editorPlanned, editorLabel: args.faint?.label, actual: log?.actual.filter((p) => Number.isFinite(p.x)), issues,
+    title: args.title ?? `${routine.name} · follower ${round3(result.frame.time)} s ${result.status} · editor ${round3(editor.frame.time)} s${log ? ` · log ${Math.round((log.actual.at(-1)?.time ?? 0) * 100) / 100} s` : ""}`,
   }, (d) => deflateSync(d));
   const out = args.out ? resolve(args.out) : join(tmpdir(), "mayhem-plots", `${routine.id}-${Date.now()}.png`);
   await mkdir(dirname(out), { recursive: true });
   await writeFile(out, png);
   return {
     image: out,
-    note: "Read the image to see the auto. Purple: the robot runner's controller on an ideal drive; faint: the editor preview; orange: the logged run; red: problems (numbered as in `issues`).",
+    note: `Read the image to see the auto. Purple: the robot runner's controller on an ideal drive; faint: ${args.faint ? args.faint.label.toLowerCase() : "the editor preview"}; orange: the logged run; red: problems (numbered as in \`issues\`).`,
     routine: routine.id,
     preview: { follower: "native", status: result.status, time: round3(result.frame.time), editorTime: round3(editor.frame.time), issues: preview.issues.map(compactIssue) },
     ...(log ? {
@@ -668,6 +695,36 @@ async function editRoutine(path, args) {
     const target = args.dryRun ? undefined : await plotRoutine(path, { routine: result.effects[0].routine });
     if (target) result.plot = { image: target.image, note: target.note };
     else result.plot = "Not drawn on a dry run (the file is unchanged); run plot_auto after saving.";
+  }
+  return result;
+}
+async function optimizeRoutine(path, args) {
+  const original = parseProject(await readFile(path, "utf8"));
+  const options = { routine: args.routine, lock: args.lock, maxMove: args.maxMove, clearance: args.clearance, phases: args.phases, budget: args.budget, signals: args.signals };
+  const score = (s) => ({
+    status: s.status, time: s.time, distance: s.distance, passThrough: s.passThrough, warnings: s.warnings, headingWarnings: s.headingWarnings,
+    clearance: { cost: round3(s.clearance.cost), depth: s.clearance.depth, hits: s.clearance.hits },
+  });
+  const run = optimizeAuto(original, options);
+  const report = {
+    routine: run.routine, timeSaved: run.timeSaved, before: score(run.before), after: score(run.after),
+    ops: run.ops, changes: run.changes, suggestions: run.suggestions, fixed: run.fixed, evaluations: run.evaluations,
+    ...(run.ops.length ? {} : { note: "Nothing to change: no candidate was faster without getting closer to an obstacle or adding a warning." }),
+    ...(run.after.issues.length ? { issues: run.after.issues.map(compactIssue) } : {}),
+  };
+  let result;
+  if (args.apply && run.ops.length) {
+    result = await updateProject(path, args, () => ({ project: parseProject(JSON.stringify(run.project)), ...report }));
+    result.applied = true;
+  } else result = { ...report, applied: false, ...(run.ops.length ? { next: { tool: "optimize_auto", args: { path, ...Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)), routine: run.routine, apply: true } } } : {}) };
+  if (args.plot) {
+    const before = previewRun(original, original.routines.find((r) => r.id === run.routine), { mode: "path", follower: "native" });
+    const target = await plotProject(run.project, {
+      routine: run.routine, out: args.out,
+      faint: { label: "Before optimizing", series: before.frames.map((f) => ({ time: f.time, x: f.pose.x, y: f.pose.y, speed: Math.hypot(f.velocity.vx, f.velocity.vy), goal: f.node })) },
+      title: `${run.project.routines.find((r) => r.id === run.routine).name} · optimized ${run.after.time} s (was ${run.before.time} s)`,
+    });
+    result.plot = { image: target.image, note: target.note };
   }
   return result;
 }
@@ -931,6 +988,7 @@ export async function execute(name, args) {
   if (name === "log_diagnose") return diagnoseLog(await loadLog(path, args.mapping), await withProject(args));
   if (name === "plot_auto") return plotRoutine(path, args);
   if (name === "edit_auto") return editRoutine(path, args);
+  if (name === "optimize_auto") return optimizeRoutine(path, args);
   if (
     ["list_log_channels", "log_table", "log_anomalies", "log_what_changed", "log_events", "log_states"].includes(name)
   ) {
@@ -1038,7 +1096,7 @@ async function main() {
             capabilities: { tools: {} },
             serverInfo: { name: "mayhem-suite", version: "0.1.0" },
             instructions:
-              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. People review your robot code changes in the Mayhem app by behavior, per branch: work on a branch (never main), commit, then run behavior_diff and run_scenarios with base \"main\" and after \"HEAD\" before saying a change is ready; run_scenarios records the sim proof on the commit, which is what the reviewer reads. Given a log (a sim run or a match), start with log_diagnose and run each finding's `next`; after a fix, rerun the same scenario and log_compare the two logs. For autos: change them with edit_auto (small ops, it reports what each change did), look at them with plot_auto (read the PNG; pass a run_scenarios log to see the real run), and fix every motion issue (overshoot and crawl back, heading swing, creeping in) that simulate_auto, run_scenarios or log_diagnose reports, using its suggest ops. See docs/SUITE_AGENTS.md.",
+              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. People review your robot code changes in the Mayhem app by behavior, per branch: work on a branch (never main), commit, then run behavior_diff and run_scenarios with base \"main\" and after \"HEAD\" before saying a change is ready; run_scenarios records the sim proof on the commit, which is what the reviewer reads. Given a log (a sim run or a match), start with log_diagnose and run each finding's `next`; after a fix, rerun the same scenario and log_compare the two logs. For autos: change them with edit_auto (small ops, it reports what each change did), run optimize_auto on them (it makes the path faster within the BLine model and returns edit_auto ops; apply: true saves), look at them with plot_auto (read the PNG; pass a run_scenarios log to see the real run), and fix every motion issue (overshoot and crawl back, heading swing, creeping in) that simulate_auto, run_scenarios or log_diagnose reports, using its suggest ops. See docs/SUITE_AGENTS.md.",
           };
         else if (request.method === "tools/list") result = { tools };
         else if (request.method === "tools/call") {
@@ -1253,10 +1311,11 @@ async function main() {
     open: "open_in_app",
     plot: "plot_auto",
     edit: "edit_auto",
+    optimize: "optimize_auto",
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | diagnose <log> [--project <file>] [--ignore a,b] [--json] | compare <before log> <after log> [--project <file>] [--ignore a,b] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | plot <file> [{routine, log, out}] | edit <file> <{ops, routine, dryRun, plot}> | open <file> | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | diagnose <log> [--project <file>] [--ignore a,b] [--json] | compare <before log> <after log> [--project <file>] [--ignore a,b] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | plot <file> [{routine, log, out}] | edit <file> <{ops, routine, dryRun, plot}> | optimize <file> [{routine, lock, maxMove, phases, apply, plot}] | open <file> | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")

@@ -79,7 +79,7 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 }
 ```
 
-Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `edit_auto`, `plot_auto` (see "Autos: change, look, fix"), `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `run_scenarios` (see "Sim proof"), `list_changes` (see "How your changes get reviewed"), `log_diagnose`, `log_compare`, `log_states`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `edit_auto`, `plot_auto`, `optimize_auto` (see "Autos: change, look, fix" and "Making autos fast"), `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `run_scenarios` (see "Sim proof"), `list_changes` (see "How your changes get reviewed"), `log_diagnose`, `log_compare`, `log_states`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
 
 ## Autos: change, look, fix
 
@@ -99,6 +99,24 @@ Three tools make an auto something you can change in small steps and look at, an
 **Why the editor preview can look clean when the robot overshoots.** The editor's path preview drives plain paths on the path simulator, which brakes on an ideal `sqrt(2·maxAcceleration·d)` profile. The robot's runner (and `follow()` in `simulate`) uses the P law on remaining distance, so it starts braking at `v / translationKp` from the stop; with a low `maxAcceleration` it cannot stop there, overshoots and crawls back. It is also slower: on one 2026 project the runner took 0.5–1 s longer per auto than the preview showed. So motion checks, `edit_auto` and `plot_auto` drive the routine with the runner's controller (`simulate_auto {"follower": "native"}` does it for the whole run). Drivetrain lag and traction are still not modeled; the physics sim is the proof.
 
 Loop: `edit_auto` (or `create`) → `plot_auto` and read the image → fix what `motion.issues` names with its `suggest` → `run_scenarios` with the auto (`names: ["<routine name>"]`) → `plot_auto` with the auto's `logs.after` (or `log_diagnose` with `project`) → `log_compare` before/after. An overshoot fixed in the ideal run can remain in the physics sim when the drive lags its command; `stopLag` is for that.
+
+## Making autos fast
+
+Hand-placed routes tend to be slow: too many pass-through points, corners the robot has to swing around, small handoff circles, a point placed against the hub, a stop the P law overshoots. **`optimize_auto`** (CLI: `node scripts/mayhem.mjs optimize <file> '{"routine", "lock", "plot", "apply"}'`) fixes that without leaving the BLine model: the result is still pose goals with handoff circles, never a trajectory.
+
+It turns only the knobs a person would turn, and drives every candidate with the robot runner's own follower (native, path mode, about 5 ms a run):
+
+- **motion**: the `suggest` fixes of the motion findings (overshoot, creeping in) and, on stop steps without one, a `stopDeceleration` braking profile of at most 0.9 × the robot's `maxAcceleration`.
+- **route**: a chain of removable pass-through points (or a straight line) that runs into an obstacle or is slower than it needs to be is replaced by the shortest way around the field's obstacles (a visibility graph over their corners pushed out by the robot's half diagonal plus `clearance`), as pass-through points with a free heading, so they are not rotation targets. A pass-through point placed against an obstacle is pushed clear or removed, and a segment that still clips one gets a point around it. A detour is taken only when it is worth it: 20 s per m·s of footprint inside an obstacle.
+- **prune**: pass-through points the route does not need.
+- **move**: pass-through points shifted (pattern search, at most `maxMove`, default 1 m, from where they were) to cut the corners they make.
+- **handoff**: each pass-through point's handoff radius (0.15–1.25 m), written as a manual `constraints.handoffRadius` (or `goal.handoffRadius` when that is already set).
+
+Never touched: stop steps' poses, action steps, steps with event markers on their segments (pickups fire by progress along them) or `during` actions, rotation markers or a speed cap (not removed), step-group steps, conditional pass-throughs, and every step in `lock`. A change is kept only when the routine still finishes, the robot's footprint (a rectangle at its heading, plus `clearance`, default 0.05 m) is no deeper into an obstacle or past a wall, motion warnings and heading warnings do not grow, and every event still fires.
+
+The result has `before` and `after` (time, driven distance, pass-through count, warnings, `clearance` with what was hit, how deep and on the way to which step), `timeSaved`, `ops` (`edit_auto` ops that reproduce it exactly), `changes` (each with its phase, reason and time change), `suggestions` (faster changes it will not make because they change what the auto does: driving through a stop that is followed only by more driving, removing a speed cap) and `fixed` (steps it left alone and why). Nothing is written unless `apply: true`; `plot: true` draws the optimized routine with the old route faint. Stop goals that touch an obstacle themselves (scoring against the hub) stay in `after.clearance`: routing cannot change them.
+
+Loop: build the auto (`edit_auto` `create`) → `optimize_auto` with `plot: true`, read the image → `lock` any point that is there for a reason Mayhem cannot see (a lane, a defender, a bump the robot must not cross), run it again → `apply: true` → `run_scenarios`. The follower runs on an ideal drive; the physics sim is the proof.
 
 ## Step groups: repeated cycles without a generator script
 
