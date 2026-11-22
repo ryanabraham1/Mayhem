@@ -32,7 +32,7 @@ const { headingLints } = await import("../app/src/suite/core/headingLint.ts");
 const { createGroup, addGroupUse } = await import("../app/src/suite/core/groups.ts");
 import { analyze, parseRecordingJSON, currentBreakdown } from "../app/src/suite/core/analysis.ts";
 import { listChannels, logTable, findAnomalies, whatChanged, logEvents, machineStates } from "../app/src/suite/core/logquery.ts";
-import { diagnoseLog, compareLogs } from "../app/src/suite/core/logdiagnose.ts";
+const { diagnoseLog, compareLogs } = await import("../app/src/suite/core/logdiagnose.ts");
 import { NT4Observer } from "../app/src/suite/core/nt4.ts";
 import { parseWPILog } from "../app/src/suite/core/wpilog.ts";
 import { vendorCpp } from "./cpp-vendor.mjs";
@@ -48,6 +48,12 @@ const { runSimProof, summarizeProof } = await import("../app/src/suite/core/revi
 const { parseMachineSpecs } = await import("../app/src/suite/core/review/machines.ts");
 const { readProject } = await import("../app/src/suite/core/review/autos.ts");
 const { proofText } = await import("../app/src/suite/core/review/proofs.ts");
+const { motionOfFrames, motionOfLog, logToSamples, logPose, goalRunners, goalInfos, analyzeMotion } = await import("../app/src/suite/core/autoMotion.ts");
+const { plotAuto } = await import("../app/src/suite/core/autoPlot.ts");
+const { editAuto } = await import("../app/src/suite/core/autoEdit.ts");
+const { valueAt } = await import("../app/src/suite/core/analysis.ts");
+import { deflateSync } from "node:zlib";
+import { tmpdir } from "node:os";
 const tools = [
   {
     name: "apply_machine_spec",
@@ -189,7 +195,7 @@ const tools = [
   {
     name: "simulate_auto",
     description:
-      "Run a deterministic pose/condition preview. This ideal plant cannot validate real mechanism code. Sensors change only through supplied signal values. Frozen drive must fail its watchdog. notModeled lists the steps visited on which robot code limits the speed (a step's robotSpeedLimit note: a keep-out, an anti-tip limit, a live stop deceleration); the preview drives them at the project's limits, so `time` is a lower bound there. headingWarnings lists event markers (pickups) that fire with the robot's front (+x) more than 45° off its direction of travel; fix them with goal.headingMode \"motion\" (optionally goal.headingOffset) on that step.",
+      "Run a deterministic pose/condition preview. This ideal plant cannot validate real mechanism code. Sensors change only through supplied signal values. Frozen drive must fail its watchdog. notModeled lists the steps visited on which robot code limits the speed (a step's robotSpeedLimit note: a keep-out, an anti-tip limit, a live stop deceleration); the preview drives them at the project's limits, so `time` is a lower bound there. headingWarnings lists event markers (pickups) that fire with the robot's front (+x) more than 45° off its direction of travel; fix them with goal.headingMode \"motion\" (optionally goal.headingOffset) on that step. `motion` drives the routine again with the robot runner's own controller (follow(): P law, acceleration-limited; the editor preview brakes on an ideal profile, so it can hide overshoot and be optimistic about time) and has its time, each stop step's timing, peak speed and closest approach, and `motion.issues` the steps that overshoot their goal and crawl back, swing past their heading, or creep in, each with a `fix` and `suggest` (edit_auto `set` ops). Drivetrain lag and traction are not modeled: confirm in the robot's physics sim (run_scenarios, then plot_auto with its log).",
     inputSchema: {
       type: "object",
       properties: {
@@ -199,9 +205,46 @@ const tools = [
         freezeDrive: { type: "boolean" },
         maxSeconds: { type: "number" },
         mode: { type: "string", enum: ["path", "routine"] },
+        follower: { type: "string", enum: ["preview", "native"], description: "preview (default): the editor's path preview; native: the robot runner's controller for every step. `motion` always uses native." },
         actions: { type: "object", additionalProperties: { type: "string", enum: ["running", "succeeded", "failed"] } },
       },
       required: ["path"],
+    },
+  },
+  {
+    name: "plot_auto",
+    description:
+      "Draw an auto as a PNG and return its path: read the image to see it. The field with the planned path (the robot runner's controller on an ideal drive, purple; the editor preview faint) and, with `log` (a run_scenarios auto log or a match log), the path the robot really drove (orange); every stop goal with its tolerance ring, numbered; motion problems (overshoot then crawl back, heading swing, creeping in) circled in red with a zoomed inset of each overshoot (10 cm grid); speed and distance-to-goal over time for both, with step boundaries. `issues` lists the same problems as text with a `fix` and `suggest` (edit_auto `set` ops). The routine is found from the log's goal IDs when `routine` is omitted. Use it after every auto change, and whenever a log shows auto findings.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Project file (*.mayhem.json)." },
+        routine: { type: "string" },
+        log: { type: "string", description: "Optional WPILOG of a run of this routine (sim or match)." },
+        pose: { type: "string", description: "Robot pose channel prefix in the log (…/Pose with /x, /y, /heading); found automatically when omitted." },
+        out: { type: "string", description: "PNG path (default: a file in the system temp folder)." },
+        mode: { type: "string", enum: ["path", "routine"], description: "Preview mode (default path; routine with signals/actions)." },
+        signals: { type: "object" },
+        actions: { type: "object" },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "edit_auto",
+    description:
+      "Change an auto with a few targeted ops instead of rewriting the project, then see what it did: the result has `changes`, and per routine `before` and `after` (status, time, motion issues, driven with the robot runner's controller in path mode) with `fixed` and `new` problems. Ops, applied in order: {\"set\": \"<step>.<field…>\", \"value\": v} (e.g. \"score.constraints.stopDeceleration\", \"score.goal.x\", \"score.goal.markers\"; also \"routine.<field…>\", \"robot.constraints.<field>\", \"use:<use id>.args.<param>\", \"group:<group id>.<field…>\"; null deletes); {\"move\": \"<step>\", \"x\", \"y\", \"heading\"}; {\"insert\": {\"id\", \"x\", \"y\", \"heading\", \"stop\"?, \"markers\"?, \"constraints\"?, …}, \"after\": \"<step>\" (into its exit; name it with \"exit\" when there are several) | \"before\": \"<step>\"}; {\"remove\": \"<step>\"} (its callers go where it went); {\"create\": {\"id\", \"name\", \"start\": {x, y, heading}, \"steps\": [pose shorthand or full steps], \"finish\"?: true}} (a chain: pose steps pass through, the last pose before a non-pose step stops). Pose shorthand fills BLine tolerances (end 0.03 m / 2°, pass-through 0.1 m / 5°). The result is validated, saved atomically with a revision bump (and the generated header refreshed, as save_project), unless dryRun. `plot: true` also draws the edited routine (plot_auto). The preview is the ideal plant: confirm motion fixes in the physics sim (run_scenarios, then plot_auto or log_compare on the log).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        routine: { type: "string", description: "Routine for step ops (default the first; a create switches to the new one)." },
+        ops: { type: "array", items: { type: "object" } },
+        dryRun: { type: "boolean" },
+        expectedRevision: { type: "integer" },
+        plot: { type: "boolean" },
+      },
+      required: ["path", "ops"],
     },
   },
   {
@@ -272,14 +315,14 @@ const tools = [
   {
     name: "log_diagnose",
     description:
-      "Start here with a log: one call returns its failures, grouped and ranked (errors first), each with a stable `id`, evidence, the match phase, and `next` (a ready-to-run log_table/log_events/log_states/log_what_changed call that shows it). Checks: setpoints the mechanism never reaches, cannot reach, oscillates around, is slow to reach or settles off (setpoint/measured pairs found by name, e.g. reqVelocity -> motor velocity, ModuleTargets -> ModuleStates); flickering flags with the signal and threshold they follow; states and Mayhem machines switching back and forth; loop overruns; alerts and console errors; motors pinned at a current limit; pose jumps; power. `context` has the phases (disabled/auto/teleop), selected auto, state sequences, which pairs were tracked and setpoints it could not pair. `ignore` drops findings whose id contains a string, or a whole kind.",
-    inputSchema: { type: "object", properties: { path: { type: "string" }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log." }, from: { type: "number" }, to: { type: "number" }, ignore: { type: "array", items: { type: "string" } }, limit: { type: "integer", description: "Max findings (default 30)." } }, required: ["path"] },
+      "Start here with a log: one call returns its failures, grouped and ranked (errors first), each with a stable `id`, evidence, the match phase, and `next` (a ready-to-run log_table/log_events/log_states/log_what_changed call that shows it). Checks: setpoints the mechanism never reaches, cannot reach, oscillates around, is slow to reach or settles off (setpoint/measured pairs found by name, e.g. reqVelocity -> motor velocity, ModuleTargets -> ModuleStates); flickering flags with the signal and threshold they follow; states and Mayhem machines switching back and forth; loop overruns; alerts and console errors; motors pinned at a current limit; pose jumps; power; auto steps that overshoot their goal and crawl back, swing past their heading, or creep in (from Mayhem/Goals/<routine>/*; pass `project` for step names, tolerances and a fix sized to the step's limits, and a plot_auto `next`). `context` has the phases (disabled/auto/teleop), selected auto, state sequences, which pairs were tracked and setpoints it could not pair. `ignore` drops findings whose id contains a string, or a whole kind.",
+    inputSchema: { type: "object", properties: { path: { type: "string" }, project: { type: "string", description: "Optional *.mayhem.json the auto came from." }, mapping: { type: "object", description: "Optional signal mapping, as for analyze_log." }, from: { type: "number" }, to: { type: "number" }, ignore: { type: "array", items: { type: "string" } }, limit: { type: "integer", description: "Max findings (default 30)." } }, required: ["path"] },
   },
   {
     name: "log_compare",
     description:
       "Did the fix work? Diagnose two logs of the same scenario (`before`, `after`) and line their findings up by id: `fixed`, `new` (with detail and next), and `persisting` (better/worse/same by occurrences and metric), plus metrics that moved (tracking error, loop p99, min voltage) and state sequences that differ. `verdict`: improved, regressed (a new error or a worse one), mixed or unchanged.",
-    inputSchema: { type: "object", properties: { before: { type: "string" }, after: { type: "string" }, mapping: { type: "object" }, from: { type: "number" }, to: { type: "number" }, ignore: { type: "array", items: { type: "string" } } }, required: ["before", "after"] },
+    inputSchema: { type: "object", properties: { before: { type: "string" }, after: { type: "string" }, project: { type: "string", description: "Optional *.mayhem.json, as for log_diagnose." }, mapping: { type: "object" }, from: { type: "number" }, to: { type: "number" }, ignore: { type: "array", items: { type: "string" } } }, required: ["before", "after"] },
   },
   {
     name: "list_log_channels",
@@ -475,6 +518,159 @@ export async function behaviorDiff(args) {
   const { level, findings, errors, before, after } = report;
   return { before, after, level, findings, errors };
 }
+
+/** Signal values and action results for a preview, checked against the project. */
+function previewRun(project, routine, args) {
+  const signals = Object.fromEntries(project.signals.map((s) => [s.key, s.initial]));
+  for (const [key, value] of Object.entries(args.signals ?? {})) {
+    const definition = project.signals.find((s) => s.key === key);
+    if (!definition || typeof value !== definition.type || (typeof value === "number" && !Number.isFinite(value)))
+      throw new Error(`Invalid signal ${key}`);
+    signals[key] = value;
+  }
+  if (args.maxSeconds !== undefined && (!Number.isFinite(args.maxSeconds) || args.maxSeconds <= 0 || args.maxSeconds > 600))
+    throw new Error("maxSeconds must be in (0,600].");
+  if (args.mode !== undefined && !["path", "routine"].includes(args.mode)) throw new Error("mode must be path or routine.");
+  if (args.actions !== undefined) {
+    const callbacks = new Set(routine.nodes.flatMap((node) => [...(node.during ?? []), ...(node.action ? [node.action] : [])]));
+    if (!args.actions || typeof args.actions !== "object" || Array.isArray(args.actions)) throw new Error("actions must map callback IDs to statuses.");
+    for (const [id, status] of Object.entries(args.actions))
+      if (!callbacks.has(id) || !["running", "succeeded", "failed"].includes(status)) throw new Error(`Invalid action status for ${id}`);
+  }
+  return simulate(project, routine, signals, args);
+}
+const round3 = (v) => Math.round(v * 1000) / 1000;
+function compactStep(m) {
+  return {
+    step: m.step, name: m.name, start: m.start, end: m.end, seconds: Math.round((m.end - m.start) * 100) / 100,
+    peakSpeed: m.peakSpeed, closest: m.closest, ...(m.reached ? {} : { reached: false }),
+    ...(m.overshoot !== undefined ? { overshoot: m.overshoot } : {}), ...(m.headingOvershoot !== undefined ? { headingOvershoot: m.headingOvershoot } : {}),
+  };
+}
+const compactIssue = ({ kind, severity, step, time, amount, timeLost, message, fix, suggest }) => ({ kind, severity, step, time, amount, timeLost, message, fix, ...(suggest ? { suggest } : {}) });
+async function withProject(args) {
+  if (typeof args.project !== "string" || !args.project) return args;
+  const projectPath = resolve(args.project);
+  return { ...args, project: parseProject(await readFile(projectPath, "utf8")), projectPath };
+}
+/** Preview and (optionally) logged run of one routine, as plot series and motion issues. */
+async function routineRuns(project, args) {
+  let routine = args.routine ? project.routines.find((r) => r.id === args.routine) : undefined;
+  if (args.routine && !routine) throw new Error(`No routine ${args.routine}. Routines: ${project.routines.map((r) => r.id).join(", ")}.`);
+  let log;
+  if (args.log) {
+    const recording = await loadLog(pathFor(args.log));
+    // The runner and routine whose step IDs the log's goals name.
+    let best;
+    for (const runner of goalRunners(recording)) {
+      const { samples } = logToSamples(recording, runner);
+      const goals = new Set(samples.map((s) => s.goal));
+      for (const r of routine ? [routine] : project.routines) {
+        const hits = r.nodes.filter((n) => goals.has(n.id)).length;
+        if (hits && (!best || hits > best.hits)) best = { runner, routine: r, samples: samples.filter((s) => r.nodes.some((n) => n.id === s.goal)), hits };
+      }
+    }
+    if (!best) throw new Error(`The log has no goal progress for ${routine ? `routine ${routine.id}` : "any routine of this project"} (Mayhem/Goals/<runner>/id and /translationError). Is it a run of this auto?`);
+    routine = best.routine;
+    const t0 = best.samples[0].time, tEnd = best.samples[best.samples.length - 1].time;
+    const infos = goalInfos(project, routine);
+    const motion = analyzeMotion(best.samples, (g) => infos.get(g));
+    const pose = logPose(recording, args.pose);
+    const goalAt = (t) => { let lo = 0, hi = best.samples.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (best.samples[mid].time <= t) lo = mid; else hi = mid - 1; } return best.samples[lo]; };
+    let actual = [];
+    if (pose) {
+      const xs = pose.x.samples.filter((s) => s.time >= t0 - 0.05 && s.time <= tEnd + 0.5);
+      const raw = xs.map((s) => {
+        const y = valueAt(pose.y, s.time), h = pose.heading ? valueAt(pose.heading, s.time) : undefined;
+        const g = goalAt(s.time);
+        return { time: s.time - t0, x: s.value, y, ...(typeof h === "number" ? { heading: Math.abs(h) > 2 * Math.PI + 0.1 ? (h * Math.PI) / 180 : h } : {}), goal: g.goal, error: s.time <= tEnd + 0.02 ? g.error : undefined };
+      }).filter((p) => typeof p.y === "number");
+      actual = raw.map((p, i) => {
+        const a = raw[Math.max(0, i - 2)], b = raw[Math.min(raw.length - 1, i + 2)];
+        const v = b.time > a.time ? Math.hypot(b.x - a.x, b.y - a.y) / (b.time - a.time) : 0;
+        // A pose reset (the auto's start pose) is a jump, not a speed.
+        return { ...p, speed: v > 8 ? undefined : v };
+      });
+    } else {
+      // No pose channel: still chart distance to goal.
+      actual = best.samples.map((s) => ({ time: s.time - t0, x: NaN, y: NaN, error: s.error, goal: s.goal }));
+    }
+    log = { path: pathFor(args.log), runner: best.runner, start: round3(t0), poseChannel: pose?.channel ?? null, motion, actual, t0 };
+  }
+  routine ??= project.routines[0];
+  if (!routine) throw new Error("The project has no routines.");
+  const options = { mode: args.mode ?? (args.signals || args.actions ? "routine" : "path"), signals: args.signals, actions: args.actions };
+  // The robot runner's controller; the editor preview is drawn faintly for comparison.
+  const result = previewRun(project, routine, { ...options, follower: "native" });
+  const editor = previewRun(project, routine, options);
+  const nodes = new Map(routine.nodes.map((n) => [n.id, n]));
+  const series = (run) => run.frames.map((f) => {
+    const g = nodes.get(f.node)?.goal;
+    return { time: f.time, x: f.pose.x, y: f.pose.y, heading: f.pose.heading, speed: Math.hypot(f.velocity.vx, f.velocity.vy), goal: f.node, ...(g ? { error: Math.hypot(f.pose.x - g.x, f.pose.y - g.y) } : {}) };
+  });
+  return { routine, result, editor, planned: series(result), editorPlanned: series(editor), preview: motionOfFrames(project, routine, result.frames), log };
+}
+async function plotRoutine(path, args) {
+  const project = parseProject(await readFile(path, "utf8"));
+  const { routine, result, editor, planned, editorPlanned, preview, log } = await routineRuns(project, args);
+  const shift = (i, dt) => ({ ...i, time: i.time - dt, start: i.start - dt, end: i.end - dt });
+  const issues = [
+    ...(log ? log.motion.issues.map((i) => ({ ...shift(i, log.t0), source: "log" })) : []),
+    ...preview.issues.filter((i) => !log?.motion.issues.some((l) => l.step === i.step && l.kind === i.kind)).map((i) => ({ ...i, source: "preview" })),
+  ];
+  const png = plotAuto({
+    project, routine, planned, editor: editorPlanned, actual: log?.actual.filter((p) => Number.isFinite(p.x)), issues,
+    title: `${routine.name} · follower ${round3(result.frame.time)} s ${result.status} · editor ${round3(editor.frame.time)} s${log ? ` · log ${Math.round((log.actual.at(-1)?.time ?? 0) * 100) / 100} s` : ""}`,
+  }, (d) => deflateSync(d));
+  const out = args.out ? resolve(args.out) : join(tmpdir(), "mayhem-plots", `${routine.id}-${Date.now()}.png`);
+  await mkdir(dirname(out), { recursive: true });
+  await writeFile(out, png);
+  return {
+    image: out,
+    note: "Read the image to see the auto. Purple: the robot runner's controller on an ideal drive; faint: the editor preview; orange: the logged run; red: problems (numbered as in `issues`).",
+    routine: routine.id,
+    preview: { follower: "native", status: result.status, time: round3(result.frame.time), editorTime: round3(editor.frame.time), issues: preview.issues.map(compactIssue) },
+    ...(log ? {
+      log: {
+        path: log.path, runner: log.runner, autoStart: log.start, poseChannel: log.poseChannel,
+        time: round3((log.actual.at(-1)?.time ?? 0)),
+        steps: log.motion.steps.filter((m) => m.stop).map(compactStep),
+        issues: log.motion.issues.map(compactIssue),
+      },
+    } : {}),
+  };
+}
+async function editRoutine(path, args) {
+  const before = parseProject(await readFile(path, "utf8"));
+  const summary = (project, id) => {
+    const routine = project.routines.find((r) => r.id === id);
+    if (!routine) return null;
+    const run = previewRun(project, routine, { mode: "path", follower: "native" });
+    const { issues } = motionOfFrames(project, routine, run.frames);
+    return { status: run.status, time: round3(run.frame.time), issues };
+  };
+  const result = await updateProject(path, args, (project) => {
+    const { project: edited, changes, routines } = editAuto(project, args.ops, args.routine);
+    const next = parseProject(JSON.stringify(edited));
+    const effects = routines.map((id) => {
+      const b = summary(before, id), a = summary(next, id);
+      const key = (i) => `${i.kind}:${i.step}`;
+      return {
+        routine: id,
+        before: b && { status: b.status, time: b.time, issues: b.issues.length },
+        after: a && { status: a.status, time: a.time, issues: a.issues.map(compactIssue) },
+        ...(b && a ? { timeChange: round3(a.time - b.time), fixed: b.issues.filter((i) => !a.issues.some((j) => key(j) === key(i))).map(key), new: a.issues.filter((i) => !b.issues.some((j) => key(j) === key(i))).map(key) } : {}),
+      };
+    });
+    return { project: next, changes, effects };
+  });
+  if (args.plot && result.effects?.length) {
+    const target = args.dryRun ? undefined : await plotRoutine(path, { routine: result.effects[0].routine });
+    if (target) result.plot = { image: target.image, note: target.note };
+    else result.plot = "Not drawn on a dry run (the file is unchanged); run plot_auto after saving.";
+  }
+  return result;
+}
 export async function runScenarios(args, progress) {
   if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
   const repo = resolve(args.repo);
@@ -511,6 +707,23 @@ export async function runScenarios(args, progress) {
     await recordProof(repo, snapshot.rev, summary);
     recorded = { commit: snapshot.rev, summary: proofText(summary), ...(summary.partial ? { partial: true } : {}) };
   }
+  // Auto runs: how each stop step moved in the physics sim (overshoot, heading swing, creeping in).
+  const parsedProject = project ? readProject(snapshot.files[project]).project : undefined;
+  const motion = new Map();
+  for (const r of proof.results)
+    if (r.logs.after && r.scenario.group === "auto") {
+      try {
+        const runs = motionOfLog(await loadLog(r.logs.after), parsedProject);
+        const issues = runs.flatMap((m) => m.issues.map((i) => ({ ...compactIssue(i), routine: m.routine })));
+        if (issues.length)
+          motion.set(r, {
+            issues: issues.map(({ routine, ...i }) => i),
+            next: { tool: "plot_auto", args: { path: join(repo, project), ...(issues[0].routine ? { routine: issues[0].routine } : {}), log: r.logs.after } },
+          });
+      } catch {
+        // A log the motion check cannot read is not a scenario failure.
+      }
+    }
   return {
     passed: proof.passed,
     changed: proof.changed,
@@ -527,6 +740,8 @@ export async function runScenarios(args, progress) {
       ...(r.after && (r.failed || r.differences.length || inline.has(r.scenario.name))
         ? { timeline: Object.fromEntries(r.after.tracks.filter((t) => t.changes.length > 1).map((t) => [t.name, describeTrack(t, 12)])) }
         : {}),
+      // Not a failure: what the auto did that a person watching would notice. Fix, rerun, compare.
+      ...(motion.has(r) ? { motion: motion.get(r) } : {}),
       logs: r.logs,
     })),
   };
@@ -573,7 +788,7 @@ export async function execute(name, args) {
     return vendorCpp(args.robotDir, { dest: args.dest, snapshot: args.snapshot, check: args.check === true });
   if (name === "log_compare") {
     const [before, after] = [pathFor(args.before), pathFor(args.after)];
-    return compareLogs(await loadLog(before, args.mapping), await loadLog(after, args.mapping), args);
+    return compareLogs(await loadLog(before, args.mapping), await loadLog(after, args.mapping), await withProject(args));
   }
   const path = pathFor(args.path);
   if (name === "apply_machine_spec") {
@@ -686,34 +901,10 @@ export async function execute(name, args) {
       ? project.routines.find((r) => r.id === args.routine)
       : project.routines[0];
     if (!routine) throw new Error("Routine ID does not exist.");
-    const signals = Object.fromEntries(
-      project.signals.map((s) => [s.key, s.initial]),
-    );
-    for (const [key, value] of Object.entries(args.signals ?? {})) {
-      const definition = project.signals.find((s) => s.key === key);
-      if (
-        !definition ||
-        typeof value !== definition.type ||
-        (typeof value === "number" && !Number.isFinite(value))
-      )
-        throw new Error(`Invalid signal ${key}`);
-      signals[key] = value;
-    }
-    if (
-      args.maxSeconds !== undefined &&
-      (!Number.isFinite(args.maxSeconds) ||
-        args.maxSeconds <= 0 ||
-        args.maxSeconds > 600)
-    )
-      throw new Error("maxSeconds must be in (0,600].");
-    if (args.mode !== undefined && !["path", "routine"].includes(args.mode)) throw new Error("mode must be path or routine.");
-    if (args.actions !== undefined) {
-      const callbacks = new Set(routine.nodes.flatMap(node => [...(node.during ?? []), ...(node.action ? [node.action] : [])]));
-      if (!args.actions || typeof args.actions !== "object" || Array.isArray(args.actions)) throw new Error("actions must map callback IDs to statuses.");
-      for (const [id, status] of Object.entries(args.actions))
-        if (!callbacks.has(id) || !["running", "succeeded", "failed"].includes(status)) throw new Error(`Invalid action status for ${id}`);
-    }
-    const result = simulate(project, routine, signals, args);
+    const result = previewRun(project, routine, args);
+    // Motion as the robot's own controller drives it (the editor preview brakes on an ideal profile).
+    const robot = args.follower === "native" ? result : previewRun(project, routine, { ...args, follower: "native" });
+    const motion = motionOfFrames(project, routine, robot.frames);
     return {
       mode: args.mode ?? "routine",
       status: result.status,
@@ -726,9 +917,20 @@ export async function execute(name, args) {
       // Event markers (pickups) that fire with the robot front > 45° off its travel direction.
       headingWarnings: headingLints(result.frames, undefined, (id) => routine.nodes.find((n) => n.id === id)?.name ?? id)
         .map(({ time, key, node, degrees, message }) => ({ time, key, node, degrees: Math.round(degrees), message })),
+      // How each stop step moved, and the ones that overshoot, swing past their heading or creep in.
+      motion: {
+        follower: "native",
+        status: robot.status,
+        time: round3(robot.frame.time),
+        ...(Math.abs(robot.frame.time - result.frame.time) > 0.2 ? { note: `The robot's follower takes ${round3(robot.frame.time)} s; the editor preview (${round3(result.frame.time)} s) brakes on an ideal profile the robot's controller does not have.` } : {}),
+        steps: motion.steps.filter((m) => m.stop).map(compactStep),
+        issues: motion.issues,
+      },
     };
   }
-  if (name === "log_diagnose") return diagnoseLog(await loadLog(path, args.mapping), args);
+  if (name === "log_diagnose") return diagnoseLog(await loadLog(path, args.mapping), await withProject(args));
+  if (name === "plot_auto") return plotRoutine(path, args);
+  if (name === "edit_auto") return editRoutine(path, args);
   if (
     ["list_log_channels", "log_table", "log_anomalies", "log_what_changed", "log_events", "log_states"].includes(name)
   ) {
@@ -836,7 +1038,7 @@ async function main() {
             capabilities: { tools: {} },
             serverInfo: { name: "mayhem-suite", version: "0.1.0" },
             instructions:
-              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. People review your robot code changes in the Mayhem app by behavior, per branch: work on a branch (never main), commit, then run behavior_diff and run_scenarios with base \"main\" and after \"HEAD\" before saying a change is ready; run_scenarios records the sim proof on the commit, which is what the reviewer reads. Given a log (a sim run or a match), start with log_diagnose and run each finding's `next`; after a fix, rerun the same scenario and log_compare the two logs. See docs/SUITE_AGENTS.md.",
+              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. People review your robot code changes in the Mayhem app by behavior, per branch: work on a branch (never main), commit, then run behavior_diff and run_scenarios with base \"main\" and after \"HEAD\" before saying a change is ready; run_scenarios records the sim proof on the commit, which is what the reviewer reads. Given a log (a sim run or a match), start with log_diagnose and run each finding's `next`; after a fix, rerun the same scenario and log_compare the two logs. For autos: change them with edit_auto (small ops, it reports what each change did), look at them with plot_auto (read the PNG; pass a run_scenarios log to see the real run), and fix every motion issue (overshoot and crawl back, heading swing, creeping in) that simulate_auto, run_scenarios or log_diagnose reports, using its suggest ops. See docs/SUITE_AGENTS.md.",
           };
         else if (request.method === "tools/list") result = { tools };
         else if (request.method === "tools/call") {
@@ -1012,9 +1214,9 @@ async function main() {
   if (command === "diagnose" || command === "compare") {
     // diagnose <log> [--json] [--ignore a,b] | compare <before log> <after log> [--json] [--ignore a,b]
     const rest = process.argv.slice(command === "compare" ? 5 : 4);
-    const flags = { json: rest.includes("--json"), ignore: rest.includes("--ignore") ? rest[rest.indexOf("--ignore") + 1].split(",") : undefined };
+    const flags = { json: rest.includes("--json"), ignore: rest.includes("--ignore") ? rest[rest.indexOf("--ignore") + 1].split(",") : undefined, project: rest.includes("--project") ? rest[rest.indexOf("--project") + 1] : undefined };
     if (command === "compare") {
-      const r = await execute("log_compare", { before: path, after: process.argv[4], ignore: flags.ignore });
+      const r = await execute("log_compare", { before: path, after: process.argv[4], ignore: flags.ignore, project: flags.project });
       if (flags.json) return console.log(JSON.stringify(r, null, 2));
       console.log(`${r.verdict.toUpperCase()} · before ${r.before.counts.error}E/${r.before.counts.warning}W → after ${r.after.counts.error}E/${r.after.counts.warning}W`);
       for (const f of r.fixed) console.log(`  ✓ fixed     ${f.title}`);
@@ -1024,7 +1226,7 @@ async function main() {
       for (const s of r.states) console.log(`    states ${s.channel}:\n      before ${s.before}\n      after  ${s.after}`);
       return;
     }
-    const r = await execute("log_diagnose", { path, ignore: flags.ignore, limit: 200 });
+    const r = await execute("log_diagnose", { path, ignore: flags.ignore, limit: 200, project: flags.project });
     if (flags.json) return console.log(JSON.stringify(r, null, 2));
     console.log(`${r.counts.error} error(s), ${r.counts.warning} warning(s), ${r.counts.info} info · ${r.context.phases.map((p) => `${p.mode} ${p.start}-${p.end}`).join(", ")}`);
     for (const f of r.findings) console.log(`  [${f.severity}] ${f.title} (${f.occurrences}× @ ${f.at.join(", ")} s, ${f.phases.join("/")})\n      ${f.detail}\n      id ${f.id}`);
@@ -1049,10 +1251,12 @@ async function main() {
     cpp: "export_cpp",
     live: "inspect_live_robot",
     open: "open_in_app",
+    plot: "plot_auto",
+    edit: "edit_auto",
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | diagnose <log> [--ignore a,b] [--json] | compare <before log> <after log> [--ignore a,b] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | open <file> | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | diagnose <log> [--project <file>] [--ignore a,b] [--json] | compare <before log> <after log> [--project <file>] [--ignore a,b] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | plot <file> [{routine, log, out}] | edit <file> <{ops, routine, dryRun, plot}> | open <file> | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")

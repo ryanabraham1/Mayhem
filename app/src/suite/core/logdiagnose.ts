@@ -1,6 +1,8 @@
 import type { Channel, PowerMapping, Recording, Sample } from "./analysis.ts";
 import { analyze, valueAt } from "./analysis.ts";
 import { findAnomalies, machineStates, meaningful } from "./logquery.ts";
+import { motionOfLog } from "./autoMotion.ts";
+import type { SuiteProject } from "./model.ts";
 
 /**
  * One-call triage for the agent loop "read a sim log, find failures, fix, repeat". `diagnoseLog`
@@ -230,7 +232,13 @@ function pulseTrain(flag: Channel, start: number, end: number) {
 }
 
 // ---- Main ----------------------------------------------------------------------------------------
-export interface DiagnoseOptions { from?: number; to?: number; ignore?: string[]; limit?: number; mapping?: PowerMapping }
+export interface DiagnoseOptions {
+  from?: number; to?: number; ignore?: string[]; limit?: number; mapping?: PowerMapping;
+  /** The auto's project: step names, tolerances and current limits for the auto motion findings. */
+  project?: SuiteProject;
+  /** Path of that project file, put into the `next` plot_auto call. */
+  projectPath?: string;
+}
 
 export function diagnoseLog(recording: Recording, opts: DiagnoseOptions = {}) {
   const from = opts.from ?? 0, to = opts.to ?? recording.duration;
@@ -454,6 +462,18 @@ export function diagnoseLog(recording: Recording, opts: DiagnoseOptions = {}) {
           channels: [x.name, y.name], metric: round(d, 3), next: { tool: "log_what_changed", args: { time: round(b.time), window: 0.3, filter: ["pose", "vision", "reset"] } } });
     }
   }
+
+  // Auto motion: a pose step overshooting its goal and crawling back, swinging past its heading,
+  // or creeping in, from the runner's Mayhem/Goals/<routine>/* channels.
+  for (const m of motionOfLog(recording, opts.project))
+    for (const issue of m.issues)
+      add({ id: `auto-${issue.kind}:${m.runner}/${issue.step}`, severity: issue.severity, kind: `auto-${issue.kind}`, time: issue.time,
+        title: issue.kind === "overshoot" ? `Auto step ${issue.name} overshoots its goal` : issue.kind === "heading-overshoot" ? `Auto step ${issue.name} swings past its heading` : `Auto step ${issue.name} creeps into its goal`,
+        detail: `${issue.message} ${issue.fix}`, channels: m.channels, metric: issue.amount,
+        evidence: { step: issue.step, start: issue.start, end: issue.end, amount: issue.amount, timeLost: issue.timeLost, ...(issue.suggest ? { suggest: issue.suggest } : {}) },
+        next: opts.projectPath && m.routine
+          ? { tool: "plot_auto", args: { path: opts.projectPath, routine: m.routine, log: recording.name } }
+          : { tool: "log_table", args: { channels: m.channels.filter((c) => !/\/reached$/.test(c)), from: round(Math.max(0, issue.start - 0.2)), to: round(issue.end + 0.3), points: 40 } } });
 
   // Power, from the shared analysis. Estimated (summed motor) current is a hint, not a finding.
   const power = analyze(recording, opts.mapping);

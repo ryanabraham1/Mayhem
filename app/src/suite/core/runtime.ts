@@ -471,6 +471,13 @@ export type PreviewMode = "path" | "routine";
 export interface PreviewOptions {
   mode?: PreviewMode;
   actions?: Record<string, ActionStatus>;
+  /**
+   * "native": drive every pose step with follow(), the controller the robot's C++ runner uses
+   * (P law on remaining distance, acceleration-limited). The default editor preview drives plain
+   * paths on the path simulator, which brakes on an ideal profile and so does not show the
+   * overshoot the robot's controller has when it cannot brake as hard as the P law asks.
+   */
+  follower?: "preview" | "native";
 }
 export const MAX_PREVIEW_SECONDS = 600;
 export const MAX_PREVIEW_EVENTS = 1000;
@@ -490,11 +497,12 @@ export interface Frame {
 export function initialFrame(
   project: SuiteProject,
   routine: AutoRoutine,
+  options: PreviewOptions = {},
 ): Frame {
   const start = routine.start ?? project.robot.start;
-  const state = freshState(start);
+  const state = options.follower === "native" ? { ...freshState(start), native: true } : freshState(start);
   const first = routine.nodes.find(n => n.id === routine.initial);
-  const preview = first?.kind === "pose" && first.goal
+  const preview = first?.kind === "pose" && first.goal && options.follower !== "native"
     ? previewTick(project, routine, first, start, state, 0.02, true)
     : undefined;
   return {
@@ -585,7 +593,7 @@ export function step(
     );
     return next;
   }
-  const preview = node.kind === "pose" && node.goal && !freezeDrive && !frame.controller.native
+  const preview = node.kind === "pose" && node.goal && !freezeDrive && !frame.controller.native && options.follower !== "native"
     ? previewTick(project, routine, node, frame.pose, frame.controller, dt)
     : undefined;
   // BLine resolves all intermediate handoffs before calculating movement.
@@ -747,7 +755,7 @@ export function simulate(
       options.maxSeconds > MAX_PREVIEW_SECONDS)
   )
     throw new Error("maxSeconds must be in (0,600].");
-  let frame = initialFrame(project, routine);
+  let frame = initialFrame(project, routine, options);
   const frames: Frame[] = [frame];
   const count = Math.min(30000, Math.ceil((options.maxSeconds ?? 40) / 0.02));
   for (let i = 0; i < count && frame.status === "running"; i++) {

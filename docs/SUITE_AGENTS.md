@@ -79,7 +79,26 @@ The same functions are available as MCP tools over newline-delimited JSON-RPC on
 }
 ```
 
-Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `run_scenarios` (see "Sim proof"), `list_changes` (see "How your changes get reviewed"), `log_diagnose`, `log_compare`, `log_states`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+Tools: `inspect_project`, `validate_project`, `save_project`, `simulate_auto`, `edit_auto`, `plot_auto` (see "Autos: change, look, fix"), `export_cpp`, `vendor_cpp`, `open_in_app`, `apply_machine_spec`, `machine_spec`, `import_mtraj_route` (see "Authoring machines and routines"), `behavior_diff` (see "Behavior review"), `run_scenarios` (see "Sim proof"), `list_changes` (see "How your changes get reviewed"), `log_diagnose`, `log_compare`, `log_states`, `analyze_log`, `inspect_live_robot`, and the log-investigation tools below. They do not deploy robot code. Use your normal robot project build/deploy tools.
+
+## Autos: change, look, fix
+
+Three tools make an auto something you can change in small steps and look at, and they tell you when the robot overshoots a stop and crawls back instead of you having to notice it.
+
+- **`edit_auto`** (CLI: `node scripts/mayhem.mjs edit <file> '<JSON>'`) applies ops in order to one routine (`routine`, default the first), validates, and saves with a revision bump (and the generated header, as `save_project`); `dryRun` writes nothing, `plot: true` also draws the result. Ops:
+  - `{"set": "<step>.<field…>", "value": v}`: `"score.constraints.stopDeceleration"`, `"score.goal.x"`, `"score.goal.markers"`; also `"routine.<field…>"`, `"robot.constraints.<field>"`, `"use:<use id>.args.<param>"` and `"group:<group id>.<field…>"` for step groups (a produced step is regenerated from its group, so it is refused as a target). `null` deletes. Array segments are an index or an element's `id`.
+  - `{"move": "<step>", "x", "y", "heading"}`.
+  - `{"insert": {<step>}, "after": "<step>"}` puts the new step into that step's exit (name the exit with `"exit"` when there are several); `"before": "<step>"` sends every way into that step through the new one.
+  - `{"remove": "<step>"}`: its callers go where it went (a step with one exit).
+  - `{"create": {"id", "name", "start": {x, y, heading}, "steps": [...], "finish": true}}`: a chain joined by `Always`. Pose shorthand `{"id", "x", "y", "heading", "stop"?, "markers"?, "headingMode"?, "constraints"?}` fills BLine tolerances (end 0.03 m / 2°, pass-through 0.1 m / 5°); pose steps pass through, and the last pose before a non-pose step (or the end) stops. Any other step is written in full (`{"id": "shoot", "kind": "action", "action": "shooter.fire", "timeout": 3}`).
+
+  The result has `changes`, and for each routine touched `before`/`after` (status, time, motion issues), `timeChange`, and the problems `fixed` and `new`.
+- **`plot_auto`** (CLI: `plot <file> '{"routine", "log", "out"}'`) writes a PNG and returns its path; read the image. Purple is the routine driven by the robot runner's controller on an ideal drive, faint purple the editor preview, orange the run in `log` (a `run_scenarios` auto log or a match log; the routine is found from the log's goal IDs, the pose channel automatically or from `pose`). Stop goals are drawn with their tolerance and numbered, problems are circled and numbered, each overshoot gets a zoomed inset (10 cm grid), and speed and distance-to-goal are charted over time for every run. `issues` lists the same problems as text.
+- **Motion findings**, the same everywhere with the same ids: `simulate_auto` returns `motion` (`issues` and each stop step's timing, peak speed and closest approach); `log_diagnose` reports `auto-overshoot`, `auto-heading-overshoot` and `auto-slow-settle` from the runner's `Mayhem/Goals/<routine>/*` channels (pass `project` for step names, tolerances and the plot as `next`; CLI `--project`); `run_scenarios` adds `motion` to each auto result, with a `plot_auto` call in `next`. Each issue has a `fix` and `suggest`: `set` ops for `edit_auto` sized from what the robot did (for an overshoot, `stopDeceleration` from the braking it really managed, or `stopLag` when the profile is already within that).
+
+**Why the editor preview can look clean when the robot overshoots.** The editor's path preview drives plain paths on the path simulator, which brakes on an ideal `sqrt(2·maxAcceleration·d)` profile. The robot's runner (and `follow()` in `simulate`) uses the P law on remaining distance, so it starts braking at `v / translationKp` from the stop; with a low `maxAcceleration` it cannot stop there, overshoots and crawls back. It is also slower: on one 2026 project the runner took 0.5–1 s longer per auto than the preview showed. So motion checks, `edit_auto` and `plot_auto` drive the routine with the runner's controller (`simulate_auto {"follower": "native"}` does it for the whole run). Drivetrain lag and traction are still not modeled; the physics sim is the proof.
+
+Loop: `edit_auto` (or `create`) → `plot_auto` and read the image → fix what `motion.issues` names with its `suggest` → `run_scenarios` with the auto (`names: ["<routine name>"]`) → `plot_auto` with the auto's `logs.after` (or `log_diagnose` with `project`) → `log_compare` before/after. An overshoot fixed in the ideal run can remain in the physics sim when the drive lags its command; `stopLag` is for that.
 
 ## Step groups: repeated cycles without a generator script
 
@@ -414,6 +433,8 @@ Use the live view to inspect actual values. Use recording playback to review pri
 ## Evidence and limits
 
 The editor defaults to **Path only** playback: it follows the first outgoing edge in declared order, skips robot actions and sensor guards, and animates the reachable pose sequence. This is a geometric/control preview, not a successful autonomous execution claim. For branch or mechanism validation, select **Full routine with inputs**. Callback result selectors and typed sensor controls are visible beneath playback. A running callback blocks its action state; failure stops the routine; success is latched until the state exits. Concurrent callbacks can also fail the routine. Watchdogs still fail blocked states. Preview cycles stop at 600 seconds or 1000 execution events to bound trace memory.
+
+The robot's runner does not brake on the editor's ideal profile (see "Autos: change, look, fix"): `simulate_auto`'s `motion`, `edit_auto` and `plot_auto` use the runner's controller, `follower: "native"` runs a whole simulation with it.
 
 The CLI/MCP defaults to full routine behavior. Supply an `actions` map keyed by callback ID with `running`, `succeeded`, or `failed` values. Missing callbacks remain running. `mode: "path"` requests pose-only playback explicitly. Trace exports record the selected mode and action assumptions.
 
