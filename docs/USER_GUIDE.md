@@ -106,6 +106,6 @@ For **Team upload**, enter the team website and a device upload token obtained f
 
 - [Suite agent guide](SUITE_AGENTS.md): revision-safe editing, CLI commands and MCP tools.
 - [C++ integration](../lib-cpp/README.md): pose controller, executor, callbacks and optional WPILib adapters. Exporting a header does not deploy or register callbacks on the robot.
-- [Team 3256 example](../examples/suite/team3256/README.md): robot simulation recordings and known findings.
+- [Example robot](../examples/suite/example-robot/README.md): a made-up robot with three autos and an arm-and-claw state machine to explore.
 
 The new controller still needs physical robot testing. Native collection, updater installation and cross-platform packages need their own checks; browser preview alone does not establish release readiness.

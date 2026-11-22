@@ -4,11 +4,11 @@ import { readFile } from "node:fs/promises";
 test("state-machine edges get readable, distinct labels and an inspectable condition", async ({ page }, info) => {
   page.on("pageerror", (error) => { throw error; });
   await page.goto("/");
-  const project = JSON.parse(await readFile(new URL("../../examples/suite/team3256-offseason-2026.mayhem.json", import.meta.url), "utf8"));
-  const machine = project.extensions.machines.find((m: { id: string }) => m.id === "Superstructure");
+  const project = JSON.parse(await readFile(new URL("../../examples/suite/example-robot.mayhem.json", import.meta.url), "utf8"));
+  const machine = project.extensions.machines.find((m: { id: string }) => m.id === "Manipulator");
   await page.getByRole("button", { name: "State machines", exact: true }).click();
   await page.locator("label", { hasText: "Import machine" }).locator("input[type=file]").setInputFiles({
-    name: "superstructure.machine.json",
+    name: "manipulator.machine.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(machine)),
   });
@@ -20,7 +20,7 @@ test("state-machine edges get readable, distinct labels and an inspectable condi
   expect(clipped).toEqual([]);
   // Labels of edges leaving the initial state are all different.
   const initial = machine.transitions.filter((t: { from: string }) => t.from === machine.initial).length;
-  await page.screenshot({ path: info.outputPath("superstructure.png"), fullPage: true });
+  await page.screenshot({ path: info.outputPath("manipulator.png"), fullPage: true });
   const texts = await labels.allTextContents();
   expect(texts.length).toBeGreaterThanOrEqual(initial);
   // Clicking a label selects that edge in the inspector, which shows the full condition.

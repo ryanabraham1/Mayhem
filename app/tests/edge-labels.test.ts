@@ -12,7 +12,7 @@ const all = (...conditions: Condition[]): Condition => ({ kind: "all", condition
 const any = (...conditions: Condition[]): Condition => ({ kind: "any", conditions });
 const not = (condition: Condition): Condition => ({ kind: "not", condition });
 const edge = (id: string, condition: Condition, extra: Partial<Transition> = {}): Transition => ({ id, from: "A", to: `to-${id}`, condition, ...extra });
-const team = JSON.parse(readFileSync(new URL("../../examples/suite/team3256-offseason-2026.mayhem.json", import.meta.url), "utf8"));
+const example = JSON.parse(readFileSync(new URL("../../examples/suite/example-robot.mayhem.json", import.meta.url), "utf8"));
 
 describe("compact condition text", () => {
   it("uses symbols and drops = true", () => {
@@ -76,8 +76,8 @@ describe("edge labels", () => {
     expect(labels.get("a")!.label).toBe("go → TO-A");
     expect(labels.get("b")!.label).toBe("go → TO-B");
   });
-  it("gives every edge of the team 3256 machines a distinct, readable label", () => {
-    const machines = team.extensions.machines.map(parseMachineManifest);
+  it("gives every edge of the example robot machines a distinct, readable label", () => {
+    const machines = example.extensions.machines.map(parseMachineManifest);
     expect(machines.length).toBeGreaterThan(0);
     for (const m of machines) {
       const labels = edgeLabels(m.transitions);

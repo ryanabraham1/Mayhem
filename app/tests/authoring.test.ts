@@ -145,7 +145,7 @@ describe("machine specs", () => {
     expect(machineFromSpec(twice).transitions.at(-1)!.id).toBe("OFF-to-REV-2");
   });
   it("round-trips existing machines through specFromMachine", () => {
-    const team = parseProject(readFileSync(resolve(root, "examples/suite/team3256-offseason-2026.mayhem.json"), "utf8"));
+    const example = parseProject(readFileSync(resolve(root, "examples/suite/example-robot.mayhem.json"), "utf8"));
     const competition = parseProject(readFileSync(resolve(root, "examples/suite/competition.mayhem.json"), "utf8"));
     // Inputs are regrouped by category, a missing category is written as its default, and
     // conditions are normalized (not(b == true) is b == false; nested groups are flattened).
@@ -168,7 +168,7 @@ describe("machine specs", () => {
           .map((i: any) => ({ ...i, category: i.category ?? (i.key === "stateTime" ? "timer" : "internal") }))
           .sort((a: any, b: any) => a.key.localeCompare(b.key)),
       });
-    for (const m of [...(team.extensions.machines as any[]), ...(competition.extensions.machines as any[]), machineFromSpec(shooterSpec())])
+    for (const m of [...(example.extensions.machines as any[]), ...(competition.extensions.machines as any[]), machineFromSpec(shooterSpec())])
       expect(sorted(machineFromSpec(specFromMachine(m)))).toBe(sorted(m));
     const spec = specFromMachine(machineFromSpec(shooterSpec()));
     expect(spec.inputChannel).toBe("/RealOutputs/Mayhem/States/Superstructure/inputs/{key}");
@@ -245,26 +245,26 @@ describe("routes from .mtraj passes", () => {
 describe("machine apply through the CLI and MCP", () => {
   it("applies specs in place, prints a spec back, and lists the tools over MCP", async () => {
     const project = join(directory, "machines.mayhem.json");
-    const team = JSON.parse(readFileSync(resolve(root, "examples/suite/team3256-offseason-2026.mayhem.json"), "utf8"));
-    team.revision = 4;
-    await writeFile(project, JSON.stringify(team));
-    const intake = { id: "Superstructure", inputs: { operator: { go: "Go" } }, states: ["IDLE", "RUN"], transitions: ["IDLE -> RUN: go", "RUN -> IDLE: !go"] };
+    const example = JSON.parse(readFileSync(resolve(root, "examples/suite/example-robot.mayhem.json"), "utf8"));
+    example.revision = 4;
+    await writeFile(project, JSON.stringify(example));
+    const intake = { id: "Manipulator", inputs: { operator: { go: "Go" } }, states: ["IDLE", "RUN"], transitions: ["IDLE -> RUN: go", "RUN -> IDLE: !go"] };
     const dry = await execute("apply_machine_spec", { path: project, spec: [shooterSpec(), intake], dryRun: true });
-    expect(dry).toMatchObject({ dryRun: true, revision: 4, machines: ["ShooterMode", "Superstructure"], warnings: [] });
+    expect(dry).toMatchObject({ dryRun: true, revision: 4, machines: ["ShooterMode", "Manipulator"], warnings: [] });
     expect(dry.manifests[1].transitions[1].condition).toEqual(sig("go", false));
     const out = JSON.parse(execFileSync(process.execPath, [script, "machine", "apply", project, JSON.stringify({ machines: [intake, shooterSpec()] })], { encoding: "utf8" }));
-    expect(out).toMatchObject({ revision: 5, machines: ["Superstructure", "ShooterMode"] });
+    expect(out).toMatchObject({ revision: 5, machines: ["Manipulator", "ShooterMode"] });
     const saved = parseProject(await readFile(project, "utf8"));
-    expect((saved.extensions.machines as any[]).map((m) => m.id)).toEqual(["Superstructure", "ShooterMode"]);  // replaced in place, appended
+    expect((saved.extensions.machines as any[]).map((m) => m.id)).toEqual(["Manipulator", "ShooterMode"]);  // replaced in place, appended
     const printed = JSON.parse(execFileSync(process.execPath, [script, "machine", "spec", project, "ShooterMode"], { encoding: "utf8" }));
     expect(machineFromSpec(printed)).toEqual(machineFromSpec(shooterSpec()));
     await expect(execute("apply_machine_spec", { path: project, spec: { ...intake, transitions: ["IDLE -> RUN: og"] } })).rejects.toThrow(/Unknown input "og"/);
     expect(parseProject(await readFile(project, "utf8")).revision).toBe(5);  // a failed apply writes nothing
-    await expect(execute("machine_spec", { path: project, machine: "Nope" })).rejects.toThrow(/Machines: Superstructure, ShooterMode/);
+    await expect(execute("machine_spec", { path: project, machine: "Nope" })).rejects.toThrow(/Machines: Manipulator, ShooterMode/);
     const mcp = execFileSync(process.execPath, [script, "mcp"], {
       input: [
         { jsonrpc: "2.0", id: 1, method: "tools/list" },
-        { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "machine_spec", arguments: { path: project, machine: "Superstructure" } } },
+        { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "machine_spec", arguments: { path: project, machine: "Manipulator" } } },
       ].map((m) => JSON.stringify(m)).join("\n") + "\n",
       encoding: "utf8",
     }).trim().split("\n").map((l) => JSON.parse(l));

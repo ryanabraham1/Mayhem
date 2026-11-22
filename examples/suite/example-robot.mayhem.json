@@ -1,0 +1,1179 @@
+{
+  "format": "mayhem-suite",
+  "version": 1,
+  "revision": 0,
+  "id": "example-robot",
+  "name": "Example robot",
+  "field": {
+    "name": "2026 REBUILT",
+    "width": 16.541,
+    "height": 8.069
+  },
+  "robot": {
+    "name": "Example swerve (arm + claw)",
+    "length": 0.76,
+    "width": 0.76,
+    "start": {
+      "x": 1.6,
+      "y": 5.2,
+      "heading": 0.0
+    },
+    "constraints": {
+      "maxVelocity": 4.2,
+      "maxAcceleration": 3.5,
+      "maxAngularVelocity": 5.5,
+      "maxAngularAcceleration": 11.0,
+      "translationKp": 3.0,
+      "rotationKp": 3.8
+    }
+  },
+  "signals": [
+    {
+      "key": "claw.hasPiece",
+      "name": "Claw has a piece",
+      "type": "boolean",
+      "initial": false,
+      "category": "sensor"
+    }
+  ],
+  "routines": [
+    {
+      "id": "leave",
+      "name": "Leave only",
+      "start": {
+        "x": 1.6,
+        "y": 6.6,
+        "heading": 3.141592653589793
+      },
+      "initial": "leave",
+      "nodes": [
+        {
+          "id": "leave",
+          "name": "Leave the start zone",
+          "kind": "pose",
+          "goal": {
+            "x": 3.4,
+            "y": 6.6,
+            "heading": 3.141592653589793,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0.0
+          },
+          "timeout": 6
+        },
+        {
+          "id": "done",
+          "name": "Auto complete",
+          "kind": "finish",
+          "timeout": 1
+        }
+      ],
+      "transitions": [
+        {
+          "id": "leave-to-done",
+          "from": "leave",
+          "to": "done",
+          "condition": {
+            "kind": "always"
+          }
+        }
+      ]
+    },
+    {
+      "id": "two-piece",
+      "name": "Preload + one",
+      "start": {
+        "x": 1.6,
+        "y": 5.2,
+        "heading": 0.0
+      },
+      "initial": "aim-preload",
+      "nodes": [
+        {
+          "id": "aim-preload",
+          "name": "Line up the preload",
+          "kind": "pose",
+          "goal": {
+            "x": 2.2,
+            "y": 5.2,
+            "heading": -0.971,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0.0
+          },
+          "timeout": 6
+        },
+        {
+          "id": "place-preload",
+          "name": "Place preload",
+          "kind": "action",
+          "action": "arm.place",
+          "timeout": 2.0,
+          "description": "Robot code runs the arm; done when the claw is empty."
+        },
+        {
+          "id": "piece-1",
+          "name": "Drive to piece 1",
+          "kind": "pose",
+          "goal": {
+            "x": 5.0,
+            "y": 5.8,
+            "heading": 0.0,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0.0
+          },
+          "timeout": 6,
+          "during": [
+            "arm.floorPickup"
+          ]
+        },
+        {
+          "id": "grab-1",
+          "name": "Grab piece 1",
+          "kind": "action",
+          "action": "claw.grab",
+          "timeout": 1.5,
+          "description": "Close the claw; succeeds when the claw sensor sees a piece.",
+          "onTimeout": "succeed"
+        },
+        {
+          "id": "aim-1",
+          "name": "Return to the hub",
+          "kind": "pose",
+          "goal": {
+            "x": 2.4,
+            "y": 5.0,
+            "heading": -1.017,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0.0
+          },
+          "timeout": 6,
+          "constraints": {
+            "maxVelocity": 2.5
+          }
+        },
+        {
+          "id": "place-1",
+          "name": "Place piece 1",
+          "kind": "action",
+          "action": "arm.place",
+          "timeout": 2.0
+        },
+        {
+          "id": "park",
+          "name": "Park clear of the hub",
+          "kind": "pose",
+          "goal": {
+            "x": 4.2,
+            "y": 6.4,
+            "heading": 1.5707963267948966,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0.0,
+            "headingMode": "free"
+          },
+          "timeout": 6
+        },
+        {
+          "id": "done",
+          "name": "Auto complete",
+          "kind": "finish",
+          "timeout": 1
+        }
+      ],
+      "transitions": [
+        {
+          "id": "aim-preload-to-place-preload",
+          "from": "aim-preload",
+          "to": "place-preload",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "place-preload-to-piece-1",
+          "from": "place-preload",
+          "to": "piece-1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "piece-1-to-grab-1",
+          "from": "piece-1",
+          "to": "grab-1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "grab-1-to-aim-1",
+          "from": "grab-1",
+          "to": "aim-1",
+          "condition": {
+            "kind": "signal",
+            "key": "claw.hasPiece",
+            "op": "eq",
+            "value": true
+          }
+        },
+        {
+          "id": "aim-1-to-place-1",
+          "from": "aim-1",
+          "to": "place-1",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "place-1-to-park",
+          "from": "place-1",
+          "to": "park",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "park-to-done",
+          "from": "park",
+          "to": "done",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "missed-1",
+          "from": "grab-1",
+          "to": "park",
+          "condition": {
+            "kind": "signal",
+            "key": "claw.hasPiece",
+            "op": "eq",
+            "value": false
+          },
+          "name": "Missed",
+          "description": "No piece after the grab window: skip the score and park."
+        }
+      ]
+    },
+    {
+      "id": "low-sweep",
+      "name": "Low-side sweep",
+      "start": {
+        "x": 1.6,
+        "y": 3.0,
+        "heading": 0.634
+      },
+      "initial": "place-preload",
+      "nodes": [
+        {
+          "id": "place-preload",
+          "name": "Place preload",
+          "kind": "action",
+          "action": "arm.place",
+          "timeout": 2.0
+        },
+        {
+          "id": "sweep-a",
+          "name": "Sweep entry",
+          "kind": "pose",
+          "goal": {
+            "x": 4.0,
+            "y": 1.6,
+            "heading": 0.0,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.4
+          },
+          "timeout": 6,
+          "during": [
+            "arm.floorPickup"
+          ]
+        },
+        {
+          "id": "piece-a",
+          "name": "Piece A",
+          "kind": "pose",
+          "goal": {
+            "x": 5.6,
+            "y": 1.2,
+            "heading": 0.0,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.3
+          },
+          "timeout": 6
+        },
+        {
+          "id": "grab-a",
+          "name": "Grab piece A",
+          "kind": "action",
+          "action": "claw.grab",
+          "timeout": 1.0,
+          "onTimeout": "succeed"
+        },
+        {
+          "id": "aim-a",
+          "name": "Score A",
+          "kind": "pose",
+          "goal": {
+            "x": 2.6,
+            "y": 3.0,
+            "heading": 1.2,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0.0
+          },
+          "timeout": 6
+        },
+        {
+          "id": "place-a",
+          "name": "Place piece A",
+          "kind": "action",
+          "action": "arm.place",
+          "timeout": 2.0
+        },
+        {
+          "id": "sweep-b",
+          "name": "Back to the sweep",
+          "kind": "pose",
+          "goal": {
+            "x": 4.4,
+            "y": 2.2,
+            "heading": -0.3,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.4
+          },
+          "timeout": 6,
+          "during": [
+            "arm.floorPickup"
+          ]
+        },
+        {
+          "id": "piece-b",
+          "name": "Piece B",
+          "kind": "pose",
+          "goal": {
+            "x": 6.2,
+            "y": 2.0,
+            "heading": 0.0,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0,
+            "handoffRadius": 0.3
+          },
+          "timeout": 6
+        },
+        {
+          "id": "grab-b",
+          "name": "Grab piece B",
+          "kind": "action",
+          "action": "claw.grab",
+          "timeout": 1.0,
+          "onTimeout": "succeed"
+        },
+        {
+          "id": "aim-b",
+          "name": "Score B",
+          "kind": "pose",
+          "goal": {
+            "x": 2.6,
+            "y": 3.0,
+            "heading": 1.2,
+            "translationTolerance": 0.08,
+            "rotationTolerance": 0.06,
+            "velocityTolerance": 0.15,
+            "settleTime": 0.1,
+            "handoffRadius": 0.0
+          },
+          "timeout": 6
+        },
+        {
+          "id": "place-b",
+          "name": "Place piece B",
+          "kind": "action",
+          "action": "arm.place",
+          "timeout": 2.0
+        },
+        {
+          "id": "done",
+          "name": "Auto complete",
+          "kind": "finish",
+          "timeout": 1
+        }
+      ],
+      "transitions": [
+        {
+          "id": "place-preload-to-sweep-a",
+          "from": "place-preload",
+          "to": "sweep-a",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "sweep-a-to-piece-a",
+          "from": "sweep-a",
+          "to": "piece-a",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "piece-a-to-grab-a",
+          "from": "piece-a",
+          "to": "grab-a",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "grab-a-to-aim-a",
+          "from": "grab-a",
+          "to": "aim-a",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "aim-a-to-place-a",
+          "from": "aim-a",
+          "to": "place-a",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "place-a-to-sweep-b",
+          "from": "place-a",
+          "to": "sweep-b",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "sweep-b-to-piece-b",
+          "from": "sweep-b",
+          "to": "piece-b",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "piece-b-to-grab-b",
+          "from": "piece-b",
+          "to": "grab-b",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "grab-b-to-aim-b",
+          "from": "grab-b",
+          "to": "aim-b",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "aim-b-to-place-b",
+          "from": "aim-b",
+          "to": "place-b",
+          "condition": {
+            "kind": "always"
+          }
+        },
+        {
+          "id": "place-b-to-done",
+          "from": "place-b",
+          "to": "done",
+          "condition": {
+            "kind": "always"
+          }
+        }
+      ],
+      "constraints": {
+        "maxVelocity": 3.8
+      }
+    }
+  ],
+  "extensions": {
+    "machines": [
+      {
+        "format": "mayhem-machine",
+        "version": 1,
+        "id": "Manipulator",
+        "name": "Manipulator",
+        "initial": "STOWED",
+        "stateChannel": "/RealOutputs/Manipulator/State",
+        "states": [
+          {
+            "id": "STOWED",
+            "name": "Stowed",
+            "description": "Arm tucked inside the frame, claw closed.",
+            "source": "src/main/cpp/subsystems/Manipulator.cpp"
+          },
+          {
+            "id": "FLOOR_PICKUP",
+            "name": "Floor pickup",
+            "description": "Arm down, claw open, waiting for the claw sensor.",
+            "source": "src/main/cpp/subsystems/Manipulator.cpp"
+          },
+          {
+            "id": "HOLDING",
+            "name": "Holding",
+            "description": "Piece in the claw, arm carried at travel height.",
+            "source": "src/main/cpp/subsystems/Manipulator.cpp"
+          },
+          {
+            "id": "AIM_LOW",
+            "name": "Aim low",
+            "description": "Arm to the low goal angle.",
+            "source": "src/main/cpp/subsystems/Manipulator.cpp"
+          },
+          {
+            "id": "AIM_HIGH",
+            "name": "Aim high",
+            "description": "Arm to the high goal angle.",
+            "source": "src/main/cpp/subsystems/Manipulator.cpp"
+          },
+          {
+            "id": "PLACE",
+            "name": "Place",
+            "description": "Claw opens once the arm is on target.",
+            "source": "src/main/cpp/subsystems/Manipulator.cpp"
+          },
+          {
+            "id": "EJECT",
+            "name": "Eject",
+            "description": "Claw opens wherever the arm is to drop a bad piece.",
+            "source": "src/main/cpp/subsystems/Manipulator.cpp"
+          },
+          {
+            "id": "CLIMB_READY",
+            "name": "Climb ready",
+            "description": "Arm straight up, hook exposed.",
+            "source": "src/main/cpp/subsystems/Manipulator.cpp"
+          },
+          {
+            "id": "CLIMB",
+            "name": "Climb",
+            "description": "Arm pulls down to lift the robot.",
+            "source": "src/main/cpp/subsystems/Manipulator.cpp"
+          },
+          {
+            "id": "FAULT",
+            "name": "Fault",
+            "description": "Arm encoder lost: motors off until the operator stows.",
+            "source": "src/main/cpp/subsystems/Manipulator.cpp"
+          }
+        ],
+        "inputs": [
+          {
+            "key": "op.collect",
+            "name": "Operator: collect",
+            "type": "boolean",
+            "initial": false,
+            "category": "operator"
+          },
+          {
+            "key": "op.low",
+            "name": "Operator: low goal",
+            "type": "boolean",
+            "initial": false,
+            "category": "operator"
+          },
+          {
+            "key": "op.high",
+            "name": "Operator: high goal",
+            "type": "boolean",
+            "initial": false,
+            "category": "operator"
+          },
+          {
+            "key": "op.place",
+            "name": "Operator: place",
+            "type": "boolean",
+            "initial": false,
+            "category": "operator"
+          },
+          {
+            "key": "op.eject",
+            "name": "Operator: eject",
+            "type": "boolean",
+            "initial": false,
+            "category": "operator"
+          },
+          {
+            "key": "op.climb",
+            "name": "Operator: climb",
+            "type": "boolean",
+            "initial": false,
+            "category": "operator"
+          },
+          {
+            "key": "op.stow",
+            "name": "Operator: stow",
+            "type": "boolean",
+            "initial": false,
+            "category": "operator"
+          },
+          {
+            "key": "auto.place",
+            "name": "Auto asks to place",
+            "type": "boolean",
+            "initial": false,
+            "category": "auto"
+          },
+          {
+            "key": "clawHasPiece",
+            "name": "Claw sees a piece",
+            "type": "boolean",
+            "initial": false,
+            "category": "sensor",
+            "channel": "/RealOutputs/Manipulator/ClawHasPiece"
+          },
+          {
+            "key": "armOnTarget",
+            "name": "Arm at its target angle",
+            "type": "boolean",
+            "initial": false,
+            "category": "sensor",
+            "channel": "/RealOutputs/Manipulator/ArmOnTarget"
+          },
+          {
+            "key": "armEncoderOk",
+            "name": "Arm encoder connected",
+            "type": "boolean",
+            "initial": true,
+            "category": "sensor",
+            "channel": "/RealOutputs/Manipulator/ArmEncoderOk"
+          },
+          {
+            "key": "endgame",
+            "name": "Last 20 s of the match",
+            "type": "boolean",
+            "initial": false,
+            "category": "internal"
+          },
+          {
+            "key": "stateTime",
+            "name": "Time in state",
+            "type": "number",
+            "initial": 0,
+            "unit": "s",
+            "category": "timer"
+          }
+        ],
+        "transitions": [
+          {
+            "id": "STOWED-FAULT-0",
+            "from": "STOWED",
+            "to": "FAULT",
+            "condition": {
+              "kind": "signal",
+              "key": "armEncoderOk",
+              "op": "eq",
+              "value": false
+            },
+            "name": "Encoder lost"
+          },
+          {
+            "id": "FLOOR_PICKUP-FAULT-1",
+            "from": "FLOOR_PICKUP",
+            "to": "FAULT",
+            "condition": {
+              "kind": "signal",
+              "key": "armEncoderOk",
+              "op": "eq",
+              "value": false
+            },
+            "name": "Encoder lost"
+          },
+          {
+            "id": "HOLDING-FAULT-2",
+            "from": "HOLDING",
+            "to": "FAULT",
+            "condition": {
+              "kind": "signal",
+              "key": "armEncoderOk",
+              "op": "eq",
+              "value": false
+            },
+            "name": "Encoder lost"
+          },
+          {
+            "id": "AIM_LOW-FAULT-3",
+            "from": "AIM_LOW",
+            "to": "FAULT",
+            "condition": {
+              "kind": "signal",
+              "key": "armEncoderOk",
+              "op": "eq",
+              "value": false
+            },
+            "name": "Encoder lost"
+          },
+          {
+            "id": "AIM_HIGH-FAULT-4",
+            "from": "AIM_HIGH",
+            "to": "FAULT",
+            "condition": {
+              "kind": "signal",
+              "key": "armEncoderOk",
+              "op": "eq",
+              "value": false
+            },
+            "name": "Encoder lost"
+          },
+          {
+            "id": "PLACE-FAULT-5",
+            "from": "PLACE",
+            "to": "FAULT",
+            "condition": {
+              "kind": "signal",
+              "key": "armEncoderOk",
+              "op": "eq",
+              "value": false
+            },
+            "name": "Encoder lost"
+          },
+          {
+            "id": "EJECT-FAULT-6",
+            "from": "EJECT",
+            "to": "FAULT",
+            "condition": {
+              "kind": "signal",
+              "key": "armEncoderOk",
+              "op": "eq",
+              "value": false
+            },
+            "name": "Encoder lost"
+          },
+          {
+            "id": "CLIMB_READY-FAULT-7",
+            "from": "CLIMB_READY",
+            "to": "FAULT",
+            "condition": {
+              "kind": "signal",
+              "key": "armEncoderOk",
+              "op": "eq",
+              "value": false
+            },
+            "name": "Encoder lost"
+          },
+          {
+            "id": "CLIMB-FAULT-8",
+            "from": "CLIMB",
+            "to": "FAULT",
+            "condition": {
+              "kind": "signal",
+              "key": "armEncoderOk",
+              "op": "eq",
+              "value": false
+            },
+            "name": "Encoder lost"
+          },
+          {
+            "id": "STOWED-FLOOR_PICKUP-9",
+            "from": "STOWED",
+            "to": "FLOOR_PICKUP",
+            "condition": {
+              "kind": "signal",
+              "key": "op.collect",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "STOWED-HOLDING-10",
+            "from": "STOWED",
+            "to": "HOLDING",
+            "condition": {
+              "kind": "signal",
+              "key": "clawHasPiece",
+              "op": "eq",
+              "value": true
+            },
+            "name": "Preloaded",
+            "description": "A piece is already in the claw (the preload)."
+          },
+          {
+            "id": "STOWED-CLIMB_READY-11",
+            "from": "STOWED",
+            "to": "CLIMB_READY",
+            "condition": {
+              "kind": "all",
+              "conditions": [
+                {
+                  "kind": "signal",
+                  "key": "op.climb",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "kind": "signal",
+                  "key": "endgame",
+                  "op": "eq",
+                  "value": true
+                }
+              ]
+            }
+          },
+          {
+            "id": "STOWED-EJECT-12",
+            "from": "STOWED",
+            "to": "EJECT",
+            "condition": {
+              "kind": "signal",
+              "key": "op.eject",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "FLOOR_PICKUP-HOLDING-13",
+            "from": "FLOOR_PICKUP",
+            "to": "HOLDING",
+            "condition": {
+              "kind": "signal",
+              "key": "clawHasPiece",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "FLOOR_PICKUP-STOWED-14",
+            "from": "FLOOR_PICKUP",
+            "to": "STOWED",
+            "condition": {
+              "kind": "any",
+              "conditions": [
+                {
+                  "kind": "signal",
+                  "key": "op.stow",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "kind": "not",
+                  "condition": {
+                    "kind": "signal",
+                    "key": "op.collect",
+                    "op": "eq",
+                    "value": true
+                  }
+                }
+              ]
+            },
+            "name": "Released / stow"
+          },
+          {
+            "id": "HOLDING-AIM_LOW-15",
+            "from": "HOLDING",
+            "to": "AIM_LOW",
+            "condition": {
+              "kind": "signal",
+              "key": "op.low",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "HOLDING-AIM_HIGH-16",
+            "from": "HOLDING",
+            "to": "AIM_HIGH",
+            "condition": {
+              "kind": "any",
+              "conditions": [
+                {
+                  "kind": "signal",
+                  "key": "op.high",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "kind": "signal",
+                  "key": "auto.place",
+                  "op": "eq",
+                  "value": true
+                }
+              ]
+            }
+          },
+          {
+            "id": "HOLDING-EJECT-17",
+            "from": "HOLDING",
+            "to": "EJECT",
+            "condition": {
+              "kind": "signal",
+              "key": "op.eject",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "HOLDING-STOWED-18",
+            "from": "HOLDING",
+            "to": "STOWED",
+            "condition": {
+              "kind": "signal",
+              "key": "clawHasPiece",
+              "op": "eq",
+              "value": false
+            },
+            "name": "Piece dropped"
+          },
+          {
+            "id": "AIM_LOW-PLACE-19",
+            "from": "AIM_LOW",
+            "to": "PLACE",
+            "condition": {
+              "kind": "all",
+              "conditions": [
+                {
+                  "kind": "signal",
+                  "key": "armOnTarget",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "kind": "any",
+                  "conditions": [
+                    {
+                      "kind": "signal",
+                      "key": "op.place",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "kind": "signal",
+                      "key": "auto.place",
+                      "op": "eq",
+                      "value": true
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "AIM_LOW-HOLDING-20",
+            "from": "AIM_LOW",
+            "to": "HOLDING",
+            "condition": {
+              "kind": "signal",
+              "key": "op.stow",
+              "op": "eq",
+              "value": true
+            },
+            "name": "Cancel"
+          },
+          {
+            "id": "AIM_LOW-EJECT-21",
+            "from": "AIM_LOW",
+            "to": "EJECT",
+            "condition": {
+              "kind": "signal",
+              "key": "op.eject",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "AIM_HIGH-PLACE-22",
+            "from": "AIM_HIGH",
+            "to": "PLACE",
+            "condition": {
+              "kind": "all",
+              "conditions": [
+                {
+                  "kind": "signal",
+                  "key": "armOnTarget",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "kind": "any",
+                  "conditions": [
+                    {
+                      "kind": "signal",
+                      "key": "op.place",
+                      "op": "eq",
+                      "value": true
+                    },
+                    {
+                      "kind": "signal",
+                      "key": "auto.place",
+                      "op": "eq",
+                      "value": true
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "id": "AIM_HIGH-HOLDING-23",
+            "from": "AIM_HIGH",
+            "to": "HOLDING",
+            "condition": {
+              "kind": "signal",
+              "key": "op.stow",
+              "op": "eq",
+              "value": true
+            },
+            "name": "Cancel"
+          },
+          {
+            "id": "AIM_HIGH-EJECT-24",
+            "from": "AIM_HIGH",
+            "to": "EJECT",
+            "condition": {
+              "kind": "signal",
+              "key": "op.eject",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "AIM_LOW-AIM_HIGH-25",
+            "from": "AIM_LOW",
+            "to": "AIM_HIGH",
+            "condition": {
+              "kind": "signal",
+              "key": "op.high",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "AIM_HIGH-AIM_LOW-26",
+            "from": "AIM_HIGH",
+            "to": "AIM_LOW",
+            "condition": {
+              "kind": "signal",
+              "key": "op.low",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "PLACE-STOWED-27",
+            "from": "PLACE",
+            "to": "STOWED",
+            "condition": {
+              "kind": "all",
+              "conditions": [
+                {
+                  "kind": "signal",
+                  "key": "clawHasPiece",
+                  "op": "eq",
+                  "value": false
+                },
+                {
+                  "kind": "signal",
+                  "key": "stateTime",
+                  "op": "gt",
+                  "value": 0.25
+                }
+              ]
+            },
+            "name": "Placed"
+          },
+          {
+            "id": "PLACE-HOLDING-28",
+            "from": "PLACE",
+            "to": "HOLDING",
+            "condition": {
+              "kind": "signal",
+              "key": "stateTime",
+              "op": "gt",
+              "value": 1.5
+            },
+            "name": "Stuck",
+            "description": "Claw still sees the piece after 1.5 s: back off and retry."
+          },
+          {
+            "id": "EJECT-STOWED-29",
+            "from": "EJECT",
+            "to": "STOWED",
+            "condition": {
+              "kind": "signal",
+              "key": "stateTime",
+              "op": "gt",
+              "value": 0.5
+            }
+          },
+          {
+            "id": "CLIMB_READY-CLIMB-30",
+            "from": "CLIMB_READY",
+            "to": "CLIMB",
+            "condition": {
+              "kind": "signal",
+              "key": "op.climb",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "CLIMB_READY-STOWED-31",
+            "from": "CLIMB_READY",
+            "to": "STOWED",
+            "condition": {
+              "kind": "signal",
+              "key": "op.stow",
+              "op": "eq",
+              "value": true
+            }
+          },
+          {
+            "id": "FAULT-STOWED-32",
+            "from": "FAULT",
+            "to": "STOWED",
+            "condition": {
+              "kind": "all",
+              "conditions": [
+                {
+                  "kind": "signal",
+                  "key": "armEncoderOk",
+                  "op": "eq",
+                  "value": true
+                },
+                {
+                  "kind": "signal",
+                  "key": "op.stow",
+                  "op": "eq",
+                  "value": true
+                }
+              ]
+            },
+            "name": "Recovered"
+          }
+        ]
+      }
+    ]
+  }
+}
