@@ -10,6 +10,8 @@
     "tauri": "tauri",
     "test": "vitest run",
     "lint": "node ../scripts/lint.mjs",
+    "check": "node ../scripts/lint.mjs && tsc -b && vitest run && vite build && playwright test",
+    "app": "node ../scripts/app.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { desktop, fixtureRepo } from "./reviewBridge";
 
 // Property-based UI testing: a seeded random walk through the app (clicks, tabs, typing, keys)
 // that checks properties which must hold after every step, whatever was clicked. A failure names
@@ -7,7 +8,9 @@ import { readFile } from "node:fs/promises";
 test.use({ storageState: { cookies: [], origins: [] }, viewport: { width: 1280, height: 800 } });
 
 const STEPS = Number(process.env.UI_STEPS ?? 40);
-const SEEDS = process.env.UI_SEED ? [Number(process.env.UI_SEED)] : [1, 2, 3];
+const SEEDS = process.env.UI_SEED ? [Number(process.env.UI_SEED)] : [1, 2, 3, 4];
+/** Seeds that run as the desktop app (scripts/desktop-bridge.mjs, a fixture robot repo), so desktop-only screens get walked too. */
+const DESKTOP = (seed: number) => seed % 2 === 0;
 // Never clicked: what leaves the page, changes things outside it, or can't be undone in a test.
 const UNSAFE = /delete|remove|reset|discard|merge|deploy|put main|clear|sign out|quit|restart|update now|download|export|open in|github|docs/i;
 
@@ -38,6 +41,7 @@ async function properties(page: Page): Promise<string[]> {
 
 for (const seed of SEEDS)
   test(`UI properties hold on a random walk (seed ${seed})`, async ({ page }) => {
+    if (DESKTOP(seed)) await desktop(page, fixtureRepo());
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => m.type() === "error" && !/favicon|Failed to load resource/.test(m.text()) && errors.push(m.text()));
