@@ -905,7 +905,11 @@ export async function verifyChange(args, progress) {
     if (t.verdict === "still-failing") reasons.push(`“${t.scenario}” fails on ${base} and still fails: the fix doesn't work yet.`);
     if (t.verdict === "passes-on-base") warnings.push(`“${t.scenario}” already passed on ${base}: it guards old behavior but doesn't show this change does anything.`);
   }
-  for (const p of review.modelCheck.new) reasons.push(`Model check: ${p.text}`);
+  // A loop needs a combination of inputs the robot may never produce together: a person (or a
+  // scenario) decides. The other kinds are facts about the machine as written.
+  for (const p of review.modelCheck.new)
+    if (p.kind === "loops") warnings.push(`Model check: ${p.text} If the robot can produce those inputs together, add a scenario that holds them and fix it.`);
+    else reasons.push(`Model check: ${p.text}`);
   for (const c of review.scenarios ?? []) if (c.weaker) reasons.push(`Scenario “${c.name}” was ${c.kind === "removed" ? "removed" : "loosened"}: never weaken a scenario to make a run pass.`);
   // Logic a scenario can prove: robot code and state machines. Tuned values and auto paths are
   // shown to the reviewer directly (and autos have their own motion checks), so they don't need one.
@@ -927,8 +931,6 @@ export async function verifyChange(args, progress) {
     level: review.level,
     ...(sim.recorded ? { recorded: sim.recorded } : {}),
     tests: sim.tests ?? [],
-    // Scenarios that fail on the base and pass here: what this change fixes, team scenarios included.
-    fixes: sim.results.filter((r) => r.beforeFailed && !r.failed).map((r) => r.scenario),
     ...(gaps.length ? { gaps } : {}),
     next: reasons.length
       ? "Fix the first reason, commit, and verify again. Don't weaken scenarios or the gate to pass."
@@ -1482,31 +1484,6 @@ async function main() {
     process.exitCode = result.ready ? 0 : 1;
     return;
   }
-  if (command === "factory") {
-    // factory <repo> [--baseline <rev>] [--max n] [--rounds n] [--existing] [--pr] [--dry-run] [--agent <cli>] [--json]
-    const rest = process.argv.slice(4);
-    const args = { repo: path };
-    for (let i = 0; i < rest.length; i++) {
-      const flag = rest[i];
-      if (flag === "--baseline") args.baseline = rest[++i];
-      else if (flag === "--max") args.max = Number(rest[++i]);
-      else if (flag === "--rounds") args.rounds = Number(rest[++i]);
-      else if (flag === "--agent") args.agent = rest[++i];
-      else if (flag === "--existing") args.includeExisting = true;
-      else if (flag === "--pr") args.pr = true;
-      else if (flag === "--dry-run") args.dryRun = true;
-      else if (flag === "--json") args.json = true;
-      else throw new Error(`Unknown factory flag ${flag}`);
-    }
-    const { runFactory } = await import("./factory.mjs");
-    const result = await runFactory(
-      { runScenarios, verifyChange, modelDiff, gitShow, mainRef, diagnose: (log) => execute("log_diagnose", { path: log, limit: 200 }) },
-      args,
-    );
-    if (args.json) console.log(JSON.stringify(result, null, 2));
-    else console.log(`${result.text}\n\nReport: ${result.report}`);
-    return;
-  }
   if (command === "check") {
     // check <repo> [rev] [--base <branch>] [--json]: model-check the state machines; exit 1 on problems.
     const rest = process.argv.slice(4);
@@ -1574,7 +1551,7 @@ async function main() {
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | verify <robot repo> [after] [--base main] [--by <name>] [--refactor] [--json] | check <robot repo> [rev] [--base main] [--json] | factory <robot repo> [--baseline <rev>] [--max n] [--rounds n] [--existing] [--pr] [--dry-run] [--json] | diagnose <log> [--project <file>] [--ignore a,b] [--json] | compare <before log> <after log> [--project <file>] [--ignore a,b] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | plot <file> [{routine, log, out}] | edit <file> <{ops, routine, dryRun, plot}> | optimize <file> [{routine, lock, maxMove, phases, apply, plot}] | open <file> | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | verify <robot repo> [after] [--base main] [--by <name>] [--refactor] [--json] | check <robot repo> [rev] [--base main] [--json] | diagnose <log> [--project <file>] [--ignore a,b] [--json] | compare <before log> <after log> [--project <file>] [--ignore a,b] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | plot <file> [{routine, log, out}] | edit <file> <{ops, routine, dryRun, plot}> | optimize <file> [{routine, lock, maxMove, phases, apply, plot}] | open <file> | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")

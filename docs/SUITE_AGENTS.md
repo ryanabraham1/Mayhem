@@ -409,18 +409,7 @@ It is exact for the machine as written; it can't see the code that computes the 
 
 ### The gate: verify_change
 
-`verify_change {repo, base: "main", after: "HEAD", by}` (CLI: `verify <repo> [after] [--base main] [--by <name>] [--refactor]`, exit 1 unless ready) runs `behavior_diff`, the model check and the full sim proof (recorded on the commit) and judges them by fixed rules. Not ready when a scenario fails, a scenario this change adds is `breaks` or `still-failing`, the model check finds a new problem, a scenario was removed or loosened, or robot code or a machine changed and no new scenario is `red-green`. `--refactor` says nothing should behave differently: then any scenario that behaves differently fails it. Tuned values and auto paths don't need a new scenario; the reviewer sees them directly. `reasons` say what to fix, `warnings` what a person will see (behavior differences, safety changes, coverage gaps on the machines you touched), and `fixes` which failing scenarios this change makes pass. Run it on your committed branch before saying a change is ready.
-
-### The factory: find, fix, verify
-
-`node scripts/mayhem.mjs factory <repo> [--baseline <rev>] [--max 3] [--rounds 3] [--existing] [--pr] [--dry-run] [--json]` is the outer loop, run by a person:
-
-1. Runs the full sim proof on `main` and on a baseline (`--baseline`, else the newest tag before main, else main at the last factory run).
-2. Collects every problem on each: failed scenarios, `log_diagnose` errors and warnings in each scenario's log, and model-check problems. Each has an id that is the same in both runs, so they sort into NEW (not on the baseline) and PRE-EXISTING, NEW first and by severity, and the report is written to `~/.mayhem/factory/<repo>/runs/`.
-3. For each NEW problem (up to `--max`; `--existing` adds pre-existing ones), creates a branch `factory/<id>` in a worktree and runs `claude -p` there with the finding and the test-first loop. The agent may edit, run `node`, `git` and `./gradlew`, and nothing else.
-4. Runs `verify_change` on the branch itself. Not ready: the agent gets the reasons and another round (`--rounds`). Ready: the branch stays for review in the Changes page (`--pr` pushes it and opens a pull request). A problem the branch fixes along the way is marked covered, so no second agent is sent for the same cause. The factory never merges.
-
-`tools/mayhem/factory.json` in the robot repo sets the team's defaults: `{"max": 3, "rounds": 3, "ignore": ["disconnected"], "minSeverity": "medium"}`. Use `ignore` for sim artifacts (finding id substrings or kinds), so agents aren't sent to fix the simulation.
+`verify_change {repo, base: "main", after: "HEAD", by}` (CLI: `verify <repo> [after] [--base main] [--by <name>] [--refactor]`, exit 1 unless ready) runs `behavior_diff`, the model check and the full sim proof (recorded on the commit) and judges them by fixed rules. Not ready when a scenario fails, a scenario this change adds is `breaks` or `still-failing`, the model check finds a new problem, a scenario was removed or loosened, or robot code or a machine changed and no new scenario is `red-green`. `--refactor` says nothing should behave differently: then any scenario that behaves differently fails it. Tuned values and auto paths don't need a new scenario; the reviewer sees them directly. `reasons` say what to fix, `warnings` what a person will see (behavior differences, safety changes, coverage gaps on the machines you touched). Run it on your committed branch before saying a change is ready.
 
 ### A proof belongs to a commit
 
