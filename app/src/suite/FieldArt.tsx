@@ -1,12 +1,6 @@
 import { memo } from "react";
-/** An [x, y] point in meters. */
-type Vec2 = number[];
-/** One painted shape; `style` is a DECO_STYLE key (blueZone, tape, fuel, algae, structure, ...). */
-export interface Decoration {
-  kind: string; points: Vec2[]; center: Vec2; radius: number; style: string; width: number;
-}
-/** A season's field drawing (core/rebuilt-2026.json, core/reefscape-2025.json): its size in meters and what's painted on it. */
-export interface FieldDrawing { length: number; width: number; decorations?: Decoration[] }
+import type { Decoration, FieldDrawing, Vec2 } from "./core/seasons.ts";
+export type { Decoration, FieldDrawing };
 const pts = (p: Vec2[]) => p.map(([x, y]) => `${x},${y}`).join(" ");
 const DECO_STYLE: Record<
   string,

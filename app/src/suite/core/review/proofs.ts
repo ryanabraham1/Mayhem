@@ -21,14 +21,33 @@ export interface ProofSummary {
   different: string[];
   /** Only some scenarios were run, so this is not the whole proof. */
   partial?: boolean;
+  /**
+   * The scenarios this commit adds or changes, judged on `before` too (only when it was compared):
+   * `reproduced` fail there and pass here (they show the bug this fixes and keep it fixed);
+   * `passesOnBase` pass on both (they guard old behavior, they don't show a fix).
+   */
+  tests?: { reproduced: string[]; passesOnBase: string[] };
 }
 
 /** One line for a proof: what a person needs before opening it. */
 export function proofText(proof: ProofSummary): string {
   const n = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
   if (proof.failed.length) return `${proof.failed.length} of ${n(proof.ran, "scenario")} failed`;
-  if (proof.different.length) return `${n(proof.ran, "scenario")} pass, ${proof.different.length} behave${proof.different.length === 1 ? "s" : ""} differently`;
-  return `${n(proof.ran, "scenario")} pass, same behavior`;
+  const base = proof.different.length
+    ? `${n(proof.ran, "scenario")} pass, ${proof.different.length} behave${proof.different.length === 1 ? "s" : ""} differently`
+    : `${n(proof.ran, "scenario")} pass, same behavior`;
+  return base + testsText(proof);
+}
+
+/** What the commit's new scenarios prove, as a clause for `proofText` ("" without tests). */
+export function testsText(proof: ProofSummary): string {
+  const t = proof.tests;
+  if (!t) return "";
+  const n = (count: number) => `${count} new scenario${count === 1 ? "" : "s"}`;
+  const one = t.reproduced.length === 1;
+  if (t.reproduced.length) return `; ${n(t.reproduced.length)} ${one ? "fails" : "fail"} before this change and ${one ? "passes" : "pass"} with it`;
+  if (t.passesOnBase.length) return `; ${n(t.passesOnBase.length)} already passed before this change (none shows a fix)`;
+  return "; no new scenario";
 }
 
 const names = (value: unknown) => (Array.isArray(value) ? value.filter((x): x is string => typeof x === "string") : []);
@@ -49,6 +68,9 @@ export function parseProofNote(text: string | null | undefined): ProofSummary[] 
         failed: names(p.failed),
         different: names(p.different),
         ...(p.partial === true ? { partial: true } : {}),
+        ...(p.tests && typeof p.tests === "object"
+          ? { tests: { reproduced: names((p.tests as Record<string, unknown>).reproduced), passesOnBase: names((p.tests as Record<string, unknown>).passesOnBase) } }
+          : {}),
       }))
       .sort((a, b) => b.at.localeCompare(a.at));
   } catch {

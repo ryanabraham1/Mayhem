@@ -372,7 +372,55 @@ Outcomes are compared on every machine's `Mayhem/States/<id>/state` log channel,
 1. Change the robot code (regenerate `MayhemProject.h` with `tools/mayhem/export.sh` if you touched `robot.mayhem.json` or `machines.json`). Saves from the Mayhem app and from `save_project` (and `save`, `machine apply`, `route import-mtraj`) regenerate `src/main/include/commands/MayhemProject.h` next to the project themselves, byte for byte what `cpp --out` writes, when the robot's pinned Mayhem (`docs/mayhem/vendor-snapshot.json`) has the same C++ exporter (`scripts/exporter-compat.mjs` compares their output). Otherwise the header is left alone and the save says why (`header` in the `save_project` result, a notice in the app); edit the file any other way and you regenerate it yourself.
 2. `run_scenarios` with `after: "WORKTREE"` and either `names` (a few existing scenarios) or inline `scenarios` for the behavior you are testing. The working tree rebuilds incrementally (~45 s); a run of a few scenarios takes seconds. Each failed or changed result carries a `timeline` (every machine's states, flickering collapsed) and its log path.
 3. `log_diagnose` on that log (or on a log the person hands you): the failures, errors first, each with an `id`, evidence and a `next` call that shows it. Run `next`, read the code it points at, and fix the cause. For a state-machine problem, `log_states` on that log: each transition with the inputs at that moment; a flickering burst names both directions and the inputs that kept both guards true.
-4. Run the same scenario on the fix and `log_compare {before, after}` the two logs: `fixed`, `new`, `persisting` (better/worse) and the metrics that moved. Keep going until the finding you set out to fix is in `fixed` and nothing is in `new`. Fix and repeat. Before handing off, add the scenario that reproduces the bug to `tools/mayhem/scenarios.json` so it stays fixed, commit, and run everything on the commit: `run_scenarios {base: "main", after: "HEAD"}` (CLI: `sim <repo> HEAD --base main`).
+4. Run the same scenario on the fix and `log_compare {before, after}` the two logs: `fixed`, `new`, `persisting` (better/worse) and the metrics that moved. Keep going until the finding you set out to fix is in `fixed` and nothing is in `new`. Fix and repeat. Before handing off, add the scenario that reproduces the bug to `tools/mayhem/scenarios.json` so it stays fixed (it must be `red-green`, see below), commit, and run everything on the commit: `run_scenarios {base: "main", after: "HEAD"}` (CLI: `sim <repo> HEAD --base main`).
+
+### Test first: red → green
+
+A scenario that passes with or without your change proves nothing about the change. For a bug fix (or a new behavior), write the scenario before the fix, and let the sim judge it on both versions:
+
+1. Write the scenario that shows the bug, and run it inline on the unfixed code: `run_scenarios {repo, before: "HEAD", scenarios: [{name, steps, expect}]}`. Its `tests` verdict is `still-failing` (it fails on both): good, it catches the bug. If it is `passes-on-base`, it doesn't: tighten the expectation (an earlier `by`, an `at`, a `never`) until it fails. Read its `timeline` to see what the robot really did.
+2. Fix the code and run it again. Keep going until the verdict is `red-green` (fails before, passes now) and no scenario is `breaks` (passed before, fails now).
+3. Add the scenario to `tools/mayhem/scenarios.json`, commit, and run everything: `run_scenarios {base: "main", after: "HEAD"}`. Every scenario the branch adds or changes is judged against `main` again, and the proof recorded on the commit says which ones reproduced the bug (`tests.reproduced`) and which only guard old behavior (`tests.passesOnBase`). The reviewer reads that line, e.g. "48 scenarios pass, 1 behaves differently; 1 new scenario fails before this change and passes with it". A refactor that should change nothing needs no new scenario ("no new scenario" with "same behavior" is the proof).
+
+`testsNext` in the result says what to do about each verdict.
+
+When a person corrects what the robot does ("B should still home while A is held"), the correction becomes a scenario that fails without your fix, not a note in a rules file: a scenario is checked on every change after yours, a note only when someone reads it.
+
+### Coverage: states no scenario checks
+
+A full run (no `names`/`groups`) also returns `coverage`: how many machine states (besides the initial state and the state a machine boots in) the runs reach, how many some scenario checks (`is X by|at`, `reaches X`), and the gaps, never-reached ones first:
+
+- `unchecked`: a run reaches the state but no scenario expects it, so it can change without the proof noticing. `draft` is a scenario built from the run that reached it (its steps, and a deadline just after when it got there). It records what the robot does now: confirm with the person that this is intended before adding it, or it locks a bug in.
+- `unreached`: no run gets there. `enteredBy` lists the transitions into it and the inputs their conditions read (with category: an `operator` input is a button to press; a `sensor` input the sim must produce). Write a scenario that drives those inputs, or say that the sim can't produce them.
+
+Close the gaps on the machines your change touches before saying it is ready.
+
+### Model check: every state, every input
+
+`check_machines` (CLI: `node scripts/mayhem.mjs check <repo> [rev] [--base main] [--json]`, exit 1 on a problem) runs each state machine in `tools/mayhem/machines.json` from every state under every combination of the inputs its exits (and its neighbors' exits) read: booleans both ways, numbers either side of each threshold, strings each named value and one other. Each combination is one robot loop, as `mayhem::StateMachine::Settle`. It reports:
+
+- `unreachable`: no inputs lead to the state from the initial state.
+- `no-exit`: once there, nothing leaves it (fine for a final state, a trap otherwise).
+- `never-fires`: an earlier transition in priority order is true whenever this one is; the text names it.
+- `loops`: inputs under which one loop never settles, i.e. the state flickers. `inputs` is the smallest example (every other input at its `initial`).
+- `unknown-input`: a condition reads a key the machine has no input for.
+
+It is exact for the machine as written; it can't see the code that computes the inputs, so a finding may need inputs the robot never produces together. Up to 131k combinations per state it tries them all, past that a fixed random sample (`partial`). With `base`, only problems the change adds (`new`) count; `behavior_diff` and `verify_change` report those.
+
+### The gate: verify_change
+
+`verify_change {repo, base: "main", after: "HEAD", by}` (CLI: `verify <repo> [after] [--base main] [--by <name>] [--refactor]`, exit 1 unless ready) runs `behavior_diff`, the model check and the full sim proof (recorded on the commit) and judges them by fixed rules. Not ready when a scenario fails, a scenario this change adds is `breaks` or `still-failing`, the model check finds a new problem, a scenario was removed or loosened, or robot code or a machine changed and no new scenario is `red-green`. `--refactor` says nothing should behave differently: then any scenario that behaves differently fails it. Tuned values and auto paths don't need a new scenario; the reviewer sees them directly. `reasons` say what to fix, `warnings` what a person will see (behavior differences, safety changes, coverage gaps on the machines you touched), and `fixes` which failing scenarios this change makes pass. Run it on your committed branch before saying a change is ready.
+
+### The factory: find, fix, verify
+
+`node scripts/mayhem.mjs factory <repo> [--baseline <rev>] [--max 3] [--rounds 3] [--existing] [--pr] [--dry-run] [--json]` is the outer loop, run by a person:
+
+1. Runs the full sim proof on `main` and on a baseline (`--baseline`, else the newest tag before main, else main at the last factory run).
+2. Collects every problem on each: failed scenarios, `log_diagnose` errors and warnings in each scenario's log, and model-check problems. Each has an id that is the same in both runs, so they sort into NEW (not on the baseline) and PRE-EXISTING, NEW first and by severity, and the report is written to `~/.mayhem/factory/<repo>/runs/`.
+3. For each NEW problem (up to `--max`; `--existing` adds pre-existing ones), creates a branch `factory/<id>` in a worktree and runs `claude -p` there with the finding and the test-first loop. The agent may edit, run `node`, `git` and `./gradlew`, and nothing else.
+4. Runs `verify_change` on the branch itself. Not ready: the agent gets the reasons and another round (`--rounds`). Ready: the branch stays for review in the Changes page (`--pr` pushes it and opens a pull request). A problem the branch fixes along the way is marked covered, so no second agent is sent for the same cause. The factory never merges.
+
+`tools/mayhem/factory.json` in the robot repo sets the team's defaults: `{"max": 3, "rounds": 3, "ignore": ["disconnected"], "minSeverity": "medium"}`. Use `ignore` for sim artifacts (finding id substrings or kinds), so agents aren't sent to fix the simulation.
 
 ### A proof belongs to a commit
 
@@ -384,7 +432,7 @@ People tell you what they want in your chat, and review what you did in the Mayh
 
 1. Work on a branch, never on `main`, and commit. Ask the person in the chat when what they want is unclear; do not guess.
 2. `behavior_diff {repo, base: "main", after: "HEAD"}` shows what the reviewer will be shown: values, controls, machines, autos, and every other code file you touched. Anything there you did not mean to change is a problem.
-3. `run_scenarios {repo, base: "main", after: "HEAD", by: "<your name>"}` with no `names` or `groups`, so every button, every auto and every team scenario runs and the result is recorded on the commit. A difference in a driver button's outcome that the person did not ask for is a regression: fix it, commit, and run it again.
+3. `run_scenarios {repo, base: "main", after: "HEAD", by: "<your name>"}` with no `names` or `groups`, so every button, every auto and every team scenario runs and the result is recorded on the commit. Every scenario you added for a fix must be `red-green` in `tests`; none may be `breaks`. A difference in a driver button's outcome that the person did not ask for is a regression: fix it, commit, and run it again.
 4. Say the branch is ready. Never remove or loosen a scenario to make a run pass (the review reports that), never deploy, and never push to `main`.
 
 In the app, **Changes** lists every branch that is not in main yet (`list_changes` returns the same list: each branch with `base`, the commit it left main at, how many commits it adds, and whether main already has it). Each one shows its risk, the proof recorded on its newest commit, and the comparison `base..sha`. A branch main already has, whether merged, rebased or squashed, moves to **Merged**, where the app follows it without you: on the robot once the build stamp read off the robot includes it, and in a log once a collected log says it ran that code (`/RealOutputs/Mayhem/Build`).

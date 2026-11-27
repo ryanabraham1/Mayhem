@@ -38,13 +38,15 @@ import { parseWPILog } from "../app/src/suite/core/wpilog.ts";
 import { vendorCpp } from "./cpp-vendor.mjs";
 const { applyMachineSpecs, machineFromSpec, specFromMachine, routineFromMtraj } = await import("../app/src/suite/core/authoring.ts");
 import { execFile } from "node:child_process";
-const { buildReport, WORKTREE, GENERATED_FILE } = await import("../app/src/suite/core/review/report.ts");
+const { buildReport, WORKTREE, GENERATED_FILE, scenarioChanges, SCENARIOS_FILE, MACHINES_FILE } = await import("../app/src/suite/core/review/report.ts");
 const { syncHeader, VENDOR_SNAPSHOT_FILE } = await import("../app/src/suite/core/generated-header.ts");
 const { compareWithCommit } = await import("./exporter-compat.mjs");
 const { gitSnapshot, mainRef, recordProof, reviewBranches } = await import("./review-git.mjs");
 const { nodeRunner } = await import("./review-sim.mjs");
 const { scenarioSet, describeTrack } = await import("../app/src/suite/core/review/scenarios.ts");
-const { runSimProof, summarizeProof } = await import("../app/src/suite/core/review/simproof.ts");
+const { runSimProof, summarizeProof, scenarioTests } = await import("../app/src/suite/core/review/simproof.ts");
+const { scenarioCoverage } = await import("../app/src/suite/core/review/coverage.ts");
+const { checkMachines } = await import("../app/src/suite/core/review/modelcheck.ts");
 const { parseMachineSpecs } = await import("../app/src/suite/core/review/machines.ts");
 const { readProject } = await import("../app/src/suite/core/review/autos.ts");
 const { proofText } = await import("../app/src/suite/core/review/proofs.ts");
@@ -290,7 +292,7 @@ const tools = [
   {
     name: "run_scenarios",
     description:
-      "Sim proof (docs/SUITE_AGENTS.md, Sim proof): build a revision of the robot repo with Mayhem's probe test and run scenarios through the robot's own simulation: every controller button tapped and held from teleop, every auto in the root *.mayhem.json, and the team's tools/mayhem/scenarios.json (plain steps such as \"hold A 2\" and expectations such as \"Shooter mode is SHOOTING by 1.5 s\"). With `before`, each scenario also runs on that revision and differences in what the robot does (machine states, drive mode, auto result) are reported; the team rule is that the same driver inputs give the same outcomes. Takes about a minute per revision the first time (cached per commit). Needs the robot's Gradle/WPILib toolchain on this computer. When `after` is a commit, this tool records the result on that commit (a git note); the person reviewing the change in the Mayhem app sees that record, so run it on your committed work with `base: \"main\"` and every scenario (no names or groups) before saying a change is ready, and do not describe a proof in words instead.",
+      "Sim proof (docs/SUITE_AGENTS.md, Sim proof): build a revision of the robot repo with Mayhem's probe test and run scenarios through the robot's own simulation: every controller button tapped and held from teleop, every auto in the root *.mayhem.json, and the team's tools/mayhem/scenarios.json (plain steps such as \"hold A 2\" and expectations such as \"Shooter mode is SHOOTING by 1.5 s\"). With `before`, each scenario also runs on that revision and differences in what the robot does (machine states, drive mode, auto result) are reported; the team rule is that the same driver inputs give the same outcomes. Takes about a minute per revision the first time (cached per commit). Needs the robot's Gradle/WPILib toolchain on this computer. Red → green: with `before`/`base`, every scenario this change adds or changes in scenarios.json, and every inline one, gets a `tests` verdict from its run on both versions: `red-green` (fails before, passes now: it reproduces what the change fixes), `passes-on-base` (guards old behavior, shows no fix), `still-failing`, `breaks`; `testsNext` says what to do. For a bug fix, write the scenario first and see it fail (inline `scenarios`, before: \"HEAD\"), then fix until it is red-green, then commit it in tools/mayhem/scenarios.json; the commit's proof records which new scenarios reproduced the bug. On a full run, `coverage` lists machine states no scenario checks: `unchecked` gaps carry a `draft` scenario built from the run that reached the state (confirm with the person that the behavior is intended before adding it), `unreached` gaps the transitions and inputs that lead there. When `after` is a commit, this tool records the result on that commit (a git note); the person reviewing the change in the Mayhem app sees that record, so run it on your committed work with `base: \"main\"` and every scenario (no names or groups) before saying a change is ready, and do not describe a proof in words instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -300,12 +302,43 @@ const tools = [
         base: { type: "string", description: "Instead of `before`: a branch (usually \"main\"). Compares `after` with the commit where it left that branch, which is the comparison the app shows for a branch." },
         by: { type: "string", description: "Your name, recorded with the proof (e.g. \"claude\")." },
         groups: { type: "array", items: { type: "string", enum: ["button", "auto", "custom"] }, description: "Which scenarios (default all)." },
+        featureMap: { type: "boolean", description: "On a full run, also return `coverage.map`: every machine state with how a driver reaches it (the first run that got there: its steps and when) and the scenarios that prove it." },
         names: { type: "array", items: { type: "string" }, description: "Only scenarios whose name contains one of these (case-insensitive), e.g. [\"Hold A\", \"Outpost\"]." },
         scenarios: {
           type: "array",
           description: "Extra scenarios to run now without editing scenarios.json (same format: { name, steps, expect }). With `scenarios` and no groups/names, only these run.",
           items: { type: "object", properties: { name: { type: "string" }, steps: { type: "array", items: { type: "string" } }, expect: { type: "array", items: { type: "string" } }, alliance: { type: "string" }, field: { type: "boolean" } }, required: ["name", "steps"] },
         },
+      },
+      required: ["repo"],
+    },
+  },
+  {
+    name: "check_machines",
+    description:
+      "Model-check the robot's state machines (tools/mayhem/machines.json) the way TLA+ would: every state under every combination of the inputs its exits read (booleans both ways, numbers either side of each threshold), one robot loop each. Reports `unreachable` states, `no-exit` traps, transitions that `never-fires` (an earlier one in priority order is true whenever it is), `loops` (inputs under which one loop never settles: the state flickers, with those inputs) and `unknown-input` keys. Exact for the machine as written; it can't see the code that computes the inputs. With `base`, only the problems the change adds (`new`), removes (`fixed`) and keeps (`existing`). behavior_diff and verify_change include the new ones.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", description: "Robot repository directory." },
+        rev: { type: "string", description: "Revision (default WORKTREE)." },
+        base: { type: "string", description: "Compare with where `rev` left this branch (e.g. \"main\")." },
+      },
+      required: ["repo"],
+    },
+  },
+  {
+    name: "verify_change",
+    description:
+      "The gate before review: runs behavior_diff, the model check and the full sim proof (every button, auto and team scenario, recorded on the commit) against `base`, and judges the result by fixed rules. Not ready when: a scenario fails; a scenario this change adds is `breaks` or `still-failing`; the model check finds a new problem; a scenario was removed or loosened; or robot code or a state machine changed and no new scenario fails without the change (red → green; tuned values and auto paths don't need one). Pass `refactor: true` for a change that should not change behavior: then any scenario that behaves differently fails it. Returns `ready`, `reasons` (fix them in order), `warnings` (differences a person will see, coverage gaps on the machines you touched, safety changes) and `next`. Run it on your committed branch before saying a change is ready; never weaken scenarios to pass it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repo: { type: "string", description: "Robot repository directory." },
+        after: { type: "string", description: "Commit to verify (default HEAD)." },
+        base: { type: "string", description: "Branch it is compared with (default main)." },
+        by: { type: "string", description: "Your name, recorded with the proof." },
+        refactor: { type: "boolean", description: "Nothing should behave differently." },
       },
       required: ["repo"],
     },
@@ -537,10 +570,29 @@ async function beforeOf(repo, args) {
 export async function behaviorDiff(args) {
   if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
   const repo = resolve(args.repo);
-  const report = buildReport(await gitSnapshot(repo, (await beforeOf(repo, args)) ?? "HEAD"), await gitSnapshot(repo, args.after ?? WORKTREE));
-  if (args.detail === "full") return report;
+  const [beforeSnap, afterSnap] = [await gitSnapshot(repo, (await beforeOf(repo, args)) ?? "HEAD"), await gitSnapshot(repo, args.after ?? WORKTREE)];
+  const report = buildReport(beforeSnap, afterSnap);
+  // The machines, model-checked on both versions: a problem this change brings is a finding.
+  // Only when the machines changed: the check takes seconds on a big machine.
+  const machinesBefore = beforeSnap.files[MACHINES_FILE],
+    machinesAfter = afterSnap.files[MACHINES_FILE];
+  const model = machinesBefore === machinesAfter ? { new: [], fixed: [], existing: [] } : modelDiff(machinesBefore, machinesAfter);
+  for (const p of model.new) report.findings.push({ level: "yellow", area: "machines", text: `Model check: ${p.text}` });
+  if (model.new.length && (report.level === "none" || report.level === "green")) report.level = "yellow";
+  if (args.detail === "full") return { ...report, modelCheck: model };
   const { level, findings, errors, before, after } = report;
-  return { before, after, level, findings, errors };
+  return { before, after, level, findings, ...(model.new.length || model.fixed.length ? { modelCheck: { new: model.new, fixed: model.fixed, existing: model.existing.length } } : {}), errors };
+}
+
+/** Model-check both versions' machines: problems the change adds, removes, and keeps. */
+export function modelDiff(beforeText, afterText) {
+  const check = (text) => checkMachines(parseMachineSpecs(text).machines).problems;
+  const before = beforeText === afterText ? null : check(beforeText);
+  const after = check(afterText);
+  if (!before) return { new: [], fixed: [], existing: after };
+  const had = new Set(before.map((p) => p.id)),
+    has = new Set(after.map((p) => p.id));
+  return { new: after.filter((p) => !had.has(p.id)), fixed: before.filter((p) => !has.has(p.id)), existing: after.filter((p) => had.has(p.id)) };
 }
 
 /** Signal values and action results for a preview, checked against the project. */
@@ -748,6 +800,15 @@ export async function runScenarios(args, progress) {
       (args.groups?.length || args.names?.length || !inline.size || inline.has(s.name)),
   );
   const proof = await runSimProof(await nodeRunner(repo), { before: args.before, after: args.after ?? WORKTREE }, chosen, machines, progress);
+  // Red → green: what each scenario this change adds or changes (and each inline one) shows when
+  // it also runs on the version before it. A scenario for a fix should fail there.
+  const beforeScenarios = args.before && args.before !== WORKTREE ? await gitShow(repo, args.before, SCENARIOS_FILE) : undefined;
+  const testedNames = new Set([
+    ...scenarioChanges(beforeScenarios, fileScenarios).filter((c) => c.kind !== "removed").map((c) => c.name),
+    ...inline,
+  ]);
+  const tests = scenarioTests(proof, testedNames);
+  const partial = chosen.length < scenarios.length;
   // A run on a commit is kept on that commit, where the person reviewing it in the app reads it.
   let recorded;
   if (snapshot.rev !== WORKTREE) {
@@ -757,7 +818,9 @@ export async function runScenarios(args, progress) {
         by: (typeof args.by === "string" && args.by.trim()) || "an agent",
         before,
         // Fewer than every button, auto and team scenario: evidence, but not the whole proof.
-        partial: chosen.length < scenarios.length,
+        partial,
+        // Inline scenarios aren't in the commit, so they prove nothing about it.
+        tests: tests.filter((t) => !inline.has(t.scenario)),
       }),
       at: new Date().toISOString(),
     };
@@ -781,14 +844,30 @@ export async function runScenarios(args, progress) {
         // A log the motion check cannot read is not a scenario failure.
       }
     }
+  // Which machine states the runs reach and which a scenario checks; only meaningful on a full run.
+  const coverage = partial ? undefined : scenarioCoverage(machines, proof.results);
   return {
     passed: proof.passed,
     changed: proof.changed,
     ...(recorded ? { recorded } : { recorded: false, note: "Not recorded: these are uncommitted files. Commit, then run with after: \"HEAD\" for a proof the reviewer sees." }),
+    ...(tests.length || args.before ? { tests, testsNext: testsNext(tests, !!args.before) } : {}),
+    ...(coverage
+      ? {
+          coverage: {
+            states: coverage.states,
+            reached: coverage.reached,
+            checked: coverage.checked,
+            gaps: coverage.gaps.slice(0, 12),
+            ...(args.featureMap ? { map: coverage.map } : {}),
+            ...(coverage.gaps.length > 12 ? { moreGaps: coverage.gaps.length - 12 } : {}),
+          },
+        }
+      : {}),
     errors,
     results: proof.results.map((r) => ({
       scenario: r.scenario.name,
       ...(r.failed ? { failed: true } : {}),
+      ...(r.beforeFailed ? { beforeFailed: true } : {}),
       ...(r.error ? { error: r.error } : {}),
       ...(r.checks.length ? { checks: r.checks } : {}),
       ...(r.differences.length ? { differences: r.differences } : {}),
@@ -803,6 +882,80 @@ export async function runScenarios(args, progress) {
     })),
   };
 }
+/**
+ * The gate a change passes before anyone reviews it ("agent verifies it"): the behavior review,
+ * the model check and the whole sim proof against `base`, judged by fixed rules rather than by the
+ * agent that wrote the change. `ready` is false with `reasons` when any rule fails.
+ */
+export async function verifyChange(args, progress) {
+  if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
+  const repo = resolve(args.repo);
+  const base = args.base ?? "main",
+    after = args.after ?? "HEAD";
+  const reasons = [],
+    warnings = [];
+  if (after === WORKTREE) reasons.push("These are uncommitted files: commit, then verify the commit (its proof is what the reviewer reads).");
+  const review = await behaviorDiff({ repo, base, after, detail: "full" });
+  const sim = await runScenarios({ repo, base, after, by: args.by }, progress);
+  for (const r of sim.results.filter((r) => r.failed))
+    reasons.push(`“${r.scenario}” fails: ${r.error?.split("\n")[0] ?? (r.checks ?? []).filter((c) => !c.pass).map((c) => `${c.text} (${c.detail})`).join("; ")}`);
+  for (const e of sim.errors) reasons.push(`scenarios.json: ${e}`);
+  for (const t of sim.tests ?? []) {
+    if (t.verdict === "breaks") reasons.push(`“${t.scenario}” passed on ${base} and fails now: this change broke it.`);
+    if (t.verdict === "still-failing") reasons.push(`“${t.scenario}” fails on ${base} and still fails: the fix doesn't work yet.`);
+    if (t.verdict === "passes-on-base") warnings.push(`“${t.scenario}” already passed on ${base}: it guards old behavior but doesn't show this change does anything.`);
+  }
+  for (const p of review.modelCheck.new) reasons.push(`Model check: ${p.text}`);
+  for (const c of review.scenarios ?? []) if (c.weaker) reasons.push(`Scenario “${c.name}” was ${c.kind === "removed" ? "removed" : "loosened"}: never weaken a scenario to make a run pass.`);
+  // Logic a scenario can prove: robot code and state machines. Tuned values and auto paths are
+  // shown to the reviewer directly (and autos have their own motion checks), so they don't need one.
+  const behaviorChanged = !!review.otherCode?.length || review.machines.some((m) => m.kind !== "same");
+  const reproduced = (sim.tests ?? []).filter((t) => t.verdict === "red-green");
+  if (args.refactor) {
+    if (sim.changed) reasons.push(`Declared a refactor, but ${sim.changed} scenario(s) behave differently: ${sim.results.filter((r) => r.differences).map((r) => `“${r.scenario}”`).join(", ")}.`);
+  } else if (behaviorChanged && !reproduced.length)
+    reasons.push(`The robot's behavior changed (${review.findings.slice(0, 3).map((f) => f.text).join("; ")}) and no new scenario fails without this change. Add the scenario that shows what it fixes or adds (red → green), or pass refactor: true if nothing should behave differently.`);
+  for (const r of sim.results.filter((r) => r.differences && !r.failed)) warnings.push(`“${r.scenario}” behaves differently: ${r.differences.slice(0, 2).join("; ")}`);
+  if (review.level === "red") warnings.push(`Safety-related change (${review.findings.filter((f) => f.level === "red").map((f) => f.text).join("; ")}): a person must check it carefully.`);
+  const touched = new Set(review.machines.filter((m) => m.kind !== "same").map((m) => m.name));
+  const gaps = (sim.coverage?.gaps ?? []).filter((g) => touched.has(g.machine));
+  for (const g of gaps) warnings.push(`${g.machine} ${g.state}: ${g.kind === "unreached" ? "no scenario reaches it" : "reached but no scenario checks it (see coverage draft)"}.`);
+  return {
+    ready: reasons.length === 0,
+    reasons,
+    warnings,
+    level: review.level,
+    ...(sim.recorded ? { recorded: sim.recorded } : {}),
+    tests: sim.tests ?? [],
+    // Scenarios that fail on the base and pass here: what this change fixes, team scenarios included.
+    fixes: sim.results.filter((r) => r.beforeFailed && !r.failed).map((r) => r.scenario),
+    ...(gaps.length ? { gaps } : {}),
+    next: reasons.length
+      ? "Fix the first reason, commit, and verify again. Don't weaken scenarios or the gate to pass."
+      : "Ready for a person to review in the Mayhem app (Changes). Don't merge it yourself.",
+  };
+}
+
+/** One file at a revision, or undefined when it isn't there. */
+export function gitShow(repo, rev, path) {
+  return new Promise((done) => execFile("git", ["-C", repo, "show", `${rev}:${path}`], { maxBuffer: 64 << 20 }, (error, out) => done(error ? undefined : out)));
+}
+
+/** What to do next about the scenarios a change adds, from their red → green verdicts. */
+function testsNext(tests, compared) {
+  if (!compared)
+    return "Nothing to judge these scenarios against: run again with `before` (e.g. \"HEAD\" before you fix) or `base: \"main\"` to see whether each fails without the change.";
+  if (!tests.length)
+    return "No scenario was added or changed. For a fix, write the scenario that shows the bug first (inline `scenarios`, before: \"HEAD\"), see it fail, fix, see it pass, then add it to tools/mayhem/scenarios.json.";
+  const by = (v) => tests.filter((t) => t.verdict === v).map((t) => `“${t.scenario}”`).join(", ");
+  const notes = [];
+  if (by("breaks")) notes.push(`${by("breaks")} passed before this change and fail now: this change broke it.`);
+  if (by("still-failing")) notes.push(`${by("still-failing")} fail before and after: the fix doesn't work yet, or the expectation is wrong (read its timeline and log_diagnose its log).`);
+  if (by("passes-on-base")) notes.push(`${by("passes-on-base")} already passed before this change: fine as a guard, but it doesn't show a fix. For a bug, tighten it until it fails without the fix.`);
+  if (by("red-green")) notes.push(`${by("red-green")} fail without this change and pass with it: they reproduce what it fixes. Keep them in tools/mayhem/scenarios.json.`);
+  return notes.join(" ");
+}
+
 export async function execute(name, args) {
   if (name === "list_changes") {
     if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
@@ -810,6 +963,21 @@ export async function execute(name, args) {
   }
   if (name === "behavior_diff") return behaviorDiff(args);
   if (name === "run_scenarios") return runScenarios(args);
+  if (name === "verify_change") return verifyChange(args);
+  if (name === "check_machines") {
+    if (typeof args.repo !== "string" || !args.repo) throw new Error("A robot repository directory is required.");
+    const repo = resolve(args.repo);
+    if (args.base) {
+      const before = await beforeOf(repo, { base: args.base, after: args.rev });
+      const text = async (rev) => (rev === WORKTREE ? (await gitSnapshot(repo, WORKTREE)).files[MACHINES_FILE] : gitShow(repo, rev, MACHINES_FILE));
+      const diff = modelDiff(await text(before), await text(args.rev ?? WORKTREE));
+      return { new: diff.new, fixed: diff.fixed, existing: diff.existing };
+    }
+    const rev = args.rev ?? WORKTREE;
+    const text = rev === WORKTREE ? (await gitSnapshot(repo, WORKTREE)).files[MACHINES_FILE] : await gitShow(repo, rev, MACHINES_FILE);
+    if (text === undefined) throw new Error(`No ${MACHINES_FILE} at ${rev}.`);
+    return checkMachines(parseMachineSpecs(text).machines);
+  }
   if (name === "validate_project")
     return { issues: validateProject(args.project) };
   if (name === "inspect_live_robot") {
@@ -1096,7 +1264,7 @@ async function main() {
             capabilities: { tools: {} },
             serverInfo: { name: "mayhem-suite", version: "0.1.0" },
             instructions:
-              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. People review your robot code changes in the Mayhem app by behavior, per branch: work on a branch (never main), commit, then run behavior_diff and run_scenarios with base \"main\" and after \"HEAD\" before saying a change is ready; run_scenarios records the sim proof on the commit, which is what the reviewer reads. Given a log (a sim run or a match), start with log_diagnose and run each finding's `next`; after a fix, rerun the same scenario and log_compare the two logs. For autos: change them with edit_auto (small ops, it reports what each change did), run optimize_auto on them (it makes the path faster within the BLine model and returns edit_auto ops; apply: true saves), look at them with plot_auto (read the PNG; pass a run_scenarios log to see the real run), and fix every motion issue (overshoot and crawl back, heading swing, creeping in) that simulate_auto, run_scenarios or log_diagnose reports, using its suggest ops. See docs/SUITE_AGENTS.md.",
+              "Use live-pose goals and measured-condition transitions by default. You may implement arbitrary C++ and custom action callbacks. The visual model documents behavior, not a restriction on capabilities. People review your robot code changes in the Mayhem app by behavior, per branch: work on a branch (never main), commit, then run behavior_diff and run_scenarios with base \"main\" and after \"HEAD\" before saying a change is ready; run_scenarios records the sim proof on the commit, which is what the reviewer reads. Fixing a bug is test-first: write the scenario that shows it, see run_scenarios fail it on the unfixed code, fix until its `tests` verdict is red-green, and commit the scenario; close `coverage` gaps on the machines you touch. Before saying a change is ready, run verify_change on the commit and fix its reasons; check_machines model-checks the state machines. Given a log (a sim run or a match), start with log_diagnose and run each finding's `next`; after a fix, rerun the same scenario and log_compare the two logs. For autos: change them with edit_auto (small ops, it reports what each change did), run optimize_auto on them (it makes the path faster within the BLine model and returns edit_auto ops; apply: true saves), look at them with plot_auto (read the PNG; pass a run_scenarios log to see the real run), and fix every motion issue (overshoot and crawl back, heading swing, creeping in) that simulate_auto, run_scenarios or log_diagnose reports, using its suggest ops. See docs/SUITE_AGENTS.md.",
           };
         else if (request.method === "tools/list") result = { tools };
         else if (request.method === "tools/call") {
@@ -1236,6 +1404,16 @@ async function main() {
     else {
       console.log(`${result.before.label}\n  → ${result.after.label}\nRisk: ${result.level}`);
       for (const f of result.findings) console.log(`  [${f.level}] ${f.area}: ${f.text}`);
+      const mark = { "red-green": "✓ red→green", "passes-on-base": "· passes on base", "still-failing": "✗ still failing", breaks: "✗ breaks", untested: "? untested" };
+      for (const t of result.tests ?? []) console.log(`  ${mark[t.verdict]}  ${t.scenario}${t.caught ? `\n      caught: ${t.caught.join("; ")}` : ""}`);
+      if (result.testsNext) console.log(`  ${result.testsNext}`);
+      if (result.coverage) {
+        const c = result.coverage;
+        console.log(`  coverage: ${c.reached}/${c.states} states reached, ${c.checked} checked by a scenario`);
+        for (const g of c.gaps)
+          console.log(`    ${g.kind === "unreached" ? "never reached" : "unchecked    "} ${g.machine} ${g.state}${g.reachedBy ? ` (reached in “${g.reachedBy[0].scenario}” at ${g.reachedBy[0].time} s)` : g.enteredBy?.length ? ` (via ${g.enteredBy.map((e) => e.transition).join(", ")})` : ""}`);
+        if (c.moreGaps) console.log(`    … ${c.moreGaps} more (--json)`);
+      }
       for (const e of result.errors) console.log(`  error: ${e}`);
     }
     return;
@@ -1265,8 +1443,89 @@ async function main() {
         for (const d of r.differences ?? []) console.log(`      ${d}`);
         if (r.error) console.log(`      ${r.error.split("\n")[0]}`);
       }
+      const mark = { "red-green": "✓ red→green", "passes-on-base": "· passes on base", "still-failing": "✗ still failing", breaks: "✗ breaks", untested: "? untested" };
+      for (const t of result.tests ?? []) console.log(`  ${mark[t.verdict]}  ${t.scenario}${t.caught ? `\n      caught: ${t.caught.join("; ")}` : ""}`);
+      if (result.testsNext) console.log(`  ${result.testsNext}`);
+      if (result.coverage) {
+        const c = result.coverage;
+        console.log(`  coverage: ${c.reached}/${c.states} states reached, ${c.checked} checked by a scenario`);
+        for (const g of c.gaps)
+          console.log(`    ${g.kind === "unreached" ? "never reached" : "unchecked    "} ${g.machine} ${g.state}${g.reachedBy ? ` (reached in “${g.reachedBy[0].scenario}” at ${g.reachedBy[0].time} s)` : g.enteredBy?.length ? ` (via ${g.enteredBy.map((e) => e.transition).join(", ")})` : ""}`);
+        if (c.moreGaps) console.log(`    … ${c.moreGaps} more (--json)`);
+      }
       for (const e of result.errors) console.log(`  error: ${e}`);
     }
+    return;
+  }
+  if (command === "verify") {
+    // verify <repo> [after] [--base <branch>] [--by <name>] [--refactor] [--json]: exit 1 unless ready.
+    const rest = process.argv.slice(4);
+    const args = { repo: path };
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === "--base") args.base = rest[++i];
+      else if (rest[i] === "--by") args.by = rest[++i];
+      else if (rest[i] === "--refactor") args.refactor = true;
+      else if (rest[i] === "--json") args.json = true;
+      else args.after = rest[i];
+    }
+    const result = await verifyChange(args, (text, done, total) => process.stderr.write(`\r${done}/${total} ${text.padEnd(60).slice(0, 60)}`));
+    process.stderr.write("\n");
+    if (args.json) console.log(JSON.stringify(result, null, 2));
+    else {
+      console.log(result.ready ? "READY" : "NOT READY");
+      for (const r of result.reasons) console.log(`  ✗ ${r}`);
+      for (const w of result.warnings) console.log(`  ! ${w}`);
+      for (const t of result.tests) console.log(`  ${t.verdict === "red-green" ? "✓" : "·"} ${t.verdict}: ${t.scenario}`);
+      if (result.recorded) console.log(`  proof on ${result.recorded.commit.slice(0, 7)}: ${result.recorded.summary}`);
+      console.log(`  ${result.next}`);
+    }
+    process.exitCode = result.ready ? 0 : 1;
+    return;
+  }
+  if (command === "factory") {
+    // factory <repo> [--baseline <rev>] [--max n] [--rounds n] [--existing] [--pr] [--dry-run] [--agent <cli>] [--json]
+    const rest = process.argv.slice(4);
+    const args = { repo: path };
+    for (let i = 0; i < rest.length; i++) {
+      const flag = rest[i];
+      if (flag === "--baseline") args.baseline = rest[++i];
+      else if (flag === "--max") args.max = Number(rest[++i]);
+      else if (flag === "--rounds") args.rounds = Number(rest[++i]);
+      else if (flag === "--agent") args.agent = rest[++i];
+      else if (flag === "--existing") args.includeExisting = true;
+      else if (flag === "--pr") args.pr = true;
+      else if (flag === "--dry-run") args.dryRun = true;
+      else if (flag === "--json") args.json = true;
+      else throw new Error(`Unknown factory flag ${flag}`);
+    }
+    const { runFactory } = await import("./factory.mjs");
+    const result = await runFactory(
+      { runScenarios, verifyChange, modelDiff, gitShow, mainRef, diagnose: (log) => execute("log_diagnose", { path: log, limit: 200 }) },
+      args,
+    );
+    if (args.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${result.text}\n\nReport: ${result.report}`);
+    return;
+  }
+  if (command === "check") {
+    // check <repo> [rev] [--base <branch>] [--json]: model-check the state machines; exit 1 on problems.
+    const rest = process.argv.slice(4);
+    const args = { repo: path };
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] === "--base") args.base = rest[++i];
+      else if (rest[i] === "--json") args.json = true;
+      else args.rev = rest[i];
+    }
+    const r = await execute("check_machines", args);
+    const problems = r.problems ?? r.new;
+    if (args.json) console.log(JSON.stringify(r, null, 2));
+    else {
+      for (const m of r.machines ?? []) console.log(`${m.machine}: ${m.reachable}/${m.states} states reachable, ${m.combinations} input combinations${m.partial ? " (sampled)" : ""}`);
+      for (const p of problems) console.log(`  ✗ [${p.kind}] ${p.text}`);
+      for (const p of r.fixed ?? []) console.log(`  ✓ fixed [${p.kind}] ${p.text}`);
+      if (!problems.length) console.log(args.base ? "No new problems." : "No problems.");
+    }
+    process.exitCode = problems.length ? 1 : 0;
     return;
   }
   if (command === "diagnose" || command === "compare") {
@@ -1315,7 +1574,7 @@ async function main() {
   };
   if (!names[command])
     throw new Error(
-      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | diagnose <log> [--project <file>] [--ignore a,b] [--json] | compare <before log> <after log> [--project <file>] [--ignore a,b] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | plot <file> [{routine, log, out}] | edit <file> <{ops, routine, dryRun, plot}> | optimize <file> [{routine, lock, maxMove, phases, apply, plot}] | open <file> | live <robot-address> [options JSON] | mcp",
+      "Usage: node scripts/mayhem.mjs example | tool <mcp tool> '<JSON>' | review <robot repo> [before] [after] [--json] | sim <robot repo> [after] [--before <rev> | --base <branch>] [--only button,auto,custom] [--json] | verify <robot repo> [after] [--base main] [--by <name>] [--refactor] [--json] | check <robot repo> [rev] [--base main] [--json] | factory <robot repo> [--baseline <rev>] [--max n] [--rounds n] [--existing] [--pr] [--dry-run] [--json] | diagnose <log> [--project <file>] [--ignore a,b] [--json] | compare <before log> <after log> [--project <file>] [--ignore a,b] [--json] | inspect <file> | validate <file> | simulate <file> [options JSON] | analyze <log> [options JSON] | save <file> <{project,expectedRevision}> | cpp <file> [--out <header>] [--check <header>] | vendor <robot dir> [--dest <dir>] [--snapshot <file>] [--check] | machine apply <file> <spec> [--dry-run] | machine spec <file> <machine> | route import-mtraj <file> <spec> [--dry-run] | plot <file> [{routine, log, out}] | edit <file> <{ops, routine, dryRun, plot}> | optimize <file> [{routine, lock, maxMove, phases, apply, plot}] | open <file> | live <robot-address> [options JSON] | mcp",
     );
   const args = { ...(json ? JSON.parse(json) : {}), path };
   if (command === "validate")

@@ -1,7 +1,15 @@
 import rebuilt from "./rebuilt-2026.json" with { type: "json" };
 import reefscape from "./reefscape-2025.json" with { type: "json" };
-import type { FieldDrawing } from "../FieldArt";
 import type { SuiteProject } from "./model.ts";
+
+/** An [x, y] point in meters. */
+export type Vec2 = number[];
+/** One painted shape; `style` is a DECO_STYLE key in FieldArt (blueZone, tape, fuel, algae, structure, ...). */
+export interface Decoration {
+  kind: string; points: Vec2[]; center: Vec2; radius: number; style: string; width: number;
+}
+/** A season's field drawing (core/rebuilt-2026.json, core/reefscape-2025.json): its size in meters and what's painted on it. */
+export interface FieldDrawing { length: number; width: number; decorations?: Decoration[] }
 
 /** A field obstacle autos are checked against (core/<game>-<year>.json). */
 export interface SeasonObstacle {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { copyText } from "../ContextMenu.tsx";
 import {
   ArrowDownToLine,
   Bot,
@@ -29,7 +30,7 @@ function CopyBlock({ text, label }: { text: string; label: string }) {
         className="mx-code-copy"
         aria-label={`Copy ${label}`}
         onClick={() => {
-          void navigator.clipboard?.writeText(text).then(() => {
+          void copyText(text).then(() => {
             setCopied(true);
             setTimeout(() => setCopied(false), 1400);
           });

@@ -24,6 +24,10 @@ export interface ScenarioResult {
   differences: string[];
   /** The after run crashed or failed an expectation. */
   failed: boolean;
+  /** Expectations judged on the before run (when one ran). */
+  beforeChecks?: Check[];
+  /** The before run crashed or failed an expectation (when one ran). */
+  beforeFailed?: boolean;
   error?: string;
   logs: { before?: string; after?: string };
 }
@@ -105,12 +109,57 @@ export async function runSimProof(
     if (r.after) r.checks = checkExpectations(r.scenario, r.after, machines);
     if (r.before && r.after) r.differences = compareOutcomes(r.before, r.after).differences;
     r.failed = !r.after || r.checks.some((c) => !c.pass);
+    if (revs.before) {
+      if (r.before) r.beforeChecks = checkExpectations(r.scenario, r.before, machines);
+      r.beforeFailed = !r.before || !!r.beforeChecks?.some((c) => !c.pass);
+    }
   }
   return { results, passed: results.every((r) => !r.failed), changed: results.filter((r) => r.differences.length).length };
 }
 
+/**
+ * What a new or changed scenario proves, from its runs on both versions:
+ * - `red-green`: fails on the before version, passes now. It reproduces the bug (or the missing
+ *   feature) this change fixes, and keeps it fixed.
+ * - `passes-on-base`: passes on both. It guards behavior that already worked; it does not show
+ *   that this change fixed anything.
+ * - `still-failing`: fails on both: the fix doesn't work yet (or the scenario is wrong).
+ * - `breaks`: passes on the before version and fails now: this change broke it.
+ * - `untested`: there is no before run to judge it against.
+ */
+export type TestVerdict = "red-green" | "passes-on-base" | "still-failing" | "breaks" | "untested";
+
+export interface ScenarioTest {
+  scenario: string;
+  verdict: TestVerdict;
+  /** The expectations that failed on the before version: what the scenario caught. */
+  caught?: string[];
+  /** The expectations that fail now. */
+  failing?: string[];
+}
+
+const failedChecks = (checks: Check[] | undefined) => (checks ?? []).filter((c) => !c.pass).map((c) => `${c.text} (${c.detail})`);
+
+/** The verdict of every scenario named in `tested` (the ones this change adds or changes). */
+export function scenarioTests(proof: SimProof, tested: Iterable<string>): ScenarioTest[] {
+  const names = new Set(tested);
+  return proof.results
+    .filter((r) => names.has(r.scenario.name))
+    .map((r) => {
+      const verdict: TestVerdict =
+        r.beforeFailed === undefined ? "untested" : r.beforeFailed ? (r.failed ? "still-failing" : "red-green") : r.failed ? "breaks" : "passes-on-base";
+      const caught = r.beforeFailed ? (r.before ? failedChecks(r.beforeChecks) : [r.error?.startsWith("Before:") ? r.error : "The before run did not finish"]) : [];
+      const failing = r.failed ? failedChecks(r.checks) : [];
+      return { scenario: r.scenario.name, verdict, ...(caught.length ? { caught } : {}), ...(failing.length ? { failing } : {}) };
+    });
+}
+
 /** A finished proof, reduced to what is kept on a task's commit. */
-export function summarizeProof(proof: SimProof, meta: { by: string; before?: string; partial?: boolean }): Omit<ProofSummary, "at"> {
+export function summarizeProof(
+  proof: SimProof,
+  meta: { by: string; before?: string; partial?: boolean; tests?: ScenarioTest[] },
+): Omit<ProofSummary, "at"> {
+  const named = (verdict: TestVerdict) => (meta.tests ?? []).filter((t) => t.verdict === verdict).map((t) => t.scenario);
   return {
     ...(meta.before ? { before: meta.before } : {}),
     by: meta.by,
@@ -118,5 +167,6 @@ export function summarizeProof(proof: SimProof, meta: { by: string; before?: str
     failed: proof.results.filter((r) => r.failed).map((r) => r.scenario.name),
     different: proof.results.filter((r) => r.differences.length).map((r) => r.scenario.name),
     ...(meta.partial ? { partial: true } : {}),
+    ...(meta.tests && meta.before ? { tests: { reproduced: named("red-green"), passesOnBase: named("passes-on-base") } } : {}),
   };
 }

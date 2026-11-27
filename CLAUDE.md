@@ -5,3 +5,7 @@ The Logs page here and the team site's `/logs` page (github.com/ryanabraham1/325
 - Analysis code (`app/src/suite/core/{analysis,wpilog,plot}.ts`) is the source of truth. After changing it, run `node scripts/sync-team-log-core.mjs <path to 3256-Tools>` and commit/deploy 3256-Tools. Never edit the copies in `lib/robot-logs/core/` there.
 - The UI is NOT shared code. If you change the signal-mapping editor, current-draw list, estimated-current labels, or saved-mapping behavior in `app/src/suite/logs/LogsPage.tsx` or `app/src/suite/logLibrary.tsx`, make the same change in 3256-Tools' `components/robot-logs/viewer.tsx` (and the reverse). Saved mappings use the localStorage key `robot-log-mapping:<log id>` in both.
 - Add or update tests in both repos when behavior changes.
+
+# Corrections become checks, not notes
+
+When the user corrects how you write code here, add a rule to `scripts/lint.mjs` (with a message that names the root fix) and fix existing violations, instead of adding a line to this file. Run `pnpm lint` and `pnpm test` in `app/` before saying work is done.
